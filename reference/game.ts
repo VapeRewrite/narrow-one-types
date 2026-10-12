@@ -1,0 +1,32010 @@
+import {
+	clamp as clamp,
+	lerp as l_1,
+	clampTo01,
+	AssetWorkerMessenger,
+	MapLoadError,
+	partNames,
+	t as t_1,
+	D as side,
+	F,
+	posMod,
+	n as n_1,
+	wrap,
+	q,
+	noAttackTeam,
+	s as s_1,
+	G,
+	u,
+	v,
+	inverseLerp,
+	x,
+	y,
+	z,
+	K,
+	N,
+	R,
+	U,
+	X,
+	Y,
+	Z,
+	_,
+	$,
+	a0,
+	a1,
+	a2,
+	a3,
+	a5,
+	a6,
+	a7,
+	a8,
+	ab,
+} from "./three";
+import {
+	BackSide,
+	NearestFilter,
+	BufferGeometry,
+	BufferAttribute,
+	Mesh,
+	Object3D,
+	Matrix4,
+	Vector3,
+	Quaternion,
+	Scene,
+	PlaneGeometry,
+	Color,
+	ShaderMaterial,
+	Box3,
+	Sphere,
+	Vector2,
+	PerspectiveCamera,
+	Euler,
+	Line3,
+	LineBasicMaterial,
+	Line,
+	IcosahedronGeometry,
+	SphereGeometry,
+	Group,
+	WebGLRenderer,
+	sRGBEncoding,
+	type Renderer,
+	Texture,
+	NormalBlending,
+} from "three";
+class IndexedDB {
+	objectStoreNames;
+	_dbPromise;
+	constructor(
+		public dbName = "keyValuesDb",
+		{ objectStoreNames = ["keyValues"] } = {},
+	) {
+		this.objectStoreNames = objectStoreNames;
+		const request = indexedDB.open(this.dbName);
+		request.onupgradeneeded = () => {
+			for (const t of this.objectStoreNames) {
+				request.result.createObjectStore(t);
+			}
+		};
+		this._dbPromise = this._promisifyRequest(request);
+		this._initDb();
+	}
+	async _initDb() {
+		const db = await this._dbPromise;
+		db.onversionchange = (e) => {
+			if (e.newVersion == null) {
+				db.close();
+			}
+		};
+	}
+	async closeConnection() {
+		(await this._dbPromise).close();
+	}
+	async _promisifyRequest<T>(openRequest: IDBRequest<T>): Promise<T> {
+		if (openRequest.readyState == "done") {
+			return openRequest.result;
+		}
+		return await new Promise<T>((resolve, reject) => {
+			openRequest.onsuccess = () => {
+				resolve(openRequest.result);
+			};
+			openRequest.onerror = reject;
+		});
+	}
+	async deleteDb() {
+		await this.closeConnection();
+		await this._promisifyRequest(indexedDB.deleteDatabase(this.dbName));
+	}
+	async get(key: IDBValidKey | IDBKeyRange, storeName: string = this.objectStoreNames[0]!) {
+		const i = (await this._dbPromise)
+			.transaction(storeName, "readonly")
+			.objectStore(storeName)
+			.get(key);
+		return await this._promisifyRequest(i);
+	}
+	set(key: IDBValidKey, value: any, storeName = this.objectStoreNames[0]!) {
+		return this.getSet(key, () => value, storeName);
+	}
+	async getSet(
+		key: IDBValidKey | undefined,
+		getValue: (cur: any) => any,
+		storeNames: string = this.objectStoreNames[0]!,
+		remove = false,
+	) {
+		const n = (await this._dbPromise).transaction(storeNames, "readwrite").objectStore(storeNames);
+		const o = n.openCursor(key);
+		const a = await this._promisifyRequest(o);
+		if (a) {
+			if (remove) {
+				const t = a.delete();
+				await this._promisifyRequest(t);
+			} else {
+				const t = getValue(a.value);
+				const i = a.update(t);
+				await this._promisifyRequest(i);
+			}
+		} else {
+			const i = n.put(getValue(undefined), key);
+			await this._promisifyRequest(i);
+		}
+	}
+	async delete(key: string, e = this.objectStoreNames[0]) {
+		await this.getSet(key, () => {}, e, true);
+	}
+}
+type SettingValue = string | number | boolean;
+class SettingsManager {
+	defaultValues = {
+		sfxVolume: 100,
+		musicVolume: 100,
+		sfxDistanceCutoff: 30,
+		fov: 90,
+		gamemodeMatchmaking: "ctfPlusWeekly",
+		autoFullScreen: false,
+		quality: 1,
+		antialias: true,
+		smoothFiltering: true,
+		mouseAcceleration: false,
+		touchLookAcceleration: true,
+		mouseSensitivity: 1,
+		invertMouseY: false,
+		autoShoot: false,
+		walkHeadBob: true,
+		landHeadBob: true,
+		theme: "system",
+		hideUi: false,
+		showFirstPersonWeapon: true,
+		lowerFirstPersonWeaponWhenWalking: true,
+		uiScale: 1,
+		showStats: false,
+		smoothCam: false,
+		flyInSpectateTeam: true,
+		autoSkipStatsScreen: true,
+		autoReconnect: true,
+		requireAddressBarHide: true,
+		chatEnabled: true,
+		chatProfanityFilterEnabled: true,
+		crosshairAccuracyOffset: 1,
+		crosshairStyle: "three",
+		crosshairColor: "#ffffff",
+		crosshairOutlineColor: "#000000",
+	};
+	currentValues = new Map<string, SettingValue>();
+	onValueChangeCbs = new Map<string, Set<(v: SettingValue) => void>>();
+	onSettingsLoadedCbs = new Set<() => void>();
+	_settingsLoaded = false;
+	_isLoadingSettings = false;
+	constructor(public indexedDb: IndexedDB) {
+		for (const [k, v] of Object.entries(this.defaultValues)) {
+			const k2 = k;
+			this.currentValues.set(k2, v);
+		}
+	}
+	init() {
+		this.loadSettings();
+	}
+	async loadSettings() {
+		if (this.settingsLoaded || this._isLoadingSettings) {
+			return;
+		}
+		this._isLoadingSettings = true;
+		let settings: { [k: string]: SettingValue } | null = null;
+		try {
+			settings = await this.indexedDb.get("settings");
+		} catch (t) {
+			console.warn("Unable to load settings, third party cookies are probably blocked");
+		}
+		if (settings) {
+			for (const [k, v] of Object.entries(settings)) {
+				const k2 = k;
+				this.currentValues.set(k2, v);
+				this.fireValueChange(k2, v);
+			}
+		}
+		this._settingsLoaded = true;
+		this.onSettingsLoadedCbs.forEach((t) => t());
+	}
+	get settingsLoaded() {
+		return this._settingsLoaded;
+	}
+	async saveSettings() {
+		if (!this.settingsLoaded) {
+			return false;
+		}
+		const settings = {};
+		for (const [k, v] of this.currentValues) {
+			//@ts-expect-error
+			if (this.defaultValues[k] != v) {
+				//@ts-expect-error
+				settings[k] = v;
+			}
+		}
+		try {
+			await this.indexedDb.set("settings", settings);
+		} catch (t) {
+			return false;
+		}
+		return true;
+	}
+	getValue(k: string) {
+		return this.currentValues.get(k);
+	}
+	setValue(k: string, v: SettingValue) {
+		this.currentValues.set(k, v);
+		this.fireValueChange(k, v);
+		this.saveSettings();
+	}
+	fireValueChange(k: string, v: SettingValue) {
+		const i = this.onValueChangeCbs.get(k);
+		if (i) {
+			for (const t of i) {
+				t(v);
+			}
+		}
+	}
+	onValueChange(k: string, cb: (v: SettingValue) => void) {
+		let cbs = this.onValueChangeCbs.get(k);
+		if (!cbs) {
+			cbs = new Set();
+			this.onValueChangeCbs.set(k, cbs);
+		}
+		cbs.add(cb);
+	}
+	removeOnValueChange(k: string, cb: (v: SettingValue) => void) {
+		const i = this.onValueChangeCbs.get(k);
+		if (i) {
+			i.delete(cb);
+			if (i.size <= 0) {
+				this.onValueChangeCbs.delete(k);
+			}
+		}
+	}
+	onSettingsLoaded(cb: () => void) {
+		this.onSettingsLoadedCbs.add(cb);
+	}
+	waitForSettingsLoad() {
+		if (this.settingsLoaded) {
+			return Promise.resolve();
+		}
+		return new Promise<void>((resolve) => {
+			this.onSettingsLoaded(() => {
+				resolve();
+			});
+		});
+	}
+}
+function intRandom(min: number, max: number) {
+	return Math.floor(arbitraryRandom(min, max));
+}
+function linearTransform(min: number, max: number, v: number) {
+	return v * (max - min) + min;
+}
+function arbitraryRandom(min: number, max: number) {
+	return linearTransform(min, max, Math.random());
+}
+function randomChoice<const T>(arr: T[]): T | undefined {
+	return ((arr, rand) => arr[Math.floor(rand * arr.length)])(arr, Math.random());
+}
+interface MapProbabilityData {
+	probability: number;
+	item: number;
+}
+function selectWeighted(data: MapProbabilityData[], rand: number) {
+	let i = 0;
+	for (const e of data) {
+		i += e.probability;
+	}
+	const s = linearTransform(0, i, rand);
+	let n = 0;
+	for (const e of data) {
+		n += e.probability;
+		if (n > s) {
+			return e.item;
+		}
+	}
+	return null;
+}
+function getVariablesIndex(mpData: MapProbabilityData[], variablesIndexSeed: number) {
+	return selectWeighted(
+		mpData,
+		((variablesIndexSeed_1) => {
+			const e = 10000 * Math.sin(variablesIndexSeed_1);
+			return e - Math.floor(e);
+		})(variablesIndexSeed),
+	);
+}
+function Ct(el: Element) {
+	window.getComputedStyle(el).getPropertyValue("top");
+}
+const kt = new Map();
+function getURLSearchParams() {
+	return ((searchParams) => {
+		const e = new URLSearchParams(searchParams);
+		const i: { [k: string]: string } = {};
+		for (const t of e.entries()) {
+			i[t[0]] = t[1];
+		}
+		return i;
+	})(location.search);
+}
+const svgNamespace = "http://www.w3.org/2000/svg";
+async function Mt(href: string, init: RequestInit & { timeout?: number } = {}) {
+	const { timeout = 8000 } = init;
+	const s = new AbortController();
+	const n = setTimeout(() => s.abort(), timeout);
+	init.signal = s.signal;
+	const o = await fetch(href, init);
+	clearTimeout(n);
+	return o;
+}
+interface MainMenuButtonProps extends ButtonProps {
+	iconSizeMultiplier?: number;
+	isUpdateIcon?: boolean;
+	isExitButton?: boolean;
+}
+class MainMenuButton {
+	containerEl = document.createElement("div");
+	el;
+	textEl;
+	iconEl?: HTMLDivElement;
+	visible;
+	constructor({
+		text = "",
+		icon = "",
+		testLabel = "",
+		iconSizeMultiplier = 0.9,
+		isUpdateIcon = false,
+		isExitButton = false,
+		onClick = null,
+	}: MainMenuButtonProps = {}) {
+		this.containerEl.classList.add("main-menu-button-container");
+		this.el = document.createElement("button");
+		this.el.classList.add("wrinkledPaper");
+		this.el.classList.toggle("exit-button", isExitButton);
+		this.containerEl.appendChild(this.el);
+		this.el.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		if (text) {
+			this.el.ariaLabel = text;
+		}
+		this.el.classList.add("main-menu-button");
+		this.el.addEventListener("click", (t) => {
+			if (onClick) {
+				onClick();
+			}
+		});
+		this.textEl = document.createElement("div");
+		this.textEl.classList.add("main-menu-button-text", "whiteBigText", "blueNight");
+		this.textEl.textContent = text;
+		this.textEl.ariaHidden = "true";
+		this.containerEl.appendChild(this.textEl);
+		this.visible = true;
+		if (icon) {
+			this.iconEl = document.createElement("div");
+			this.iconEl.classList.add("buttonImage");
+			this.iconEl.classList.toggle("update-icon", isUpdateIcon);
+			this.iconEl.style.backgroundImage = `url(${icon})`;
+			this.iconEl.style.backgroundSize = `${100 * iconSizeMultiplier}%`;
+			this.el.appendChild(this.iconEl);
+		}
+	}
+	setVisibility(visible: boolean) {
+		this.visible = visible;
+		this.containerEl.style.display = visible ? "" : "none";
+	}
+	click(t = false) {
+		if (!(t && !this.visible)) {
+			this.el.click();
+		}
+	}
+	setText(text: string) {
+		this.textEl.textContent = text;
+	}
+}
+function isSteam() {
+	return "steamWebWrap" in globalThis;
+}
+function activateSteamAchievement(achievementName: string) {
+	if ("steamworks" in globalThis) {
+		steamworks.achievement.activate(achievementName);
+	}
+}
+class CurrencyContainer {
+	_amount;
+	el = document.createElement("div");
+	textEl;
+	isAnimatingAmount;
+	animatingStartValue;
+	animatingTargetValue;
+	animatingCurrentValue;
+	animatingDurationMs;
+	animatingStartTime;
+	animatingSfxEnabled;
+	lastIncrementSfxTime;
+	boundAnimationLoop;
+	constructor({ amount = 0, testLabel = "" } = {}) {
+		this._amount = amount;
+		this.el.classList.add("currency-container");
+		const coinIcon = document.createElement("div");
+		coinIcon.classList.add("coin-icon");
+		this.el.appendChild(coinIcon);
+		this.textEl = document.createElement("span");
+		this.textEl.classList.add("coin-count-text", "blueNight");
+		this.el.appendChild(this.textEl);
+		this.isAnimatingAmount = false;
+		this.animatingStartValue = 0;
+		this.animatingTargetValue = 0;
+		this.animatingCurrentValue = 0;
+		this.animatingDurationMs = 0;
+		this.animatingStartTime = 0;
+		this.animatingSfxEnabled = true;
+		this.lastIncrementSfxTime = 0;
+		this.boundAnimationLoop = this.animationLoop.bind(this);
+		this.setAmount(amount);
+	}
+	setAmount(amount: number) {
+		this._amount = amount;
+		this._setAmountText(amount);
+	}
+	/**
+	 * @param text converted into a string via `String(text)`
+	 */
+	_setAmountText(text: any) {
+		const convert = String(text);
+		this.textEl.textContent = convert;
+		this.textEl.dataset.textContent = convert;
+	}
+	get amount() {
+		return this._amount;
+	}
+	animateAmount(amount: number, { durationMultiplier = 1, sfx = true } = {}) {
+		if (this.isAnimatingAmount) {
+			this.animatingStartValue = this.animatingCurrentValue;
+		} else {
+			this.animatingStartValue = this._amount;
+		}
+		this._setAmountText(amount);
+		this.textEl.style.width = `${this.textEl.getBoundingClientRect().width}px`;
+		this._setAmountText(this.animatingStartValue);
+		this._amount = amount;
+		this.animatingTargetValue = amount;
+		const dist = Math.abs(this.animatingTargetValue - this.animatingStartValue);
+		this.animatingDurationMs = clamp(dist, 30, 100) * durationMultiplier * 30;
+		this.animatingStartTime = performance.now();
+		this.animatingSfxEnabled = sfx;
+		this.#targetReachPromise = new Promise((resolve) => {
+			this.#targetReachResolve = resolve;
+		});
+		const o = !this.isAnimatingAmount;
+		this.isAnimatingAmount = true;
+		if (o) {
+			this.boundAnimationLoop();
+		}
+	}
+	animationLoop() {
+		let t = (performance.now() - this.animatingStartTime) / this.animatingDurationMs;
+		t = clampTo01(t);
+		const s = t ** 0.2;
+		let n = l_1(this.animatingStartValue, this.animatingTargetValue, s);
+		n = Math.round(n);
+		if (
+			this.animatingCurrentValue != n &&
+			((this.animatingCurrentValue = n),
+			this._setAmountText(n),
+			this.animatingSfxEnabled && performance.now() > this.lastIncrementSfxTime + 40)
+		) {
+			this.lastIncrementSfxTime = performance.now();
+			getMain().sfx.playSound("ui/coin/pile", {
+				volume: 0.3 * (1 - t),
+			});
+			const i = l_1(0.7, 1, s);
+			const n = intRandom(0, 4);
+			getMain().sfx.playSound(`ui/coin/${n}`, {
+				volume: 0.5 * t,
+				minPitch: i,
+				maxPitch: i,
+			});
+		}
+		if (s >= 1) {
+			this.isAnimatingAmount = false;
+			this.#targetReachResolve();
+		} else {
+			window.requestAnimationFrame(this.boundAnimationLoop);
+		}
+	}
+	#targetReachResolve = () => {};
+	#targetReachPromise: Promise<void> | null = null;
+	waitForTargetReached() {
+		if (this.#targetReachPromise) {
+			return this.#targetReachPromise;
+		}
+		return Promise.resolve();
+	}
+}
+interface ButtonProps {
+	text?: string;
+	ariaLabel?: string;
+	onClick?: (() => void) | null;
+	showCurrency?: boolean;
+	currency?: number;
+	extraClasses?: string[];
+	testLabel?: string;
+	isIconButton?: boolean;
+	icon?: string | null;
+	hasPeliPlusIcon?: boolean;
+	iconSize?: number;
+	iconIsInvertable?: boolean;
+}
+class CustomButton {
+	#i: HTMLDivElement | null = null;
+	#s: HTMLElement | null = null;
+	el = document.createElement("button");
+	currencyContainer?: CurrencyContainer;
+	textEl;
+	_iconSize;
+	_iconIsInvertable;
+	_currentIcon: string | null;
+	_visible;
+	constructor({
+		text = "",
+		ariaLabel = "",
+		onClick = null,
+		showCurrency = false,
+		currency = 0,
+		extraClasses = [],
+		testLabel = "",
+		isIconButton = false,
+		icon = null,
+		hasPeliPlusIcon = false,
+		iconSize = 1,
+		iconIsInvertable = true,
+	}: ButtonProps = {}) {
+		if (isIconButton) {
+			this.el.classList.add("icon-button", ...extraClasses);
+		} else {
+			this.el.classList.add("dialog-button", "blueNight", "wrinkledPaper", ...extraClasses);
+		}
+		this.el.classList.toggle("currency-button", showCurrency);
+		this.el.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		if (ariaLabel) {
+			this.el.ariaLabel = ariaLabel;
+		}
+		this.textEl = document.createElement("span");
+		this.textEl.textContent = text;
+		this.el.appendChild(this.textEl);
+		this._iconSize = iconSize;
+		this._iconIsInvertable = iconIsInvertable;
+		this._currentIcon = null;
+		this.setIcon(icon);
+		if (hasPeliPlusIcon) {
+			this.setPeliPlusIcon();
+		}
+		this._visible = true;
+		if (showCurrency) {
+			this.currencyContainer = new CurrencyContainer({
+				amount: currency,
+			});
+			this.el.appendChild(this.currencyContainer.el);
+		}
+		if (onClick) {
+			this.onClick(onClick);
+		}
+	}
+	get visible() {
+		return this._visible;
+	}
+	set visible(t) {
+		this._visible = t;
+		this.el.style.display = t ? "" : "none";
+	}
+	click() {
+		this.el.click();
+	}
+	onClick(t: (e: PointerEvent) => void) {
+		this.el.addEventListener("click", t);
+	}
+	set enabled(t) {
+		this.el.disabled = !t;
+	}
+	get enabled() {
+		return !this.el.disabled;
+	}
+	setIcon(icon: string | null) {
+		this.#n();
+		const e = !!icon;
+		Boolean(this.#i) != e &&
+			(e
+				? ((this.#i = document.createElement("div")),
+					this.#i.classList.add("dialog-button-icon"),
+					this.#i.classList.toggle("no-dark-mode-invert", !this._iconIsInvertable),
+					this.el.insertBefore(this.#i, this.textEl),
+					this._iconSize != 1 && (this.#i.style.transform = `scale(${this._iconSize})`))
+				: this.#o());
+		if (icon && this.#i) {
+			this.#i.style.backgroundImage = `url(${icon})`;
+		}
+		this._currentIcon = icon;
+	}
+	setPeliPlusIcon() {
+		if (!this.#s) {
+			this.#o();
+			this.#s = document.createElement("peli-plus-icon");
+			this.#s.classList.add("dialog-button-icon");
+			this.#s.setAttribute("monochrome", "");
+			this.el.insertBefore(this.#s, this.textEl);
+		}
+	}
+	#o() {
+		if (this.#i) {
+			this.el.removeChild(this.#i);
+		}
+		this.#i = null;
+	}
+	#n() {
+		if (this.#s) {
+			this.el.removeChild(this.#s);
+		}
+		this.#s = null;
+	}
+	setText(text: string | null) {
+		this.textEl.textContent = text;
+	}
+}
+function apiURL() {
+	const t = new URL(location.href);
+	if (getMain().env == "staging" || t.searchParams.get("pokiDebug")) {
+		t.href = "https://narrow-one.com/staging-api/";
+	} else {
+		t.href = "https://narrow-one.com/api/";
+	}
+	return t;
+}
+function Ot(path: string) {
+	const e = apiURL();
+	e.search = "";
+	e.hash = "";
+	e.pathname += path;
+	return e;
+}
+class Dialog {
+	allowCurtainClose;
+	customOnCurtainClickCb: (() => boolean) | null;
+	needsCurtain;
+	needsUnlockedPointer;
+	indexPriority;
+	zIndex = 0;
+	el = document.createElement("div");
+	_transitionVisible;
+	startVisible;
+	_visible;
+	_inert;
+	onVisibilityChangeCbs = new Set<(visible: boolean) => void>();
+	onInertChangeCbs = new Set<(inert: boolean) => void>();
+	closed;
+	onCloseCbs = new Set<() => void>();
+	titleEl;
+	constructor(
+		public gameWrapper: HTMLElement,
+		{
+			allowCurtainClose = true,
+			customOnCurtainClickCb = null,
+			startVisible = true,
+			needsCurtain = true,
+			needsUnlockedPointer = true,
+			extraClasses = [],
+			testLabel = "",
+			indexPriority = 0,
+			title = null,
+		} = {},
+	) {
+		this.allowCurtainClose = allowCurtainClose;
+		this.customOnCurtainClickCb = customOnCurtainClickCb;
+		this.needsCurtain = needsCurtain;
+		this.needsUnlockedPointer = needsUnlockedPointer;
+		this.indexPriority = indexPriority;
+		this.el.classList.add("dialog", "wrinkledPaper", ...extraClasses);
+		this.el.style.setProperty("--wrinkled-paper-seed", String(intRandom(1, 99999)));
+		this._transitionVisible = false;
+		this.rootEl.addEventListener("transitionend", (t) => {
+			t.target == this.rootEl &&
+				t.propertyName == "visibility" &&
+				(this.rootEl.classList.contains("hidden") || (this._transitionVisible = true));
+		});
+		this.rootEl.classList.add("hidden");
+		gameWrapper.appendChild(this.el);
+		if (startVisible) {
+			Ct(this.el);
+			this.rootEl.classList.remove("hidden");
+		}
+		if (title) {
+			this.titleEl = document.createElement("h2");
+			this.titleEl.classList.add("dialogTitle", "blueNight");
+			this.titleEl.textContent = title;
+			this.el.appendChild(this.titleEl);
+		}
+		this.startVisible = startVisible;
+		this._visible = startVisible;
+		this._inert = false;
+		this.closed = false;
+		this.onCloseCbs = new Set();
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	get rootEl() {
+		return this.el;
+	}
+	setZIndex(zIndex: number) {
+		this.zIndex = zIndex;
+		this.rootEl.style.zIndex = String(zIndex);
+	}
+	setInert(inert: boolean) {
+		this._inert = inert;
+		this.rootEl.inert = inert;
+		this.onInertChangeCbs.forEach((e) => e(inert));
+	}
+	get inert() {
+		return this._inert;
+	}
+	set visible(visible) {
+		this._visible = visible;
+		if (!visible) {
+			this._transitionVisible = false;
+		}
+		this.rootEl.classList.toggle("hidden", !visible);
+		for (const e of this.onVisibilityChangeCbs) {
+			e(visible);
+		}
+		this.onVisibilityChange(visible);
+	}
+	get visible() {
+		return this._visible;
+	}
+	get transitionVisible() {
+		return this._transitionVisible;
+	}
+	close() {
+		if (!this.closed) {
+			this.closed = true;
+			this.visible = false;
+			for (const t of this.onCloseCbs) {
+				t();
+			}
+			this.onCloseCbs.clear();
+			this.onClose();
+			window.setTimeout(() => {
+				this.destructor();
+			}, 500);
+		}
+	}
+	onVisibilityChange(visible: boolean) {}
+	onClose() {}
+	addOnVisibilityChangeCb(cb: (visible: boolean) => void) {
+		this.onVisibilityChangeCbs.add(cb);
+	}
+	addOnInertChangeCb(cb: (inert: boolean) => void) {
+		this.onInertChangeCbs.add(cb);
+	}
+	addOnCloseCb(cb: () => void) {
+		this.onCloseCbs.add(cb);
+	}
+	buttonsContainer?: HTMLDivElement;
+	addButtonsContainer({ vertical = false, parent = this.el } = {}) {
+		this.buttonsContainer = document.createElement("div");
+		this.buttonsContainer.classList.add("dialogButtonsContainer");
+		this.buttonsContainer.classList.toggle("vertical", vertical);
+		parent.appendChild(this.buttonsContainer);
+	}
+	addButton(props: ButtonProps) {
+		const button = new CustomButton(props);
+		let container = this.el;
+		if (this.buttonsContainer) {
+			container = this.buttonsContainer;
+		}
+		container.appendChild(button.el);
+		return button;
+	}
+	removeButton(button: CustomButton) {
+		if (!(button.el.parentElement != this.el && button.el.parentElement != this.buttonsContainer)) {
+			button.el.parentElement.removeChild(button.el);
+		}
+	}
+}
+class DeleteAccountDialog extends Dialog {
+	constructor(gameWrapper: HTMLElement) {
+		super(gameWrapper, {
+			startVisible: false,
+		});
+		this.el.innerHTML =
+			'\n\t\t\t<h2 class="dialogTitle blueNight">Delete your account</h2>\n\t\t\t<p>Are you sure you want to delete your Narrow One account? This cannot be undone.</p>\n\t\t\t<p>If you are absolutely certain, please type \'delete my account\' in the field below.</p>\n\t\t\t<input class="dialog-text-input blueNight wrinkledPaper delete-account-text-input">\n\t\t';
+		const e: HTMLInputElement | null = this.el.querySelector(".delete-account-text-input");
+		if (!e) {
+			throw new Error("Assertion failed, no delete account text field was found");
+		}
+		this.addButtonsContainer();
+		const i = this.addButton({
+			text: "Back to safety",
+			onClick: () => {
+				this.close();
+			},
+		});
+		const s = this.addButton({
+			text: "Delete my account",
+			extraClasses: ["danger"],
+			onClick: async () => {
+				e.disabled = true;
+				i.enabled = false;
+				s.enabled = false;
+				const t = Ot("auth/deleteAccount");
+				if (
+					await getMain().auth.requestWithAuthHeader(async (e) => {
+						if (!e) {
+							return {
+								gotAuthError: true,
+								returnValue: false,
+							};
+						}
+						const i = await fetch(t.href, {
+							method: "DELETE",
+							credentials: "include",
+							headers: {
+								Authorization: e,
+							},
+						});
+						if (!i.ok) {
+							const t = await i.text();
+							console.error(t);
+						}
+						return {
+							gotAuthError: false,
+							returnValue: i.ok,
+						};
+					})
+				) {
+					if (
+						!(await getMain().auth.createForcedPeliLogoutDialog({
+							title: "Account deleted",
+							text: "Your account has been deleted. Please log out from your Pelican Party account to prevent a new Narrow One account from being created.",
+						}))
+					) {
+						getMain().dialogManager.showAlert({
+							title: "Account deleted",
+							text: "Your account has been deleted.",
+						});
+					}
+					getMain().auth.clearCurrentSessionData();
+				} else {
+					getMain().dialogManager.showAlert({
+						title: "Failed to delete account",
+						text: "An error ocurred while trying to delete the account.",
+					});
+				}
+				this.close();
+			},
+		});
+		s.enabled = false;
+		e.addEventListener("input", () => {
+			s.enabled = e.value.toLowerCase().includes("delete my account");
+		});
+		Ct(this.el);
+		this.visible = true;
+	}
+}
+type SettingType = "color" | "slider" | "toggle" | "enum";
+interface BaseSettingOptions<T extends SettingType, V> {
+	text: string;
+	type: T;
+}
+interface ColorSettingOptions extends BaseSettingOptions<"color", string> {
+}
+interface EnumSettingOptions extends BaseSettingOptions<"enum", string> {
+	enumValues: {[k: string]: string};
+}
+interface SliderSettingOptions extends BaseSettingOptions<"slider", number> {
+	min: number;
+	/** @default 1 */
+	step?: number;
+	max: number;
+	/** @default false */
+	triggerOnChange?: boolean;
+}
+interface ToggleSettingOptions extends BaseSettingOptions<"toggle", boolean> {
+}
+type SettingOptions = ColorSettingOptions
+	| SliderSettingOptions
+	| ToggleSettingOptions
+	| EnumSettingOptions;
+class Setting<V extends SettingValue, O extends SettingOptions> {
+	type;
+	el;
+	valueEl?;
+	sliderEl?;
+	dropdownEl?;
+	toggleEl?;
+	colorEl?;
+	textEl;
+	onValueChangeCbs = new Set<(value: V) => void>();
+	constructor(options: O) {
+		const { text, type } = options;
+		this.type = type;
+		this.el = document.createElement("label");
+		this.el.classList.add("settings-item");
+		this.textEl = document.createElement("div");
+		this.el.appendChild(this.textEl);
+		this.textEl.textContent = text;
+		this.textEl.classList.add("settings-item-text");
+		if (type == "slider") { // this.type -> this.type (helps type inference)
+			const e = document.createElement("div");
+			e.classList.add("settings-item-slider");
+			this.el.appendChild(e);
+			this.sliderEl = document.createElement("input");
+			this.sliderEl.classList.add("dialog-range-input");
+			e.appendChild(this.sliderEl);
+			this.sliderEl.type = "range";
+			this.sliderEl.min = String(options.min);
+			this.sliderEl.max = String(options.max);
+			this.sliderEl.step = String(options.step || 1);
+			this.valueEl = document.createElement("div");
+			this.valueEl.classList.add("settings-item-slider-value");
+			e.appendChild(this.valueEl);
+			this.valueEl.textContent = this.sliderEl.value;
+			const i = options.triggerOnChange || false;
+			const s = this.valueEl;
+			const n = this.sliderEl;
+			const o = () => {
+				this.fireOnValueChange();
+			};
+			if (i) {
+				this.sliderEl.addEventListener("change", o);
+			}
+			this.sliderEl.addEventListener("input", () => {
+				s.textContent = n.value;
+				if (!i) {
+					o();
+				}
+			});
+		} else if (this.type == "toggle") {
+			this.toggleEl = document.createElement("input");
+			this.toggleEl.type = "checkbox";
+			this.toggleEl.classList.add("dialog-checkbox-input", "wrinkledPaper");
+			this.el.appendChild(this.toggleEl);
+			this.toggleEl.addEventListener("input", () => {
+				this.fireOnValueChange();
+			});
+		} else if (type == "enum") {
+			const t = document.createElement("div");
+			t.classList.add("dialog-select-wrapper", "wrinkledPaper");
+			this.el.appendChild(t);
+			this.dropdownEl = document.createElement("select");
+			this.dropdownEl.classList.add("dialog-select-input", "blueNight");
+			t.appendChild(this.dropdownEl);
+			const { enumValues } = options;
+			if (enumValues) {
+				for (const [t, e] of Object.entries(enumValues)) {
+					const i = document.createElement("option");
+					i.value = t;
+					i.textContent = e;
+					this.dropdownEl.appendChild(i);
+				}
+			}
+			this.dropdownEl.addEventListener("input", () => {
+				this.fireOnValueChange();
+			});
+		} else if (type == "color") {
+			const t = document.createElement("input");
+			this.colorEl = t;
+			t.classList.add("dialog-color-input", "wrinkledPaper");
+			t.type = "color";
+			this.el.appendChild(t);
+			t.addEventListener("input", () => {
+				this.fireOnValueChange();
+			});
+		}
+	}
+	setValue(value: V) {
+		if (this.type == "slider") {
+			if (!this.sliderEl) {
+				throw new Error("Assertion failed, slider element doesn't exist.");
+			}
+			if (typeof value !== "number") {
+				throw new Error("Failed to set value of slider setting item: value is not a number");
+			}
+			this.sliderEl.value = String(value);
+			if (!this.valueEl) {
+				throw new Error("Assertion failed, value element doesn't exist.");
+			}
+			this.valueEl.textContent = this.sliderEl.value;
+		} else if (this.type == "toggle" && typeof value === "boolean") {
+			if (!this.toggleEl) {
+				throw new Error("Assertion failed, toggle element doesn't exist.");
+			}
+			this.toggleEl.checked = value;
+		} else if (this.type == "enum") {
+			if (!this.dropdownEl) {
+				throw new Error("Assertion failed, dropdown element doesn't exist.");
+			}
+			if (typeof value !== "string") {
+				throw new Error("Failed to set value of enum setting item: value is not a string");
+			}
+			this.dropdownEl.value = value;
+		} else if (this.type == "color") {
+			if (!this.colorEl) {
+				throw new Error("Assertion failed, no color element");
+			}
+			if (typeof value !== "string") {
+				throw new Error("Assertion failed, color value is not a string");
+			}
+			this.colorEl.value = value;
+		}
+	}
+	getValue(): V {
+		if (this.type == "slider") {
+			if (!this.sliderEl) {
+				throw new Error("Assertion failed: No slider element");
+			}
+			return Number(this.sliderEl.value) as V;
+		}
+		if (this.type == "toggle") {
+			if (!this.toggleEl) {
+				throw new Error("Assertion failed: No toggle element");
+			}
+			return this.toggleEl.checked as V;
+		}
+		if (this.type == "enum") {
+			if (!this.dropdownEl) {
+				throw new Error("Assertion failed: No dropdown element");
+			}
+			return this.dropdownEl.value as V;
+		}
+		if (this.type == "color") {
+			if (!this.colorEl) {
+				throw new Error("Assertion failed: No color element");
+			}
+			return this.colorEl.value as V;
+		}
+		throw new Error(`Unexpected type: ${this.type}`);
+	}
+	onValueChange(cb: (value: V) => void) {
+		this.onValueChangeCbs.add(cb);
+	}
+	fireOnValueChange() {
+		this.onValueChangeCbs.forEach((t) => t(this.getValue()));
+	}
+	setDisabled(disabled: boolean) {
+		if (this.sliderEl) {
+			this.sliderEl.disabled = disabled;
+		}
+		if (this.toggleEl) {
+			this.toggleEl.disabled = disabled;
+		}
+		if (this.dropdownEl) {
+			this.dropdownEl.disabled = disabled;
+		}
+	}
+}
+class SavedSetting<V, O extends SettingOptions> extends Setting<V, O> {
+	constructor(public id: string, options: O) {
+		super(options);
+	}
+}
+class SettingsDialog extends Dialog {
+	override titleEl = document.createElement("h2");
+	settingsListEl;
+	linkedAccountsEl;
+	accountButtonsEl;
+	loginButton;
+	linkAccountButton;
+	manageAccountButton;
+	logoutButton;
+	logoutEverywhereButton;
+	deleteAccountButton;
+	accountIdContainer;
+	accountIdEl;
+	boundUpdateAccountButtons;
+	constructor(gameWrapper: HTMLElement, public settingsManager: SettingsManager, public dialogManager: DialogManager) {
+		super(gameWrapper);
+		this.titleEl.classList.add("dialogTitle", "blueNight");
+		this.titleEl.textContent = "Settings";
+		this.el.appendChild(this.titleEl);
+		const s = [
+			{
+				name: "Sound",
+				settings: [
+					new SavedSetting("sfxVolume", {
+						text: "Sound effects volume",
+						type: "slider",
+						min: 0,
+						max: 100,
+					}),
+					new SavedSetting("musicVolume", {
+						text: "Music volume",
+						type: "slider",
+						min: 0,
+						max: 100,
+					}),
+					new SavedSetting("sfxDistanceCutoff", {
+						text: "Sfx distance cutoff",
+						type: "slider",
+						min: 0,
+						max: 100,
+					}),
+				],
+			},
+			{
+				name: "Quality",
+				settings: [
+					new SavedSetting("quality", {
+						text: "Quality",
+						type: "slider",
+						min: 0.1,
+						max: 3,
+						step: 0.1,
+					}),
+					new SavedSetting("antialias", {
+						text: "Anti-Aliasing",
+						type: "toggle",
+					}),
+					new SavedSetting("smoothFiltering", {
+						text: "Smooth filtering",
+						type: "toggle",
+					}),
+				],
+			},
+			{
+				name: "Controls",
+				settings: [
+					new SavedSetting("autoFullScreen", {
+						text: "Enter Full Screen on Game Start",
+						type: "toggle",
+					}),
+					new SavedSetting("mouseSensitivity", {
+						text: "Mouse sensitivity",
+						type: "slider",
+						min: 0.1,
+						max: 5,
+						step: 0.01,
+					}),
+					new SavedSetting("invertMouseY", {
+						text: "Invert vertical mouse",
+						type: "toggle",
+					}),
+					new SavedSetting("mouseAcceleration", {
+						text: "Mouse Acceleration",
+						type: "toggle",
+					}),
+					new SavedSetting("touchLookAcceleration", {
+						text: "Touch Acceleration",
+						type: "toggle",
+					}),
+					new SavedSetting("autoShoot", {
+						text: "Auto shoot",
+						type: "toggle",
+					}),
+				],
+			},
+			{
+				name: "Gameplay",
+				settings: [
+					new SavedSetting("fov", {
+						text: "Field of view",
+						type: "slider",
+						min: 40,
+						max: 140,
+					}),
+					new SavedSetting("gamemodeMatchmaking", {
+						text: "Gamemodes",
+						type: "enum",
+						enumValues: {
+							ctf: "CTF",
+							weekly: "Weekly Gamemodes",
+							ctfPlusWeekly: "CTF + Weekly",
+						},
+					}),
+					new SavedSetting("showFirstPersonWeapon", {
+						text: "Show weapon",
+						type: "toggle",
+					}),
+					new SavedSetting("lowerFirstPersonWeaponWhenWalking", {
+						text: "Lower weapon when walking",
+						type: "toggle",
+					}),
+					new SavedSetting("walkHeadBob", {
+						text: "Walk head bob",
+						type: "toggle",
+					}),
+					new SavedSetting("landHeadBob", {
+						text: "Land head bob",
+						type: "toggle",
+					}),
+					new SavedSetting("smoothCam", {
+						text: "Smooth camera",
+						type: "toggle",
+					}),
+					new SavedSetting("flyInSpectateTeam", {
+						text: "Fly when spectating",
+						type: "toggle",
+					}),
+				],
+			},
+			{
+				name: "Crosshair",
+				settings: [
+					new SavedSetting("crosshairStyle", {
+						text: "Style",
+						type: "enum",
+						enumValues: {
+							off: "Off",
+							three: "Tri",
+							four: "Quad",
+							"four-sharp": "Sharp Quad",
+							"three-low": "Horizon",
+							"four-flat": "Whiskers",
+							"three-extra-low": "Soul patch",
+							six: "Wallmart",
+						},
+					}),
+					new SavedSetting("crosshairColor", {
+						text: "Color",
+						type: "color",
+					}),
+					new SavedSetting("crosshairOutlineColor", {
+						text: "Outline Color",
+						type: "color",
+					}),
+					new SavedSetting("crosshairAccuracyOffset", {
+						text: "Accuracy Offset",
+						type: "slider",
+						min: 0,
+						max: 4,
+						step: 0.1,
+					}),
+				],
+			},
+			{
+				name: "Interface",
+				settings: [
+					new SavedSetting("theme", {
+						text: "Theme",
+						type: "enum",
+						enumValues: {
+							system: "Sync with system",
+							light: "Light",
+							dark: "Dark",
+						},
+					}),
+					new SavedSetting("uiScale", {
+						text: "UI scale",
+						type: "slider",
+						step: 0.1,
+						min: 0.5,
+						max: 2,
+						triggerOnChange: true,
+					}),
+					new SavedSetting("chatEnabled", {
+						text: "Show chat in squads",
+						type: "toggle",
+					}),
+					getMain().poki.isPokiBuild
+						? null
+						: new SavedSetting("chatProfanityFilterEnabled", {
+								text: "Filter chat messages containing profanity",
+								type: "toggle",
+							}),
+					new SavedSetting("autoSkipStatsScreen", {
+						text: "Auto skip stats screen",
+						type: "toggle",
+					}),
+					new SavedSetting("requireAddressBarHide", {
+						text: "Join games by hiding the mobile address bar",
+						type: "toggle",
+					}),
+					new SavedSetting("autoReconnect", {
+						text: "Automatically rejoin the last game",
+						type: "toggle",
+					}),
+					new SavedSetting("showStats", {
+						text: "Show ping and fps",
+						type: "toggle",
+					}),
+					new SavedSetting("hideUi", {
+						text: "Hide in game UI",
+						type: "toggle",
+					}),
+				],
+			},
+		];
+		this.settingsListEl = document.createElement("div");
+		this.settingsListEl.classList.add("settings-list");
+		this.el.appendChild(this.settingsListEl);
+		for (const t of s) {
+			const i = this.createSettingsGroup(t.name);
+			for (const s of t.settings) {
+				if (!s) {
+					continue;
+				}
+				i.appendChild(s.el);
+				const t = settingsManager.getValue(s.id);
+				s.setValue(t);
+				s.onValueChange((v) => {
+					settingsManager.setValue(s.id, v);
+				});
+			}
+		}
+		const n = this.createSettingsGroup("Account");
+		this.linkedAccountsEl = document.createElement("div");
+		this.linkedAccountsEl.classList.add("linked-accounts");
+		n.appendChild(this.linkedAccountsEl);
+		this.accountButtonsEl = document.createElement("div");
+		this.accountButtonsEl.classList.add("account-buttons");
+		n.appendChild(this.accountButtonsEl);
+		this.loginButton = new CustomButton({
+			text: "Log in",
+			onClick: () => {
+				getMain().auth.loginIfNotLoggedIn();
+			},
+		});
+		this.accountButtonsEl.appendChild(this.loginButton.el);
+		this.linkAccountButton = new CustomButton({
+			text: "Link new account",
+			onClick: async () => {
+				await getMain().auth.showLoginDialog("linknew");
+			},
+		});
+		this.accountButtonsEl.appendChild(this.linkAccountButton.el);
+		this.linkAccountButton.visible = false;
+		this.manageAccountButton = new CustomButton({
+			text: "Manage account",
+			onClick: async () => {
+				window.open("https://pelicanparty.games/account");
+			},
+		});
+		this.manageAccountButton.visible = false;
+		this.accountButtonsEl.appendChild(this.manageAccountButton.el);
+		this.logoutButton = new CustomButton({
+			text: "Log out",
+			onClick: async () => {
+				try {
+					await getMain().auth.logout();
+				} catch (error) {
+					console.error(error);
+					getMain().dialogManager.showAlert({
+						title: "Error logging out",
+						text: "An error occurred while logging out.",
+					});
+				}
+			},
+		});
+		this.logoutButton.visible = false;
+		this.accountButtonsEl.appendChild(this.logoutButton.el);
+		this.logoutEverywhereButton = new CustomButton({
+			text: "Logout everywhere",
+			onClick: () => {
+				getMain().auth.logoutEverywhere();
+			},
+		});
+		this.logoutEverywhereButton.visible = false;
+		this.accountButtonsEl.appendChild(this.logoutEverywhereButton.el);
+		this.deleteAccountButton = new CustomButton({
+			text: "Delete account",
+			extraClasses: ["danger"],
+			onClick: () => {
+				const t = new DeleteAccountDialog(this.gameWrapper);
+				this.dialogManager.addDialog(t);
+			},
+		});
+		this.deleteAccountButton.visible = false;
+		this.accountButtonsEl.appendChild(this.deleteAccountButton.el);
+		this.accountIdContainer = document.createElement("div");
+		this.accountIdContainer.classList.add("account-id-container");
+		n.appendChild(this.accountIdContainer);
+		this.accountIdContainer.appendChild(document.createTextNode("Account id: "));
+		this.accountIdEl = document.createElement("span");
+		this.accountIdEl.classList.add("account-id");
+		this.accountIdContainer.appendChild(this.accountIdEl);
+		this.addButtonsContainer();
+		this.addButton({
+			text: "Save",
+			onClick: async () => {
+				if (await this.settingsManager.saveSettings()) {
+					this.close();
+				} else {
+					this.dialogManager.showAlert({
+						title: "Settings could not be saved.",
+						text: "An error occurred while saving the settings. Are third party cookies disabled?",
+					});
+				}
+			},
+		});
+		this.boundUpdateAccountButtons = this.updateAccountState.bind(this);
+		getMain().auth.onLoggedInAccountChange(this.boundUpdateAccountButtons);
+		this.updateAccountState();
+		getMain().profileState.onStateChanged(() => {
+			this.updateAccountState();
+		});
+	}
+	destructor() {
+		super.destructor();
+		getMain().auth.removeOnLoggedInAccountChange(this.boundUpdateAccountButtons);
+	}
+	createLinkedAccountEl({ email, issuer, unlinkButtonOptions }) {
+		const s = document.createElement("div");
+		s.classList.add("wrinkledPaper");
+		s.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		this.linkedAccountsEl.append(s);
+		const n = document.createElement("div");
+		n.classList.add("account-data");
+		s.append(n);
+		const o = document.createElement("div");
+		o.textContent = email;
+		n.append(o);
+		const a = document.createElement("div");
+		a.classList.add("issuer");
+		a.textContent = issuer;
+		n.append(a);
+		if (unlinkButtonOptions) {
+			const unlinkButton = new CustomButton({
+				text: "Unlink",
+				onClick: () => {
+					getMain().dialogManager.showAlert({
+						title: "Are you sure?",
+						text: "Once the account is unlinked it will no longer have access to the coins and gear of this Narrow One account.",
+						buttons: [
+							{
+								text: "never mind",
+							},
+							{
+								text: "Unlink it!",
+								onClick: async () => {
+									if (typeof unlinkButtonOptions !== "function") {
+										throw new Error(
+											"Assertion failed, expected unlinkButtonOptions to be a function",
+										);
+									}
+									if (!(await unlinkButtonOptions())) {
+										getMain().dialogManager.showAlert({
+											title: "Error while unlinking",
+											text: "An error occurred while unlinking the account.",
+										});
+									}
+								},
+							},
+						],
+					});
+				},
+			});
+			if (typeof unlinkButtonOptions === "string") {
+				unlinkButton.enabled = false;
+				unlinkButton.el.title = unlinkButtonOptions;
+			}
+			s.append(unlinkButton.el);
+		}
+	}
+	updateAccountState() {
+		const t = getMain();
+		const t_profileState = t.profileState;
+		this.linkedAccountsEl.innerHTML = "";
+		if (t_profileState.peliAccountEmail) {
+			let t = null;
+			if (t_profileState.canUnlinkPeliAccount && t_profileState.linkedAccounts.length > 0) {
+				t = async () => await getMain().auth.unlinkPeliAccount();
+			}
+			this.createLinkedAccountEl({
+				issuer: "https://pelicanparty.games",
+				email: t_profileState.peliAccountEmail,
+				unlinkButtonOptions: t,
+			});
+		}
+		for (const t of t_profileState.linkedAccounts) {
+			let i = null;
+			if (t_profileState.linkedAccounts.length > 1 || t_profileState.peliAccountEmail) {
+				i = t_profileState.protected
+					? "This account is protected."
+					: t_profileState.canUnlinkAllAccounts
+						? t.isUnknownEmail
+							? "This linked account does not have a known email to identify it."
+							: async () => await getMain().auth.unlinkAccount(t)
+						: "Too many accounts have been linked. Please contact us if you wish to unlink an account.";
+			}
+			this.createLinkedAccountEl({
+				issuer: t.issuer,
+				email: t.email,
+				unlinkButtonOptions: i,
+			});
+		}
+		this.loginButton.visible = !t.auth.isLoggedIn;
+		this.linkAccountButton.enabled = true;
+		this.linkAccountButton.el.title = "";
+		if (t_profileState.maxLinkedAccountsReached) {
+			this.linkAccountButton.enabled = false;
+			this.linkAccountButton.el.title = "You have reached the maximum amount of linkable accounts.";
+		} else if (t_profileState.protected) {
+			this.linkAccountButton.enabled = false;
+			this.linkAccountButton.el.title = "This account is protected.";
+		}
+		this.linkAccountButton.visible =
+			t.auth.isLoggedIn && !t_profileState.peliAccountEmail && !isSteam();
+		this.manageAccountButton.visible = Boolean(t_profileState.peliAccountEmail);
+		this.logoutButton.visible = t.auth.isLoggedIn;
+		this.logoutEverywhereButton.visible = t.auth.isLoggedIn && !t_profileState.peliAccountEmail;
+		this.deleteAccountButton.visible =
+			t.auth.isLoggedIn && t_profileState.canBeDeleted && !isSteam();
+		const e_dbId = t_profileState.dbId;
+		this.accountIdContainer.style.display = e_dbId ? "" : "none";
+		this.accountIdEl.textContent = t_profileState.dbId;
+	}
+	createSettingsGroup(t) {
+		const e = document.createElement("div");
+		this.settingsListEl.appendChild(e);
+		const i = document.createElement("h3");
+		i.classList.add("settings-group-header");
+		i.textContent = t;
+		e.appendChild(i);
+		return e;
+	}
+}
+interface BowConfig {
+    id: string;
+    uiName: string;
+    bowId: string;
+    shopSkeletonLayer: string;
+    bowHandleShopCategories: string[];
+    bowTipShopCategories: string[];
+    bowShopCamPosition: string;
+    bowHandleShopCamPosition: string;
+    bowTipShopCamPosition: string;
+}
+const allWeapons: BowConfig[] = [
+	{
+		id: "scout",
+		uiName: "Scout",
+		bowId: "smallBow",
+		shopSkeletonLayer: "shootingLoaded",
+		bowHandleShopCategories: ["smallBowHandle"],
+		bowTipShopCategories: ["smallBowTip"],
+		bowShopCamPosition: "smallBow",
+		bowHandleShopCamPosition: "smallBowHandle",
+		bowTipShopCamPosition: "smallBowTip",
+	},
+	{
+		id: "assault",
+		uiName: "Assault",
+		bowId: "mediumBow",
+		shopSkeletonLayer: "shootingLoaded",
+		bowHandleShopCategories: ["mediumBowHandle"],
+		bowTipShopCategories: ["mediumBowTip"],
+		bowShopCamPosition: "mediumBow",
+		bowHandleShopCamPosition: "mediumBowHandle",
+		bowTipShopCamPosition: "mediumBowTip",
+	},
+	{
+		id: "sharpshooter",
+		uiName: "Sharpshooter",
+		bowId: "largeBow",
+		shopSkeletonLayer: "shootingLoaded",
+		bowHandleShopCategories: ["largeBowHandle"],
+		bowTipShopCategories: ["largeBowTip"],
+		bowShopCamPosition: "largeBow",
+		bowHandleShopCamPosition: "largeBowHandle",
+		bowTipShopCamPosition: "largeBowTip",
+	},
+	{
+		id: "runner",
+		uiName: "Runner",
+		bowId: "smallCrossbow",
+		shopSkeletonLayer: "shooting",
+		bowHandleShopCategories: ["smallCrossbowHandle"],
+		bowTipShopCategories: ["smallCrossbowTip"],
+		bowShopCamPosition: "smallCrossbow",
+		bowHandleShopCamPosition: "smallCrossbowHandle",
+		bowTipShopCamPosition: "smallCrossbowTip",
+	},
+	{
+		id: "support",
+		uiName: "Support",
+		bowId: "repeatingCrossbow",
+		shopSkeletonLayer: "shootStart",
+		bowHandleShopCategories: ["repeatingCrossbowHandle"],
+		bowTipShopCategories: ["repeatingCrossbowTip"],
+		bowShopCamPosition: "largeCrossbow",
+		bowHandleShopCamPosition: "largeCrossbowHandle",
+		bowTipShopCamPosition: "largeCrossbowTip",
+	},
+	{
+		id: "defender",
+		uiName: "Defender",
+		bowId: "largeCrossbow",
+		shopSkeletonLayer: "shooting",
+		bowHandleShopCategories: ["largeCrossbowHandle"],
+		bowTipShopCategories: ["largeCrossbowTip"],
+		bowShopCamPosition: "largeCrossbow",
+		bowHandleShopCamPosition: "largeCrossbowHandle",
+		bowTipShopCamPosition: "largeCrossbowTip",
+	},
+];
+/** would call it "bowsByID" but its referenced as "weapon config", so this. */
+const weaponConfigs = new Map<string, BowConfig>();
+for (const weapon of allWeapons) {
+	weaponConfigs.set(weapon.id, weapon);
+}
+function getWeapon(id: string) {
+	const config = weaponConfigs.get(id);
+	if (!config) {
+		throw new Error(`No weapon config for class ${id}`);
+	}
+	return config;
+}
+class AssetPackage {
+	isDownloading = false;
+	loaded = false;
+	arrayBuffer: ArrayBuffer | null = null;
+	fileLocations = [];
+	onLoadCbs: (() => void)[] = [];
+	onProgressCbs: ((percentage01: number) => void)[] = [];
+	lastProgressValue = 0;
+	textureCache = {};
+	constructor(public url: string) {
+	}
+	async startDownloading() {
+		if (this.loaded) {
+			return;
+		}
+		if (this.isDownloading) {
+			return await this.waitForLoad();
+		}
+		this.isDownloading = true;
+		const t = this.url;
+		const e = this.url;
+		const progressHandler = (progress: number) => {
+			for (const e of this.onProgressCbs) {
+				e(progress);
+			}
+			this.lastProgressValue = progress;
+		};
+		const res = await new Promise<any>((resolve, reject) => {
+			const xhr = new XMLHttpRequest();
+			xhr.responseType = "blob";
+			xhr.addEventListener("progress", (t) => {
+				if (progressHandler) {
+					let e = 0;
+					if (t.lengthComputable) {
+						e = t.loaded / t.total;
+					}
+					progressHandler(e);
+				}
+			});
+			xhr.onload = (i) => {
+				if (xhr.status == 200 || xhr.status == 0) {
+					resolve(xhr.response);
+				} else {
+					reject(new Error(`"${e}" responded with a non ok status code`));
+				}
+			};
+			xhr.onerror = (t) => {
+				reject(t);
+			};
+			xhr.open("GET", e, true);
+			xhr.send();
+		});
+		this.arrayBuffer = await new Response(res).arrayBuffer();
+		this.parseFilePositions(this.arrayBuffer);
+		this.loaded = true;
+		for (const t of this.onLoadCbs) {
+			t();
+		}
+		this.onLoadCbs = [];
+		this.onProgressCbs = [];
+		this.isDownloading = false;
+	}
+	parseFilePositions(t) {
+		let e = 0;
+		while (e < t.byteLength) {
+			let i = new Uint32Array(t, e, 1)[0];
+			const s = new Uint8Array(t, e + 4, i);
+			const path = new TextDecoder("utf-8").decode(s);
+			if (i % 4 != 0) {
+				i = 4 * Math.ceil(i / 4);
+			}
+			let length = new Uint32Array(t, e + 4 + i, 1)[0];
+			this.fileLocations.push({
+				path,
+				start: e + 4 + i + 4,
+				length,
+			});
+			if (length % 4 != 0) {
+				length = 4 * Math.ceil(length / 4);
+			}
+			e += 4 + i + 4 + length;
+		}
+	}
+	onLoad(t) {
+		if (this.loaded) {
+			t();
+		} else {
+			this.onLoadCbs.push(t);
+		}
+	}
+	onProgress(t) {
+		if (this.loaded) {
+			t(1);
+		} else {
+			this.onProgressCbs.push(t);
+		}
+	}
+	async waitForLoad() {
+		if (this.loaded) {
+			return;
+		}
+		const t = new Promise((resolve, reject) => {
+			this.onLoad(() => {
+				resolve();
+			});
+		});
+		await t;
+	}
+	async hasFile(t) {
+		if (!this.loaded) {
+			await this.waitForLoad();
+		}
+		return this.fileLocations.some((e) => e.path == t);
+	}
+	async getFileAsBuffer(t) {
+		if (!this.loaded) {
+			await this.waitForLoad();
+		}
+		if (!this.arrayBuffer) {
+			throw new Error("Assertion failed, arrayBuffer not loaded");
+		}
+		for (const e of this.fileLocations) {
+			if (e.path == t) {
+				return this.arrayBuffer.slice(e.start, e.start + e.length);
+			}
+		}
+		throw new Error(`Trying to load asset at ${t} but it doesn't exist!`);
+	}
+	async getAsObjectUrl(t, e) {
+		const i = await this.getFileAsBuffer(t);
+		if (!i) {
+			return null;
+		}
+		const s = new Blob([new Uint8Array(i)], {
+			type: e,
+		});
+		return URL.createObjectURL(s);
+	}
+	async getAsSvg(t) {
+		return await this.getAsObjectUrl(t, "image/svg+xml");
+	}
+	async getAsText(t) {
+		const e = await this.getFileAsBuffer(t);
+		const i = new Uint8Array(e);
+		return new TextDecoder("utf-8").decode(i);
+	}
+	async getAsJSON(t) {
+		const e = await this.getAsText(t);
+		return JSON.parse(e);
+	}
+	async blobToArrayBuffer(t) {
+		return await new Response(t).arrayBuffer();
+	}
+}
+let jt = null;
+let Gt = null;
+const workerHandler = {
+	mapCached(t) {
+		getMain().mapLoader.markMapAsCached(t);
+	},
+	reportMapLoadProgress(t, e) {
+		getMain().mapLoader.reportMapLoadProgress(t, e);
+	},
+	firstMapDownloaded() {
+		getMain().mapLoader.reportFirstMapDownloaded();
+	},
+	mapGameplayObjects(t, e) {
+		getMain().mapLoader.setGamplayObjects(t, e);
+	},
+	getPlusOnlyVerificationData: async function () {
+		if (jt && jt.expires > Date.now() / 1000 + 300) {
+			return jt;
+		}
+		if (!Gt) {
+			Gt = (async () => {
+				const t = Ot("getPlusOnlyVerification");
+				return await getMain().auth.requestWithAuthHeader(async (e) => {
+					if (!e) {
+						return {
+							gotAuthError: true,
+							returnValue: null,
+						};
+					}
+					const i = await fetch(t.href, {
+						headers: {
+							Authorization: e,
+						},
+					});
+					if (!i.ok) {
+						let t = "";
+						try {
+							t = await i.text();
+						} catch {}
+						console.error(t);
+						return {
+							gotAuthError: false,
+							returnValue: null,
+						};
+					}
+					return {
+						gotAuthError: false,
+						returnValue: await i.json(),
+					};
+				});
+			})();
+		}
+		const t = await Gt;
+		jt = t;
+		Gt = null;
+		return t;
+	},
+};
+interface AddPackageOpts {
+	/** @default null */
+	waitForOtherPackages: string[] | null;
+	/** @default 1 */
+	expectedOtherPackageCount: number;
+	/** @default false */
+	manualDownload: boolean;
+}
+class AssetsManager {
+	onPackageAddCbs: (() => void)[] = [];
+	packages: { [k: string]: AssetPackage } = {};
+	lastWorkerRequestId = 0;
+	onWorkerMessageCbs = new Map<
+		_,
+		Set<{
+			cb: () => void;
+			endOnly: boolean;
+		}>
+	>();
+	onWorkerErrorCbs = new Map<_, Set<() => void>>();
+	messenger = new AssetWorkerMessenger({
+		deserializeErrorHook(t) {
+			const e = t;
+			if (e.isAggregateError) {
+				return new AggregateError(e.errors, e.message);
+			}
+			if (e.isMapLoadError) {
+				return new MapLoadError(e.message, e.name);
+			}
+			return t;
+		},
+	});
+	workerPromise;
+	abortSignalIds = new WeakMap<AbortSignal, number>();
+	lastAbortSignalId = 0;
+	constructor() {
+		const pkgs = ["main"];
+		for (const pkg of pkgs) {
+			this.addPackage(pkg);
+		}
+		this.workerPromise = this.loadWorker();
+	}
+	async loadWorker() {
+		const { worker } = await import("./assetWorkerPreload-Cv0J6mSc.js");
+		this.messenger.initialize(worker, workerHandler);
+		worker.addEventListener("error", (e: unknown) => {
+			console.error("error occurred while initializing asset loader worker");
+			throw e;
+		});
+		const href = new URL(".", location.href).href;
+		this.messenger.send.setBasePath(href);
+		return worker;
+	}
+	async getMessenger() {
+		await this.workerPromise;
+		return this.messenger;
+	}
+	async registerAbortSignal(signal: AbortSignal) {
+		await this.workerPromise;
+		let abortSignalId = this.abortSignalIds.get(signal);
+		if (abortSignalId === undefined) {
+			abortSignalId = this.lastAbortSignalId++;
+			this.abortSignalIds.set(signal, abortSignalId);
+		}
+		const i = abortSignalId;
+		signal.addEventListener("abort", () => {
+			this.messenger.send.signalAborted(i);
+		});
+		return {
+			abortSignalId,
+			messenger: this.messenger,
+			unregister: () => {
+				this.messenger.send.removeAbortSignal(i);
+			},
+		};
+	}
+	addPackage(
+		name: string,
+		{
+			waitForOtherPackages = null,
+			expectedOtherPackageCount = 1,
+			manualDownload = false,
+		}: Partial<AddPackageOpts> = {},
+	) {
+		let pkg = null;
+		if (name in this.packages) {
+			pkg = this.packages[name];
+		} else {
+			pkg = new AssetPackage(`assetPackages/${name}.bin?v=1790709288`);
+			this.packages[name] = pkg;
+			for (const cb of this.onPackageAddCbs) {
+				cb();
+			}
+			this.onPackageAddCbs = [];
+		}
+		if (!manualDownload) {
+			this.waitAndDownloadPack(pkg!, waitForOtherPackages, expectedOtherPackageCount);
+		}
+		return pkg;
+	}
+	async waitAndDownloadPack(
+		curPkg: AssetPackage,
+		otherPackages: string[] | null,
+		expOtherPkgCount: number,
+	) {
+		if (otherPackages) {
+			while (true) {
+				const otherPkgs = [];
+				for (const [oPkg, v] of Object.entries(this.packages)) {
+					for (const otherPkg of otherPackages) {
+						if (oPkg.startsWith(otherPkg) && v != curPkg) {
+							otherPkgs.push(v);
+						}
+					}
+				}
+				if (!(otherPkgs.length < expOtherPkgCount)) {
+					for (const oPkg of otherPkgs) {
+						await oPkg.waitForLoad();
+					}
+					break;
+				}
+				await this.waitForPackageAdd();
+			}
+		}
+		curPkg.startDownloading();
+	}
+	async waitForPackageAdd() {
+		const t = new Promise((resolve) => this.onPackageAddCbs.push(resolve));
+		await t;
+	}
+	getPackage(name: string) {
+		return this.packages[name];
+	}
+	async getPackageAsync(name: string) {
+		while (true) {
+			const e = this.packages[name];
+			if (e) {
+				return e;
+			}
+			await this.waitForPackageAdd();
+		}
+	}
+	onWorkerMessage(k, cb: () => void, endOnly = false) {
+		let listeners = this.onWorkerMessageCbs.get(k);
+		if (!listeners) {
+			listeners = new Set();
+			this.onWorkerMessageCbs.set(k, listeners);
+		}
+		listeners.add({
+			cb,
+			endOnly,
+		});
+	}
+	onWorkerError(t, cb: () => void) {
+		let cbs = this.onWorkerErrorCbs.get(t);
+		if (!cbs) {
+			cbs = new Set();
+			this.onWorkerErrorCbs.set(t, cbs);
+		}
+		cbs.add(cb);
+	}
+	static deserializeThreeObject(t) {
+		if (!t) {
+			return null;
+		}
+		const e = [];
+		for (const i of t.geometries) {
+			const t = new BufferGeometry();
+			for (const e of i.attributes) {
+				t.setAttribute(e.name, new BufferAttribute(e.array, e.itemSize, e.normalized));
+			}
+			if (i.index) {
+				t.setIndex(new BufferAttribute(i.index.array, 1));
+			}
+			for (const { start, count, materialIndex } of i.groups) {
+				t.addGroup(start, count, materialIndex);
+			}
+			e.push(t);
+		}
+		const i = this.deserializeThreeObjectRecursive(t.object, e);
+		i.updateWorldMatrix(false, true);
+		return i;
+	}
+	static deserializeThreeObjectRecursive(t, e) {
+		let i = null;
+		const materials = getMain().materials;
+		if (t.geo != null && t.geo >= 0) {
+			let n = null;
+			if (Array.isArray(t.material)) {
+				n = [];
+				for (const e of t.material) {
+					const t = materials.getMaterialByName(e);
+					if (t) {
+						n.push(t);
+					}
+				}
+			} else {
+				if (t.material) {
+					n = getMain().materials.getMaterialByName(t.material) || null;
+				}
+			}
+			if (n) {
+				i = new Mesh(e[t.geo], n);
+			}
+		}
+		if (!i) {
+			i = new Object3D();
+		}
+		i.name = t.name;
+		const n = new Matrix4().fromArray(t.matrix);
+		i.applyMatrix4(n);
+		for (const s of t.children) {
+			const t = this.deserializeThreeObjectRecursive(s, e);
+			i.add(t);
+		}
+		return i;
+	}
+	async loadGlbViaWorker(
+		t,
+		{
+			packageName = "main",
+			teamId = 0,
+			keepCustomProperties = [],
+			merge = true,
+			signal = null,
+		} = {},
+	) {
+		const glbBuffer = await getMain().assets.getPackage(packageName).getFileAsBuffer(t);
+		if (!signal) {
+			signal = new AbortController().signal;
+		}
+		const { messenger, abortSignalId, unregister } = await this.registerAbortSignal(signal);
+		const d = await messenger.send.loadGlbAsset({
+			glbBuffer,
+			teamId,
+			keepCustomProperties,
+			merge,
+			abortSignalId,
+		});
+		unregister();
+		return AssetsManager.deserializeThreeObject(d);
+	}
+}
+function _t(t) {
+	if (!t.slots || !Array.isArray(t.slots)) {
+		t.slots = [];
+		if (t.maleSkin) {
+			if (t.maleSkin.additions) {
+				for (const e of Object.keys(t.maleSkin.additions)) {
+					t.slots.push(e);
+				}
+			}
+			if (t.maleSkin.removals) {
+				for (const e of Object.keys(t.maleSkin.removals)) {
+					t.slots.push(e);
+				}
+			}
+		}
+		if (t.femaleSkin) {
+			if (t.femaleSkin.additions) {
+				for (const e of Object.keys(t.femaleSkin.additions)) {
+					t.slots.push(e);
+				}
+			}
+			if (t.femaleSkin.removals) {
+				for (const e of Object.keys(t.femaleSkin.removals)) {
+					t.slots.push(e);
+				}
+			}
+		}
+	}
+}
+const Jt = ["base", "baseClothes", "baseEyes"];
+const Kt = ["male", "female"];
+const Yt = [
+	{
+		cssColor: "#fff6ed",
+		skinColor: [1, 1, 1],
+	},
+	{
+		cssColor: "#c05f18",
+		skinColor: [0.45, 0.15, 0],
+	},
+	{
+		cssColor: "#362c29",
+		skinColor: [0.04, 0.03, 0.025],
+	},
+	{
+		cssColor: "#794b32",
+		skinColor: [0.15, 0.08, 0.05],
+	},
+	{
+		cssColor: "#feed9a",
+		skinColor: [0.95, 0.83, 0.4],
+	},
+];
+function Xt(t) {
+	let e;
+	try {
+		e = JSON.parse(t);
+	} catch {
+		e = {};
+	}
+	return Qt(e);
+}
+function Qt(t = null) {
+	if (typeof t !== "object" || Array.isArray(t) || t == null) {
+		return {
+			equippedSkinIds: [],
+			hairColorMultiplier: [1, 1, 1],
+			eyebrowColorMultiplier: [1, 1, 1],
+			beardColorMultiplier: [1, 1, 1],
+		};
+	}
+	if (!(t.equippedSkinIds && Array.isArray(t.equippedSkinIds))) {
+		t.equippedSkinIds = [];
+	}
+	for (const [e, i] of t.equippedSkinIds.entries()) {
+		if (typeof i !== "string") {
+			t.equippedSkinIds[e] = "";
+		}
+	}
+	t.equippedSkinIds = t.equippedSkinIds.filter((t) => t != "");
+	if (t.hairColorMultiplier) {
+		t.hairColorMultiplier = Zt(t.hairColorMultiplier);
+	}
+	if (t.eyebrowColorMultiplier) {
+		t.eyebrowColorMultiplier = Zt(t.eyebrowColorMultiplier);
+	}
+	if (t.beardColorMultiplier) {
+		t.beardColorMultiplier = Zt(t.beardColorMultiplier);
+	}
+	return t;
+}
+function Zt(t) {
+	if (!Array.isArray(t)) {
+		return [1, 1, 1];
+	}
+	if (t.length != 3) {
+		return [1, 1, 1];
+	}
+	for (const e of t.keys()) {
+		if (typeof t[e] !== "number") {
+			t[e] = 1;
+		}
+		t[e] = clampTo01(t[e]);
+		if (isNaN(t[e])) {
+			t[e] = 1;
+		}
+	}
+	return t;
+}
+class SkinsManager {
+	purchasableItems = new Map();
+	defaultSkinPresets = [];
+	skinPresets = [];
+	classSkins = {};
+	onSkinConfigChangeCbs = new Set();
+	constructor() {}
+	init() {
+		this.initBaseSkins();
+		getMain().config.shopConfig.onConfigChange(async (t) => {
+			for (const e of t.purchasableItems) {
+				_t(e);
+				this.purchasableItems.set(e.id, e);
+			}
+			this.defaultSkinPresets = t.skinPresets || [];
+			const e = await this.loadSkinPreference("skinPresets");
+			if (e) {
+				this.skinPresets = e;
+			}
+			const i = await this.loadSkinPreference("classSkins");
+			if (i) {
+				this.classSkins = i;
+			}
+			if (this.skinPresets.length == 0) {
+				this.addPreset({
+					fireConfigChanged: false,
+				});
+			}
+			this.fireConfigChanged();
+		});
+	}
+	async loadSkinPreference(t) {
+		let e = null;
+		try {
+			e = await getMain().indexedDb.get(t);
+		} catch (t) {}
+		return e;
+	}
+	async loadSkinIdsPreference(t) {
+		const e = await this.loadSkinPreference(t);
+		let i = new Set();
+		if (e && typeof e === "string") {
+			const t = e.split(",");
+			i = new Set(t);
+		}
+		return i;
+	}
+	async initBaseSkins() {
+		const t = [];
+		const e = [];
+		for (const t of Kt) {
+			for (const i of Jt) {
+				e.push(`baseSkins/${t}/${i}.glb`);
+			}
+		}
+		for (const { bowId } of allWeapons) {
+			e.push(`bows/${bowId}.glb`);
+		}
+		e.push("baseSkins/arrow.glb");
+		const i = {};
+		for (const s of e) {
+			const computeE = async () => {
+				i[s] = await getMain().assets.getPackage("main").getFileAsBuffer(s);
+			};
+			const e = computeE();
+			t.push(e);
+		}
+		await Promise.all(t);
+		const s = await getMain().assets.getMessenger();
+		await s.send.setBaseSkinBuffers(i);
+	}
+	skinObjectOptsToCacheKey(t) {
+		const e = [];
+		e.push(t.teamId);
+		if (t.teamColor) {
+			e.push(t.teamColor.r);
+			e.push(t.teamColor.g);
+			e.push(t.teamColor.b);
+		} else {
+			e.push("teamColorEmpty");
+		}
+		e.push("skinstart");
+		const i = t.skin.equippedSkinIds || [];
+		e.push(i.join("|"));
+		e.push("skinend");
+		e.push(t.skin.gender || "male");
+		const s = t.skin.hairColorMultiplier || [1, 1, 1];
+		e.push(`hairColor${s.join(",")}`);
+		const n = t.skin.eyebrowColorMultiplier || [1, 1, 1];
+		e.push(`eyebrowColor${n.join(",")}`);
+		const o = t.skin.beardColorMultiplier || [1, 1, 1];
+		e.push(`beardColor${o.join(",")}`);
+		return e.join("-");
+	}
+	async getSkinObject(t, e) {
+		let i;
+		let allowNetworkErrors = false;
+		if (t.rawSkin) {
+			i = t.rawSkin;
+			allowNetworkErrors = true;
+		} else {
+			i = this.skinNetworkDataToSkinConfig(t.skin);
+		}
+		let n = null;
+		const o = [];
+		const { messenger, abortSignalId, unregister } = await getMain().assets.registerAbortSignal(e);
+		try {
+			try {
+				n = await messenger.send.buildSkin({
+					skin: i,
+					teamId: t.teamId,
+					teamColor: t.teamColor,
+					allowNetworkErrors,
+					abortSignalId,
+				});
+			} catch (error) {
+				if (error instanceof DOMException && error.name == "AbortError") {
+					throw error;
+				}
+				o.push(error);
+			}
+			if (e.aborted) {
+				throw new DOMException("Request aborted by signal.", "AbortError");
+			}
+			if (!n && !allowNetworkErrors) {
+				const skin = this.skinNetworkDataToSkinConfig({
+					gender: t.skin.gender,
+				});
+				try {
+					n = await messenger.send.buildSkin({
+						skin,
+						teamId: t.teamId,
+						teamColor: t.teamColor,
+						allowNetworkErrors: false,
+						abortSignalId,
+					});
+				} catch (error) {
+					if (error instanceof DOMException && error.name == "AbortError") {
+						throw error;
+					}
+					o.push(error);
+					throw new AggregateError(o);
+				}
+			}
+		} finally {
+			unregister();
+		}
+		if (!n) {
+			return null;
+		}
+		return AssetsManager.deserializeThreeObject(n);
+	}
+	async getBowObject(t, e) {
+		const { messenger, abortSignalId, unregister } = await getMain().assets.registerAbortSignal(e);
+		const o = await messenger.send.buildBow({
+			...t,
+			abortSignalId,
+		});
+		unregister();
+		return {
+			bow: AssetsManager.deserializeThreeObject(o.bow),
+			arrowPointIdleMatrix: new Matrix4().fromArray(o.arrowPointIdleMatrix),
+			arrowPointLoadedMatrix: new Matrix4().fromArray(o.arrowPointLoadedMatrix),
+		};
+	}
+	async buildConfigObject(t, e) {
+		const { messenger, abortSignalId, unregister } = await getMain().assets.registerAbortSignal(e);
+		const o = await messenger.send.buildConfigObject({
+			...t,
+			abortSignalId,
+		});
+		unregister();
+		return {
+			asset: AssetsManager.deserializeThreeObject(o.asset),
+		};
+	}
+	addShopItemToSkinData(t, e) {
+		const i = new Set(e.equippedSkinIds);
+		const s = this.addItemAndRemoveDuplicateSlots(i, t);
+		e.equippedSkinIds = Array.from(i);
+		return s;
+	}
+	removeShopItemFromSkinData(t, e) {
+		const i = new Set(e.equippedSkinIds);
+		i.delete(t);
+		e.equippedSkinIds = Array.from(i);
+	}
+	addPreset({ fireConfigChanged = true } = {}) {
+		let e = randomChoice(this.defaultSkinPresets);
+		if (!e) {
+			e = {};
+		}
+		const i = e.equippedSkinIds || [];
+		const s = {
+			gender: e.gender || "male",
+			equippedSkinIds: [...i],
+		};
+		if (e.hairColorMultiplier) {
+			s.hairColorMultiplier = [...e.hairColorMultiplier];
+		}
+		if (e.eyebrowColorMultiplier) {
+			s.eyebrowColorMultiplier = [...e.eyebrowColorMultiplier];
+		}
+		if (e.beardColorMultiplier) {
+			s.beardColorMultiplier = [...e.beardColorMultiplier];
+		}
+		this.skinPresets.push(s);
+		this.savePresets();
+		if (fireConfigChanged) {
+			this.fireConfigChanged();
+		}
+	}
+	duplicatePreset(t) {}
+	deletePreset(t) {
+		if (t < 0 || t >= this.skinPresets.length) {
+			throw new Error("Invalid preset index");
+		}
+		this.skinPresets.splice(t, 1);
+		for (const e of Object.values(this.classSkins)) {
+			e.presetId != null && (e.presetId == t ? delete e.presetId : e.presetId > t && e.presetId--);
+		}
+		this.savePresets();
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	getPreset(t, e = true) {
+		const i = this.skinPresets[t];
+		if (!i) {
+			if (e) {
+				throw new Error(`Preset ${t} does not exist`);
+			}
+			return {};
+		}
+		return i;
+	}
+	addShopItemToPreset(t, e) {
+		const i = this.getPreset(e);
+		const s = this.addShopItemToSkinData(t, i);
+		this.savePresets();
+		this.fireConfigChanged();
+		return s;
+	}
+	removeShopItemFromPreset(t, e) {
+		const i = this.getPreset(e);
+		if (!i) {
+			throw new Error(`Preset with id ${e} does not exist`);
+		}
+		this.removeShopItemFromSkinData(t, i);
+		this.savePresets();
+		this.fireConfigChanged();
+	}
+	setPresetGender(t, e) {
+		this.getPreset(t).gender = e;
+		this.savePresets();
+		this.fireConfigChanged();
+	}
+	setPresetSkinItemColor(t, e, i) {
+		const s = this.getPreset(t);
+		if (e == "hair") {
+			s.hairColorMultiplier = i;
+		} else if (e == "eyebrows") {
+			s.eyebrowColorMultiplier = i;
+		} else if (e == "beard") {
+			s.beardColorMultiplier = i;
+		}
+		this.savePresets();
+		this.fireConfigChanged();
+	}
+	async savePresets() {
+		try {
+			await getMain().indexedDb.set("skinPresets", this.skinPresets);
+		} catch {}
+	}
+	getClassSkinData(t, e) {
+		let i = this.classSkins[t];
+		if (!i) {
+			i = {};
+			if (this.skinPresets.length > 0) {
+				i.presetId = 0;
+			}
+			if (e) {
+				this.classSkins[t] = i;
+			}
+		}
+		return i;
+	}
+	getClassSkinDataWithAppliedPreset(t) {
+		const e = this.getClassSkinData(t, false);
+		const i = e.presetId != null ? this.getPreset(e.presetId, false) : {};
+		const s = new Set(i.equippedSkinIds);
+		if (e.equippedSkinIds) {
+			for (const t of e.equippedSkinIds) {
+				this.addItemAndRemoveDuplicateSlots(s, t);
+			}
+		}
+		if (e.unequippedSkinIds) {
+			for (const t of e.unequippedSkinIds) {
+				s.delete(t);
+			}
+		}
+		return {
+			gender: e.gender || i.gender,
+			equippedSkinIds: Array.from(s),
+			hairColorMultiplier: e.hairColorMultiplier || i.hairColorMultiplier,
+			eyebrowColorMultiplier: e.eyebrowColorMultiplier || i.eyebrowColorMultiplier,
+			beardColorMultiplier: e.beardColorMultiplier || i.beardColorMultiplier,
+		};
+	}
+	setClassPreset(t, e) {
+		const i = this.getClassSkinData(t, true);
+		delete i.equippedSkinIds;
+		delete i.unequippedSkinIds;
+		delete i.gender;
+		delete i.hairColorMultiplier;
+		delete i.eyebrowColorMultiplier;
+		delete i.beardColorMultiplier;
+		if (e == null) {
+			delete i.presetId;
+		} else {
+			i.presetId = e;
+		}
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	addShopItemToClass(t, e) {
+		const i = this.getClassSkinData(e, true);
+		const s = new Set(i.unequippedSkinIds);
+		s.delete(t);
+		if (s.size == 0) {
+			delete i.unequippedSkinIds;
+		} else {
+			i.unequippedSkinIds = Array.from(s);
+		}
+		let n = false;
+		if (i.presetId != null) {
+			const e = this.getPreset(i.presetId, false);
+			if (e.equippedSkinIds && e.equippedSkinIds.includes(t)) {
+				n = true;
+			}
+		}
+		this.addShopItemToSkinData(t, i);
+		if (n) {
+			this.removeShopItemFromSkinData(t, i);
+		}
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	removeShopItemFromClass(t, e) {
+		const i = this.getClassSkinData(e, true);
+		let s = false;
+		if (i.presetId != null) {
+			const e = this.getPreset(i.presetId, false);
+			if (e.equippedSkinIds && e.equippedSkinIds.includes(t)) {
+				s = true;
+			}
+		}
+		this.removeShopItemFromSkinData(t, i);
+		if (s) {
+			const e = new Set(i.unequippedSkinIds);
+			e.add(t);
+			i.unequippedSkinIds = Array.from(e);
+		}
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	setClassGender(t, e) {
+		const i = this.getClassSkinData(t, true);
+		let s = "male";
+		if (i.presetId != null) {
+			s = this.getPreset(i.presetId, false).gender || "male";
+		}
+		if (e == s) {
+			delete i.gender;
+		} else {
+			i.gender = e;
+		}
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	setClassSkinItemColor(t, e, i) {
+		const s = this.getClassSkinData(t, true);
+		let n = null;
+		if (s.presetId != null) {
+			n = this.getPreset(s.presetId, false);
+		}
+		const o = n;
+		function a(t) {
+			s[t] = i;
+			let e = [1, 1, 1];
+			if (o) {
+				const i = o[t];
+				if (i) {
+					e = i;
+				}
+			}
+			Math.abs(i[0] - e[0]) < 0.01 &&
+				Math.abs(i[1] - e[1]) < 0.01 &&
+				Math.abs(i[2] - e[2]) < 0.01 &&
+				delete s[t];
+		}
+		if (e == "hair") {
+			a("hairColorMultiplier");
+		} else if (e == "eyebrows") {
+			a("eyebrowColorMultiplier");
+		} else if (e == "beard") {
+			a("beardColorMultiplier");
+		}
+		this.saveClassSkins();
+		this.fireConfigChanged();
+	}
+	saveClassSkins() {
+		try {
+			getMain().indexedDb.set("classSkins", this.classSkins);
+		} catch {}
+	}
+	fireConfigChanged() {
+		for (const t of this.onSkinConfigChangeCbs) {
+			t();
+		}
+	}
+	addItemAndRemoveDuplicateSlots(t, e) {
+		return ((t, e, i) => {
+			const s = new Set();
+			const n = t.get(i);
+			if (n && (i && e.add(i), n.slots)) {
+				for (const o of n.slots) {
+					for (const n of e) {
+						if (n == i) {
+							continue;
+						}
+						const a = t.get(n);
+						if (a && a.slots && a.slots.includes(o)) {
+							e.delete(n);
+							s.add(n);
+						}
+					}
+				}
+			}
+			return s;
+		})(this.purchasableItems, t, e);
+	}
+	getStatClassValuesFromShopSkinIds(t, e) {
+		let i = 1;
+		let s = 1;
+		const statClassValues = new Map();
+		for (const o of t) {
+			const t = this.purchasableItems.get(o);
+			if (t && t.statClasses && (!t.bowSkin || t.bowSkin.bowId == e)) {
+				for (const [e, i] of Object.entries(t.statClasses)) {
+					let t = statClassValues.get(e);
+					if (!t) {
+						t = 0;
+					}
+					t += i;
+					statClassValues.set(e, t);
+				}
+				i = Math.max(i, t.legMoveAmount || 1);
+				s = Math.min(s, t.legMoveAmount || 1);
+			}
+		}
+		let legMoveAmount = 1;
+		if (s < 1) {
+			legMoveAmount = s;
+		} else if (i > 1) {
+			legMoveAmount = i;
+		}
+		return {
+			statClassValues,
+			legMoveAmount,
+		};
+	}
+	skinNetworkDataToSkinConfig(t) {
+		const e = t.gender || "male";
+		const i = new Map();
+		for (const t of partNames) {
+			let s = i.get(t);
+			if (!s) {
+				s = new Set();
+				i.set(t, s);
+			}
+			for (const t of Jt) {
+				s.add(`${e}/${t}`);
+			}
+		}
+		const s = [];
+		if (t.equippedSkinIds) {
+			for (const n of t.equippedSkinIds) {
+				const o = this.purchasableItems.get(n);
+				if (!o) {
+					continue;
+				}
+				const a = this.getSkinFromShopItem(o, e);
+				if (a && a.additions) {
+					for (const [e, n] of Object.entries(a.additions)) {
+						const a = e;
+						if (n && Array.isArray(n)) {
+							let e = i.get(a);
+							if (!e) {
+								e = new Set();
+								i.set(a, e);
+							}
+							for (const assetName of n) {
+								e.add(assetName);
+								if (o.colorizableCategory) {
+									let e;
+									if (o.colorizableCategory == "hair") {
+										e = t.hairColorMultiplier;
+									} else if (o.colorizableCategory == "eyebrows") {
+										e = t.eyebrowColorMultiplier;
+									} else if (o.colorizableCategory == "beard") {
+										e = t.beardColorMultiplier;
+									}
+									if (e) {
+										s.push({
+											assetName,
+											colorMultiplier: e,
+											joints: [a],
+										});
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			for (const s of t.equippedSkinIds) {
+				const t = this.purchasableItems.get(s);
+				if (!t) {
+					continue;
+				}
+				const n = this.getSkinFromShopItem(t, e);
+				if (n && n.removals) {
+					for (const [t, s] of Object.entries(n.removals)) {
+						const n = t;
+						if (s && Array.isArray(s)) {
+							const t = i.get(n);
+							if (t) {
+								for (const i of s) {
+									if (Jt.includes(i)) {
+										t.delete(`${e}/${i}`);
+									} else {
+										t.delete(i);
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			for (const s of t.equippedSkinIds) {
+				const t = this.purchasableItems.get(s);
+				if (!t) {
+					continue;
+				}
+				const n = this.getSkinFromShopItem(t, e);
+				if (n && n.replaceAssets) {
+					for (const t of n.replaceAssets) {
+						for (const s of i.values()) {
+							const i = [t.asset, `${e}/${t.asset}`];
+							for (const e of i) {
+								if (s.has(e)) {
+									s.delete(e);
+									s.add(t.replaceWith);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		const n = {};
+		for (const [t, e] of i) {
+			const i = Array.from(e);
+			if (i.length > 0) {
+				n[t] = i;
+			}
+		}
+		return {
+			equippedItems: n,
+			colorizedItems: s,
+		};
+	}
+	skinNetworkDataToBowAssetData(t, e) {
+		const i = new Set();
+		if (e.equippedSkinIds) {
+			for (const s of e.equippedSkinIds) {
+				const e = this.purchasableItems.get(s);
+				if (e && e.bowSkin) {
+					if (t && e.bowSkin.bowId != t) {
+						continue;
+					}
+					for (const t of e.bowSkin.skins) {
+						i.add(t);
+					}
+				}
+			}
+		}
+		return {
+			skins: Array.from(i),
+			arrowSkin: this.skinNetworkDataToArrowSkinConfig(e),
+		};
+	}
+	skinNetworkDataToMeleeSkinConfig(t) {
+		if (t.equippedSkinIds) {
+			const e = [];
+			for (const i of t.equippedSkinIds) {
+				const t = this.purchasableItems.get(i);
+				if (t && t.meleeSkin) {
+					e.push(t.meleeSkin);
+				}
+			}
+			if (e.length == 1) {
+				return e[0];
+			}
+		}
+		return null;
+	}
+	skinNetworkDataToArrowSkinConfig(t) {
+		if (t.equippedSkinIds) {
+			const e = [];
+			for (const i of t.equippedSkinIds) {
+				const t = this.purchasableItems.get(i);
+				if (t && t.arrowSkin) {
+					e.push(t.arrowSkin);
+				}
+			}
+			if (e.length == 1) {
+				return e[0];
+			}
+		}
+		return "baseSkins/arrow.glb";
+	}
+	getSkinFromShopItem(t, e) {
+		let i;
+		if (e == "male") {
+			i = t.maleSkin;
+		} else if (e == "female") {
+			i = t.femaleSkin;
+		}
+		return i || null;
+	}
+	getConfigForPreviewShopItemId(t, { itemId, colorCategory, colorMultiplier }) {
+		const n = new Set(t.equippedSkinIds);
+		if (itemId) {
+			this.addItemAndRemoveDuplicateSlots(n, itemId);
+		}
+		const o = {
+			gender: t.gender,
+			equippedSkinIds: Array.from(n),
+			beardColorMultiplier: t.beardColorMultiplier,
+			hairColorMultiplier: t.hairColorMultiplier,
+			eyebrowColorMultiplier: t.eyebrowColorMultiplier,
+		};
+		colorCategory &&
+			colorMultiplier &&
+			(colorCategory == "hair"
+				? (o.hairColorMultiplier = colorMultiplier)
+				: colorCategory == "eyebrows"
+					? (o.eyebrowColorMultiplier = colorMultiplier)
+					: colorCategory == "beard" && (o.beardColorMultiplier = colorMultiplier));
+		return o;
+	}
+	onSkinConfigChange(t) {
+		this.onSkinConfigChangeCbs.add(t);
+	}
+	removeOnSkinConfigChange(t) {
+		this.onSkinConfigChangeCbs.delete(t);
+	}
+}
+class ee {
+	el = document.createElement("div");
+	createdPageEls;
+	rootStructure;
+	constructor({ extraClasses = [] } = {}) {
+		this.el.classList.add("paged-view-container", ...extraClasses);
+		this.createdPageEls = [];
+		this.rootStructure = null;
+	}
+	setActiveStructure(t) {
+		this.rootStructure = t;
+		this.createAndPushPage(t);
+	}
+	createAndPushPage(t) {
+		const e = document.createElement("div");
+		e.classList.add("paged-view-page");
+		if (t.headerVisible || t.headerVisible === undefined) {
+			const i = document.createElement("div");
+			i.classList.add("paged-view-page-header", "blueNight");
+			e.appendChild(i);
+			const s = document.createElement("div");
+			s.classList.add("paged-view-page-header-line", "wrinkledLine");
+			e.appendChild(s);
+			const n = t == this.rootStructure;
+			if (!n || t.onBackButtonClick) {
+				const backButton = new CustomButton({
+					ariaLabel: "Back",
+					isIconButton: true,
+					icon: "static/img/arrow.svg",
+					extraClasses: ["header-button", "header-back-button"],
+					onClick: () => {
+						if (t.onBackButtonClick) {
+							t.onBackButtonClick();
+						}
+						if (!n) {
+							this.popPage();
+						}
+					},
+				});
+				i.appendChild(backButton.el);
+			}
+			const o = document.createElement("h2");
+			o.classList.add("paged-view-page-header-title");
+			o.textContent = t.header || t.itemName || "";
+			i.appendChild(o);
+			if (t.rightCorner) {
+				const e = document.createElement("div");
+				e.classList.add("paged-view-page-header-corner");
+				i.appendChild(e);
+				t.rightCorner(e);
+			}
+		}
+		if (t.subPages && t.customSubPage) {
+			throw new Error("Structures cannot have both subPages and customSubPage");
+		}
+		if (t.customSubPageDestroyed && !t.customSubPage) {
+			throw new Error(
+				"customSubPageDestroyed is only supported when customSubPage is also provided",
+			);
+		}
+		let customSubPageEl = null;
+		const createdButtons = [];
+		if (t.subPages) {
+			const i = document.createElement("div");
+			i.classList.add("paged-view-page-items-list");
+			e.appendChild(i);
+			for (const e of t.subPages || []) {
+				const button = new CustomButton({
+					icon: e.buttonIcon,
+					hasPeliPlusIcon: e.hasPeliPlusIcon,
+					iconSize: e.buttonIconSize,
+				});
+				button.setText(e.itemName || "");
+				button.onClick(() => {
+					this.createAndPushPage(e);
+				});
+				i.appendChild(button.el);
+				createdButtons.push({
+					button,
+					structure: e,
+				});
+			}
+		} else {
+			if (t.customSubPage) {
+				customSubPageEl = document.createElement("div");
+				customSubPageEl.classList.add("paged-view-page-custom-subpage");
+				e.appendChild(customSubPageEl);
+				t.customSubPage(customSubPageEl);
+			}
+		}
+		this.el.appendChild(e);
+		this.createdPageEls.push({
+			el: e,
+			structure: t,
+			visible: false,
+			customSubPageEl,
+			createdButtons,
+		});
+		e.classList.add("hiddenright", "hidden");
+		e.style.transition = "none";
+		e.offsetWidth;
+		e.style.transition = "";
+		this.updatePageVisibilities();
+		this.updateButtonVisibilies();
+	}
+	popPage() {
+		const t = this.createdPageEls.pop();
+		if (t) {
+			t.el.classList.add("hiddenright");
+			t.el.classList.add("hidden");
+			setTimeout(() => {
+				this.el.removeChild(t.el);
+				const t_structure = t.structure;
+				if (t.customSubPageEl && t_structure.customSubPageDestroyed) {
+					t_structure.customSubPageDestroyed(t.customSubPageEl);
+				}
+			}, 1000);
+		}
+		this.updatePageVisibilities();
+	}
+	updateButtonVisibilies() {
+		const t = this.createdPageEls[this.createdPageEls.length - 1];
+		if (t) {
+			for (const { button, structure } of t.createdButtons) {
+				let t = true;
+				if (structure.buttonVisible && !structure.buttonVisible()) {
+					t = false;
+				}
+				button.el.style.display = t ? "" : "none";
+			}
+		}
+	}
+	jumpToSubPage(t) {
+		if (!this.rootStructure) {
+			throw new Error("Failed to jump to subpage, no root structure set");
+		}
+		const e = (function t(e, i) {
+			if (e === i) {
+				return [i];
+			}
+			if (!i.subPages) {
+				return null;
+			}
+			for (const s of i.subPages) {
+				const n = t(e, s);
+				if (n) {
+					return [i, ...n];
+				}
+			}
+			return null;
+		})(t, this.rootStructure);
+		if (!e) {
+			throw new Error(
+				"Failed to jump to subpage, structure not found in the current root structure",
+			);
+		}
+		const i = e.slice(1);
+		while (this.createdPageEls.length > 1) {
+			this.popPage();
+		}
+		for (const t of i) {
+			this.createAndPushPage(t);
+		}
+	}
+	updatePageVisibilities() {
+		for (let t = 0; t < this.createdPageEls.length; t++) {
+			const createdPageEl = this.createdPageEls[t];
+			const i = createdPageEl.visible;
+			const s = t >= this.createdPageEls.length - 1;
+			const n = createdPageEl.el;
+			n.classList.toggle("hiddenleft", !s);
+			n.classList.toggle("hidden", !s);
+			n.inert = !s;
+			n.classList.remove("hiddenright");
+			if (i != s) {
+				const t = createdPageEl.structure;
+				if (s && t.onBecomeVisible) {
+					t.onBecomeVisible();
+				}
+			}
+		}
+	}
+}
+let ie = parseFloat(localStorage.getItem("peliGradualRolloutValue") || "");
+if (!ie || !Number.isFinite(ie) || Number.isNaN(ie) || ie < 0 || ie > 1) {
+	ie = Math.random();
+	localStorage.setItem("peliGradualRolloutValue", String(ie));
+}
+class se {
+	skeletonPath;
+	skeletonObject = null;
+	onSkeletonLoadCbs = new Set();
+	onObjectLinksBuilt = new Set();
+	_currentGender;
+	weight = 1;
+	currentlyLoadingPoseAbortController = null;
+	objectLinksBuilt = false;
+	objectLinks = [];
+	constructor(t, e) {
+		this.skeletonPath = t;
+		this._currentGender = e;
+		this.reloadPose();
+	}
+	setGender(t) {
+		this._currentGender = t;
+		this.reloadPose();
+	}
+	async reloadPose() {
+		if (this.currentlyLoadingPoseAbortController) {
+			this.currentlyLoadingPoseAbortController.abort();
+			this.currentlyLoadingPoseAbortController = null;
+			const t = new DOMException("Request aborted by signal.", "AbortError");
+			for (const { reject } of this.onSkeletonLoadCbs) {
+				reject(t);
+			}
+			this.onSkeletonLoadCbs.clear();
+		}
+		this.objectLinksBuilt = false;
+		this.skeletonObject = null;
+		const t = `${this._currentGender}/${this.skeletonPath}`;
+		const e = new AbortController();
+		this.currentlyLoadingPoseAbortController = e;
+		let i = null;
+		try {
+			this.skeletonObject = await getMain().skeletons.getSkeleton(t, {
+				signal: this.currentlyLoadingPoseAbortController.signal,
+			});
+		} catch (error) {
+			error instanceof DOMException && error.name;
+			i = error;
+		}
+		if (!(i || this.skeletonObject)) {
+			i = new Error("Failed to load skeleton, result is null");
+		}
+		if (i) {
+			for (const { reject } of this.onSkeletonLoadCbs) {
+				reject(i);
+			}
+			this.onSkeletonLoadCbs.clear();
+		} else if (!e.signal.aborted) {
+			for (const { resolve } of this.onSkeletonLoadCbs) {
+				resolve();
+			}
+			this.onSkeletonLoadCbs.clear();
+		}
+	}
+	async waitForLoad() {
+		if (this.skeletonObject) {
+			return;
+		}
+		const t = new Promise((resolve, reject) =>
+			this.onSkeletonLoadCbs.add({
+				resolve,
+				reject,
+			}),
+		);
+		await t;
+	}
+	buildObjectLinks(t) {
+		this.objectLinks = [];
+		if (!this.skeletonObject) {
+			throw new Error("Cannot build object links before the skeleton object is loaded");
+		}
+		for (const e of t_1(this.skeletonObject)) {
+			const i = t.getObjectByName(e.name);
+			if (i) {
+				this.objectLinks.push([i, e]);
+			}
+		}
+		this.objectLinksBuilt = true;
+		this.onObjectLinksBuilt.forEach((t) => t());
+		this.onObjectLinksBuilt.clear();
+	}
+	async waitForObjectLinks() {
+		if (this.objectLinksBuilt) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onObjectLinksBuilt.add(resolve));
+		await t;
+	}
+	apply() {
+		if (this.weight != 0) {
+			if (this.weight == 1) {
+				for (const [t, e] of this.objectLinks) {
+					t.position.copy(e.position);
+					t.quaternion.copy(e.quaternion);
+					t.scale.copy(e.scale);
+				}
+			} else {
+				for (const [t, e] of this.objectLinks) {
+					t.position.lerp(e.position, this.weight);
+					t.quaternion.slerp(e.quaternion, this.weight);
+					t.scale.lerp(e.scale, this.weight);
+				}
+			}
+		}
+	}
+}
+type PlayerGender = "male" | "female";
+interface SkeletonOpts {
+	/** @default null */
+	player?: Player | null;
+	/** @default "male" */
+	gender?: PlayerGender;
+}
+class PlayerSkeleton {
+	player: Player | null;
+	isInit = false;
+	onInitCbs = new Set<() => void>();
+	onAllLinkLayerObjectsBuiltCbs = new Set();
+	_currentGender: PlayerGender;
+	poseLayers = [];
+	skeletonMatrixObjects = [];
+	baseSkeletonObject = null;
+	headObj = null;
+	bodyObj = null;
+	armLObj = null;
+	armRObj = null;
+	legObjectsL = null;
+	legObjectsR = null;
+	initCalled = false;
+	constructor({ player = null, gender = "male" } = {}) {
+		this.player = player;
+		this._currentGender = gender;
+	}
+	async init() {
+		if (this.initCalled) {
+			return await this.waitForLoad();
+		}
+		this.initCalled = true;
+		this.baseSkeletonObject = await getMain().skeletons.getSkeleton("male/baseRig", {
+			clone: true,
+		});
+		const baseSkeletonObject = this.baseSkeletonObject;
+		for (const [t, e] of partNames.entries()) {
+			const i = this.baseSkeletonObject.getObjectByName(e);
+			if (!i) {
+				throw new Error(`Assertion failed, skeleton does not have object with name ${e}`);
+			}
+			this.skeletonMatrixObjects[t] = i;
+		}
+		function e(e) {
+			const upper = baseSkeletonObject.getObjectByName(`upperLeg${e}`);
+			const lower = baseSkeletonObject.getObjectByName(`lowerLeg${e}`);
+			const foot = baseSkeletonObject.getObjectByName(`footLeg${e}`);
+			if (upper && lower && foot) {
+				return {
+					upper,
+					lower,
+					foot,
+				};
+			}
+			return null;
+		}
+		this.headObj = this.baseSkeletonObject.getObjectByName("head");
+		this.bodyObj = this.baseSkeletonObject.getObjectByName("torso");
+		this.armLObj = this.baseSkeletonObject.getObjectByName("upperArmL");
+		this.armRObj = this.baseSkeletonObject.getObjectByName("upperArmR");
+		this.legObjectsL = e("L");
+		this.legObjectsR = e("R");
+		this.isInit = true;
+		for (const t of this.onInitCbs) {
+			t();
+		}
+		this.onInitCbs.clear();
+	}
+	async waitForLoad() {
+		if (this.isInit) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		await t;
+	}
+	assertInit() {
+		if (!this.isInit) {
+			throw new Error("PlayerSkeleton not initialized");
+		}
+	}
+	createPoseLayer(t) {
+		const e = new se(t, this._currentGender);
+		this.linkLayerObjects(e);
+		return e;
+	}
+	addPoseLayer(t) {
+		const e = this.createPoseLayer(t);
+		this.poseLayers.push(e);
+		return e;
+	}
+	removePoseLayer(t) {
+		const e = this.poseLayers.indexOf(t);
+		if (e >= 0) {
+			this.poseLayers.splice(e, 1);
+		}
+	}
+	get gender() {
+		return this._currentGender;
+	}
+	setGender(t) {
+		if (this._currentGender != t) {
+			this._currentGender = t;
+			for (const e of this.poseLayers) {
+				e.setGender(t);
+				this.linkLayerObjects(e);
+			}
+		}
+	}
+	async linkLayerObjects(t) {
+		await this.waitForLoad();
+		try {
+			await t.waitForLoad();
+		} catch (error) {
+			if (error instanceof DOMException && error.name == "AbortError") {
+				return;
+			}
+			throw error;
+		}
+		if (!this.baseSkeletonObject) {
+			throw new Error("Assertion failed, baseSkeletonObject not set");
+		}
+		t.buildObjectLinks(this.baseSkeletonObject);
+		if (this.allObjectLinksBuilt) {
+			this.onAllLinkLayerObjectsBuiltCbs.forEach((t) => t());
+			this.onAllLinkLayerObjectsBuiltCbs.clear();
+		}
+	}
+	get allObjectLinksBuilt() {
+		for (const t of this.poseLayers) {
+			if (!t.objectLinksBuilt) {
+				return false;
+			}
+		}
+		return true;
+	}
+	async waitForLinkLayerObjects() {
+		if (this.allObjectLinksBuilt) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onAllLinkLayerObjectsBuiltCbs.add(resolve));
+		await t;
+	}
+	replacePoseLayer(t, e) {
+		const i = this.createPoseLayer(e);
+		this.poseLayers[t] = i;
+		return i;
+	}
+	insertPoseLayer(t, e) {
+		const i = this.createPoseLayer(e);
+		this.poseLayers.splice(t, 0, i);
+		return i;
+	}
+	setLookRotY(t, e) {
+		if (this.bodyObj) {
+			const i = e.head ?? 0.3;
+			this.applyLookRotation(this.bodyObj, new Vector3(1, 0, 0), t * i);
+		}
+		if (this.headObj) {
+			const i = e.head ?? 0.3;
+			this.applyLookRotation(this.headObj, new Vector3(1, 0, 0), t * i);
+		}
+		if (this.armLObj) {
+			const i = e.armL || 0;
+			this.applyLookRotation(this.armLObj, new Vector3(1, 0, 0), t * i);
+		}
+		if (this.armRObj) {
+			const i = e.armR || 0;
+			this.applyLookRotation(this.armRObj, new Vector3(1, 0, 0), t * i);
+		}
+	}
+	applyLookRotation(t, e, i) {
+		if (!t) {
+			return;
+		}
+		const s = t.getWorldQuaternion(new Quaternion());
+		s.invert();
+		const n = e;
+		n.applyQuaternion(s);
+		const o = new Quaternion();
+		o.setFromAxisAngle(n, i);
+		t.quaternion.multiply(o);
+	}
+	applyLayers() {
+		this.assertInit();
+		for (const t of this.poseLayers) {
+			t.apply();
+		}
+	}
+	updateMatrices() {
+		this.assertInit();
+		if (this.baseSkeletonObject) {
+			this.baseSkeletonObject.updateWorldMatrix(false, true);
+		}
+	}
+	getMatrices() {
+		this.assertInit();
+		return this.skeletonMatrixObjects.map((t) => t.matrixWorld);
+	}
+}
+class GameMaterials {
+	materialsCache = new Map();
+	extraMaterials = new Set();
+	shadersHavePrecompiled = false;
+	hashes =
+		"\n\t\t\t// Hash without Sine\n\t\t\t// MIT License...\n\t\t\t// Copyright (c)2014 David Hoskins.\n\t\t\tfloat hash13(vec3 p3)\n\t\t\t{\n\t\t\t\tp3  = fract(p3 * .1031);\n\t\t\t\tp3 += dot(p3, p3.yzx + 33.33);\n\t\t\t\treturn fract((p3.x + p3.y) * p3.z);\n\t\t\t}\n\t\t\tfloat hash12(vec2 p)\n\t\t\t{\n\t\t\t\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n\t\t\t\tp3 += dot(p3, p3.yzx + 33.33);\n\t\t\t\treturn fract((p3.x + p3.y) * p3.z);\n\t\t\t}\n\t\t\tvec3 hash33(vec3 p3)\n\t\t\t{\n\t\t\t\tp3 = fract(p3 * vec3(.1031, .1030, .0973));\n\t\t\t    p3 += dot(p3, p3.yxz+33.33);\n\t\t\t    return fract((p3.xxy + p3.yxx)*p3.zyx);\n\t\t\t}\n\t\t";
+	saturateColorFn =
+		"\n\t\t\tvec3 saturateColor(vec3 rgb, float adjustment){\n\t\t\t\tconst vec3 W = vec3(0.2125, 0.7154, 0.0721);\n\t\t\t\tvec3 intensity = vec3(dot(rgb, W));\n\t\t\t\treturn mix(intensity, rgb, adjustment);\n\t\t\t}\n\t\t";
+	gradientNoiseFn =
+		"\n\t\t\t// The MIT License\n\t\t\t// Copyright (c) 2013 Inigo Quilez\n\t\t\tfloat gradientNoise( in vec3 p )\n\t\t\t{\n\t\t\t    vec3 i = floor( p );\n\t\t\t    vec3 f = fract( p );\n\n\t\t\t\tvec3 u = f*f*(3.0-2.0*f);\n\n\t\t\t    return mix( mix( mix( dot( hash33( i + vec3(0.0,0.0,0.0) ), f - vec3(0.0,0.0,0.0) ),\n\t\t\t                          dot( hash33( i + vec3(1.0,0.0,0.0) ), f - vec3(1.0,0.0,0.0) ), u.x),\n\t\t\t                     mix( dot( hash33( i + vec3(0.0,1.0,0.0) ), f - vec3(0.0,1.0,0.0) ),\n\t\t\t                          dot( hash33( i + vec3(1.0,1.0,0.0) ), f - vec3(1.0,1.0,0.0) ), u.x), u.y),\n\t\t\t                mix( mix( dot( hash33( i + vec3(0.0,0.0,1.0) ), f - vec3(0.0,0.0,1.0) ),\n\t\t\t                          dot( hash33( i + vec3(1.0,0.0,1.0) ), f - vec3(1.0,0.0,1.0) ), u.x),\n\t\t\t                     mix( dot( hash33( i + vec3(0.0,1.0,1.0) ), f - vec3(0.0,1.0,1.0) ),\n\t\t\t                          dot( hash33( i + vec3(1.0,1.0,1.0) ), f - vec3(1.0,1.0,1.0) ), u.x), u.y), u.z );\n\t\t\t}\n\t\t";
+	basicUnlitMat: ShaderMaterial;
+	basicUnlitMatDouble: ShaderMaterial;
+	skyDomeMat: ShaderMaterial;
+	lightsMat: ShaderMaterial;
+	screenFlashMat: ShaderMaterial;
+	snowMat: ShaderMaterial;
+	bowMorph: ShaderMaterial;
+	bowMorphDouble: ShaderMaterial;
+	arrowTrailMat: ShaderMaterial;
+	defaultMatSkinned: ShaderMaterial;
+	defaultDoubleMatSkinned: ShaderMaterial;
+	constructor() {}
+	init() {
+		const opts = {
+			vertexShaderOpts: {
+				modifyColFn:
+					"\n\t\t\t\t\tfloat upDot = dot(normal, vec3(0.0, 1.0, 0.0));\n\t\t\t\t\tcol += clamp(upDot * lightning, 0.0, 1.0);\n\t\t\t\t",
+				extraVariables: "\n\t\t\t\t\tuniform float lightning;\n\t\t\t\t",
+			},
+			uniforms: {
+				lightning: {
+					value: 0,
+				},
+			},
+		};
+		this.basicUnlitMat = this.createMaterial({
+			name: "default",
+			...opts,
+		});
+		this.basicUnlitMatDouble = this.createMaterial({
+			name: "defaultDouble",
+			side,
+			...opts,
+		});
+		this.skyDomeMat = this.createMaterial({
+			name: "skydome",
+			fragmentShaderOpts: {
+				modifyColFn: "\n\t\t\t\t\tcol = getFogcolor();\n\t\t\t\t",
+			},
+			fog: false,
+			needsFogColor: true,
+			needsModelPosVarying: true,
+			depthWrite: false,
+		});
+		this.skyDomeMat.side = BackSide;
+		this.lightsMat = this.createMaterial({
+			name: "lights",
+			fog: false,
+			applyWorldColor: false,
+			depthWrite: false,
+			depthTest: true,
+		});
+		this.lightsMat.blending = NormalBlending;
+		this.screenFlashMat = this.createMaterial({
+			name: "screenFlash",
+			fog: false,
+			applyWorldColor: false,
+			depthWrite: false,
+			depthTest: false,
+			uniforms: {
+				vignetteAmount: {
+					value: 0,
+				},
+				hasDirection: {
+					value: 0,
+				},
+				theta: {
+					value: 0,
+				},
+				baseOpacity: {
+					value: 0,
+				},
+				opacity: {
+					value: 0,
+				},
+				color: {
+					value: new Vector3(),
+				},
+			},
+			vertexShaderOpts: {
+				useMvp: false,
+				needsUv: true,
+			},
+			fragmentShaderOpts: {
+				needsUv: true,
+				extraVariables:
+					"\n\t\t\t\t\tuniform float vignetteAmount;\n\t\t\t\t\tuniform float hasDirection;\n\t\t\t\t\tuniform float theta;\n\t\t\t\t\tuniform float baseOpacity;\n\t\t\t\t\tuniform float opacity;\n\t\t\t\t\tuniform vec3 color;\n\t\t\t\t",
+				modifyColFn:
+					"\n\t\t\t\t\tcol = color;\n\t\t\t\t\tfloat centerDist = length(vUv.xy - vec2(0.5));\n\t\t\t\t\talpha = mix(1.0, centerDist, vignetteAmount);\n\n\t\t\t\t\tvec2 rotatedUv = vUv.xy;\n\t\t\t\t\trotatedUv -= vec2(0.5);\n\t\t\t\t\trotatedUv = vec2(\n\t\t\t\t\t\trotatedUv.x * cos(theta) - rotatedUv.y * sin(theta),\n\t\t\t\t\t\trotatedUv.x * sin(theta) + rotatedUv.y * cos(theta)\n\t\t\t\t\t);\n\t\t\t\t\trotatedUv += vec2(0.5);\n\t\t\t\t\talpha *= mix(1.0, rotatedUv.y, hasDirection);\n\t\t\t\t\talpha *= opacity;\n\t\t\t\t\talpha = mix(alpha, 1.0, baseOpacity);\n\t\t\t\t",
+			},
+		});
+		this.screenFlashMat.transparent = true;
+		this.snowMat = this.createMaterial({
+			name: "snow",
+			vertexShaderOpts: {
+				modifyColFn:
+					"\n\t\t\t\t\tvec3 deltaPos = cameraPosition - worldPos.xyz;\n\t\t\t\t\t// edge = 1.0 - dot(normal, normalize(deltaPos));\n\t\t\t\t\tcol = vec3(0.6, 0.7, 0.8);\n\n\t\t\t\t\tfloat edge = pow(1.0 - dot(normal, normalize(deltaPos)), 3.0);\n\t\t\t\t\tedge = clamp(edge, 0.0, 1.0);\n\t\t\t\t\tcol = mix(vec3(0.6, 0.7, 0.8), vec3(1.5,1.5,1.5), edge);\n\t\t\t\t",
+			},
+		});
+		const e = {
+			vertexShaderOpts: {
+				extraVariables:
+					"\n\t\t\t\t\tattribute float bowMorph;\n\t\t\t\t\tuniform float bowMorphAmount;\n\t\t\t\t",
+				modifyWorldPosBeforeModelMatrixFn:
+					"\n\t\t\t\t\tpos.z -= bowMorph * bowMorphAmount;\n\t\t\t\t",
+			},
+			uniforms: {
+				bowMorphAmount: {
+					value: 0,
+				},
+			},
+		};
+		this.bowMorph = this.createMaterial({
+			...e,
+			name: "bowMorph",
+		});
+		this.bowMorphDouble = this.createMaterial({
+			...e,
+			name: "bowMorphDouble",
+			side,
+		});
+		const computeI = () => {
+			const t = 11;
+			const e = 5;
+			const i = new Date(Date.now());
+			return (
+				i.getUTCMonth() == e - 1 &&
+				((i.getUTCDate() == t && i.getUTCHours() >= 7) ||
+					(i.getUTCDate() == t + 1 && i.getUTCHours() < 7))
+			);
+		};
+		const i = computeI();
+		this.arrowTrailMat = this.createMaterial({
+			name: "arrowTrail",
+			vertexShaderOpts: {
+				extraVariables:
+					"\n\t\t\t\t\tattribute float arrowT;\n\t\t\t\t\tvarying float vArrowT;\n\t\t\t\t\tattribute vec3 linePoint;\n\t\t\t\t",
+				modifyWorldPosFn:
+					"\n\t\t\t\t\tfloat camDist = length(cameraPosition - pos.xyz);\n\t\t\t\t\tfloat requiredVectorLength = camDist * 0.001;\n\t\t\t\t\tfloat currentNormalLength = length(normal);\n\t\t\t\t\tfloat desiredNormalLength = max(requiredVectorLength, currentNormalLength);\n\t\t\t\t\tvec3 clampedNormal = normal * (desiredNormalLength / currentNormalLength);\n\t\t\t\t\tpos.xyz += clampedNormal;\n\t\t\t\t\tvArrowT = arrowT;\n\t\t\t\t",
+			},
+			fragmentShaderOpts: {
+				extraVariables:
+					"\n\t\t\t\t\tuniform float arrowPosT;\n\t\t\t\t\tuniform float arrowShootT;\n\t\t\t\t\tuniform vec3 shootStartPos;\n\t\t\t\t\tuniform float estimatedXLength;\n\t\t\t\t\tvarying float vArrowT;\n\t\t\t\t",
+				modifyColFn: `
+\t\t\t\t\tfloat t = arrowPosT - vArrowT;
+\t\t\t\t\tfloat shootT = arrowShootT - vArrowT;
+\t\t\t\t\talpha = 1.0;
+
+\t\t\t\t\t// fade in at start of trail
+\t\t\t\t\talpha = min(alpha, 0.2 * t - 0.5);
+
+\t\t\t\t\t// fade out at end of trail
+\t\t\t\t\talpha = min(alpha, 1.0 - 3.0 * (shootT / estimatedXLength));
+
+\t\t\t\t\talpha = min(alpha, length(shootStartPos - worldPos.xyz));
+
+\t\t\t\t\talpha = min(alpha, length(cameraPosition - worldPos.xyz) - 0.3);
+
+\t\t\t\t\talpha *= 0.4;
+
+\t\t\t\t\t${i ? "\n\t\t\t\t\t\tfloat dist = length(cameraPosition - worldPos.xyz);\n\t\t\t\t\t\tfloat rainbowDist = 1.0 - exp(-dist * 0.05);\n\t\t\t\t\t\tvec4 rainbow = .5+.5*cos(6.283185*(rainbowDist +vec4(0,1,-1,0)/3.));\n\t\t\t\t\t\trainbow = min(rainbow,2.-rainbow);\n\t\t\t\t\t\tcol = mix(rainbow.rgb, vec3(1.), 0.0);\n\t\t\t\t\t\talpha *= 3.0;\n\t\t\t\t\t" : ""}
+\t\t\t\t`,
+			},
+			depthWrite: false,
+			uniforms: {
+				arrowPosT: {
+					value: 0,
+				},
+				arrowShootT: {
+					value: 0,
+				},
+				shootStartPos: {
+					value: new Vector3(),
+				},
+				estimatedXLength: {
+					value: 1,
+				},
+			},
+		});
+		this.arrowTrailMat.transparent = true;
+		const p_length = partNames.length;
+		const n = [];
+		for (let t = 0; t < p_length; t++) {
+			n.push(new Matrix4());
+		}
+		const o = [];
+		const a = [];
+		for (let t = 0; t < 5; t++) {
+			o.push(0);
+			a.push(new Vector3());
+		}
+		const r = {
+			vertexShaderOpts: {
+				extraVariables: `
+\t\t\t\t\tattribute float skinIndex;
+\t\t\t\t\tuniform mat4 skinMatrices[${p_length}];
+\t\t\t\t\tvarying vec3 vModelPos;
+\t\t\t\t`,
+				modifyWorldPosBeforeModelMatrixFn:
+					"\n\t\t\t\t\tpos = skinMatrices[int(skinIndex)] * pos;\n\t\t\t\t\tvModelPos = pos.xyz;\n\t\t\t\t",
+			},
+			fragmentShaderOpts: {
+				extraVariables:
+					"\n\t\t\t\t\tuniform float time;\n\t\t\t\t\tuniform float hitFlashTimes[5];\n\t\t\t\t\tuniform vec3 hitFlashPositions[5];\n\t\t\t\t\tvarying vec3 vModelPos;\n\t\t\t\t",
+				modifyColFn:
+					"\n\t\t\t\t\tfloat hitFlashAmount = 0.0;\n\t\t\t\t\tfor (int i = 0; i < 5; i++) {\n\t\t\t\t\t\tfloat t = time - hitFlashTimes[i];\n\t\t\t\t\t\tt *= 0.002;\n\t\t\t\t\t\tfloat centerDist = length(vModelPos - hitFlashPositions[i]);\n\t\t\t\t\t\tfloat flash = 1.0 - (centerDist - t * 6.0) * 50.0;\n\t\t\t\t\t\tflash = clamp(flash, 0.0, 1.0);\n\t\t\t\t\t\tflash *= clamp(1.0 - t, 0.0, 1.0);\n\t\t\t\t\t\thitFlashAmount = mix(hitFlashAmount, 1.0, flash);\n\t\t\t\t\t}\n\t\t\t\t\thitFlashAmount = clamp(hitFlashAmount, 0.0, 1.0);\n\t\t\t\t\tcol = mix(col, vec3(1.0, 0.0, 0.0), hitFlashAmount);\n\t\t\t\t",
+			},
+			uniforms: {
+				skinMatrices: {
+					value: n,
+				},
+				time: {
+					value: 0,
+				},
+				hitFlashTimes: {
+					value: o,
+				},
+				hitFlashPositions: {
+					value: a,
+				},
+			},
+		};
+		this.defaultMatSkinned = this.createMaterial({
+			...r,
+			name: "defaultSkinned",
+		});
+		this.defaultDoubleMatSkinned = this.createMaterial({
+			...r,
+			name: "defaultDoubleSkinned",
+			side,
+		});
+	}
+	async precompileShaders() {
+		if (this.shadersHavePrecompiled) {
+			return;
+		}
+		const t = new Scene();
+		const e = new PlaneGeometry();
+		e.setAttribute("color", new BufferAttribute(new Float32Array(16), 4));
+		const i = new Mesh(e);
+		t.add(i);
+		const s = getMain();
+		const renderer = s.renderer.renderer;
+		if (!renderer) {
+			return;
+		}
+		const cam = s.cam.cam;
+		for (const e of this.materialsCache.values()) {
+			await getMain().renderer.waitForFrameRender();
+			i.material = e;
+			renderer.compile(t, cam);
+		}
+		this.shadersHavePrecompiled = true;
+	}
+	*allMaterials() {
+		for (const t of this.materialsCache.values()) {
+			yield t;
+		}
+		for (const t of this.extraMaterials) {
+			yield t;
+		}
+	}
+	getMaterialByName(t) {
+		if (this.materialsCache.has(t)) {
+			return this.materialsCache.get(t);
+		}
+		return this.basicUnlitMat;
+	}
+	addCachedMaterial(t) {
+		if (t.name) {
+			this.materialsCache.set(t.name, t);
+		} else {
+			console.warn("material doesn't have a name!");
+		}
+	}
+	addExtraMaterial(t) {
+		this.extraMaterials.add(t);
+	}
+	removeExtraMaterial(t) {
+		this.extraMaterials.delete(t);
+	}
+	applyWeatherParams(t) {
+		for (const e of this.allMaterials()) {
+			e.uniforms.colorMultiplier.value.copy(t.colorMultiplier);
+			e.uniforms.colorAdder.value.copy(t.colorAdder);
+			e.uniforms.saturation.value = t.saturation;
+			e.uniforms.skyLowCol.value.copy(t.skyLowColor);
+			e.uniforms.skyHighCol.value.copy(t.skyHighColor);
+			e.uniforms.skyMidCol.value.copy(t.skyMidColor);
+			e.uniforms.skyPower.value = t.skyPower;
+			e.uniforms.fogAmount.value = t.fogAmount;
+			e.uniforms.fogHeightAmount.value = t.fogHeightAmount;
+			e.uniforms.fogHeightOffset.value = t.fogHeightOffset;
+			e.uniforms.fogHeightDistFalloff.value = t.fogHeightDistFalloff + 1;
+			e.uniforms.fogHeightAmountMin.value = t.fogHeightAmountMin;
+			e.uniforms.fogHeightAmountMax.value = t.fogHeightAmountMax;
+		}
+	}
+	static resetWeatherUniforms(t) {
+		t.uniforms.colorMultiplier.value.set(new Color(1, 1, 1));
+		t.uniforms.colorAdder.value.set(new Color(0, 0, 0));
+		t.uniforms.saturation.value = 1;
+		t.uniforms.fogAmount.value = 0;
+		t.uniforms.fogHeightAmountMin.value = 0;
+		t.uniforms.fogHeightAmountMax.value = 0;
+	}
+	setLightningValue(t) {
+		if (this.basicUnlitMat) {
+			this.basicUnlitMat.uniforms.lightning.value = t;
+		}
+		if (this.basicUnlitMatDouble) {
+			this.basicUnlitMatDouble.uniforms.lightning.value = t;
+		}
+	}
+	buildVertexShader({
+		name = "",
+		extraVariables = "",
+		modifyWorldPosFn = "",
+		modifyWorldPosAfterColorFn = "",
+		modifyWorldPosBeforeModelMatrixFn = "",
+		modifyColFn = "",
+		extraFunctions = "",
+		fog = true,
+		needsFogColor = false,
+		applyWorldColor = true,
+		useMvp = true,
+		needsModelPosVarying = false,
+		needsUv = false,
+	} = {}) {
+		return `
+\t\t\t//vertex shader for ${name}
+
+\t\t\t${fog ? "#define FOG" : ""}
+\t\t\t${needsFogColor ? "#define NEEDS_FOG_COLOR" : ""}
+\t\t\t${applyWorldColor ? "#define APPLY_WORLD_COLOR" : ""}
+\t\t\t${useMvp ? "#define USE_MVP" : ""}
+\t\t\t${needsModelPosVarying ? "#define NEEDS_MODEL_POS_VARYING" : ""}
+\t\t\t${needsUv ? "#define NEEDS_UV" : ""}
+
+\t\t\t#define PI 3.141592653589793
+
+\t\t\tvarying vec3 vColor;
+\t\t\tvarying vec4 worldPos;
+\t\t\t#ifdef FOG
+\t\t\t\t#define NEEDS_FOG_COLOR
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_FOG_COLOR
+\t\t\t\tvarying float skyColorLerpValue;
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_MODEL_POS_VARYING
+\t\t\t\tvarying vec3 vModelPos;
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_UV
+\t\t\t\tvarying vec2 vUv;
+\t\t\t#endif
+
+\t\t\tuniform float saturation;
+\t\t\tuniform vec3 colorMultiplier;
+\t\t\tuniform vec3 colorAdder;
+
+\t\t\tvarying vec2 vHighPrecisionZW;
+
+\t\t\t${extraVariables}
+
+\t\t\t${extraFunctions}
+
+\t\t\tvec4 modifyWorldPos(vec4 pos){
+\t\t\t\t${modifyWorldPosFn}
+\t\t\t\treturn pos;
+\t\t\t}
+
+\t\t\tvec4 modifyWorldPosAfterColor(vec4 pos){
+\t\t\t\t${modifyWorldPosAfterColorFn}
+\t\t\t\treturn pos;
+\t\t\t}
+
+\t\t\tvec4 modifyWorldPosBeforeModelMatrix(vec4 pos){
+\t\t\t\t${modifyWorldPosBeforeModelMatrixFn}
+\t\t\t\treturn pos;
+\t\t\t}
+
+\t\t\tvec3 modifyCol(vec3 col){
+\t\t\t\t${modifyColFn}
+\t\t\t\treturn col;
+\t\t\t}
+
+\t\t\t${this.saturateColorFn}
+
+\t\t\tvoid main(){
+\t\t\t\tvec3 modelPosition = vec3(position);
+\t\t\t\tworldPos = vec4(modelPosition, 1.0);
+\t\t\t\t#ifdef USE_INSTANCING
+\t\t\t\t\tworldPos = instanceMatrix * worldPos;
+\t\t\t\t#endif
+\t\t\t\tworldPos = modifyWorldPosBeforeModelMatrix(worldPos);
+\t\t\t\t#ifdef USE_MVP
+\t\t\t\t\tworldPos = modelMatrix * worldPos;
+\t\t\t\t#endif
+\t\t\t\tworldPos = modifyWorldPos(worldPos);
+\t\t\t\t#ifdef NEEDS_UV
+\t\t\t\t\tvUv = uv;
+\t\t\t\t#endif
+\t\t\t\tvec3 col = modifyCol(color.rgb);
+\t\t\t\t#ifdef APPLY_WORLD_COLOR
+\t\t\t\t\tcol = saturateColor(col, saturation);
+\t\t\t\t\tcol *= colorMultiplier;
+\t\t\t\t\tcol += colorAdder;
+\t\t\t\t#endif
+\t\t\t\tvColor = col;
+
+\t\t\t\t#ifdef NEEDS_FOG_COLOR
+\t\t\t\t\tvec3 deltaPos = cameraPosition - vec3(worldPos);
+\t\t\t\t\tfloat angle = dot(vec3(0.0,-1.0,0.0), normalize(deltaPos));
+\t\t\t\t\tangle = clamp(angle, -PI, PI);
+\t\t\t\t\tangle = acos(angle);
+\t\t\t\t\tskyColorLerpValue = 1.0 - angle / 1.57;
+\t\t\t\t#endif
+\t\t\t\t#ifdef NEEDS_MODEL_POS_VARYING
+\t\t\t\t\tvModelPos = position;
+\t\t\t\t#endif
+\t\t\t\t#ifdef FOG
+\t\t\t\t#endif
+
+\t\t\t\tworldPos = modifyWorldPosAfterColor(worldPos);
+
+\t\t\t\t#ifdef USE_MVP
+\t\t\t\t\tvec4 modelViewPosition = viewMatrix * worldPos;
+\t\t\t\t\tgl_Position = projectionMatrix * modelViewPosition;
+\t\t\t\t#else
+\t\t\t\t\tgl_Position = worldPos;
+\t\t\t\t#endif
+\t\t\t}
+\t\t`;
+	}
+	buildFragShader({
+		name = "",
+		extraVariables = "",
+		modifyColFn = "",
+		modifyTexColFn = "",
+		extraFunctions = "",
+		fog = true,
+		needsFogColor = false,
+		needsModelPosVarying = false,
+		needsUv = false,
+	} = {}) {
+		return `
+\t\t\t//fragment shader for ${name}
+
+\t\t\t${fog ? "#define FOG" : ""}
+\t\t\t${needsFogColor ? "#define NEEDS_FOG_COLOR" : ""}
+\t\t\t${needsModelPosVarying ? "#define NEEDS_MODEL_POS_VARYING" : ""}
+\t\t\t${needsUv ? "#define NEEDS_UV" : ""}
+
+\t\t\tvarying vec3 vColor;
+\t\t\tvarying vec4 worldPos;
+
+\t\t\tuniform vec3 skyHighCol;
+\t\t\tuniform vec3 skyMidCol;
+\t\t\tuniform vec3 skyLowCol;
+\t\t\tuniform float skyPower;
+\t\t\t#ifdef FOG
+\t\t\t\tuniform float fogAmount;
+\t\t\t\tuniform float fogHeightAmount;
+\t\t\t\tuniform float fogHeightOffset;
+\t\t\t\tuniform float fogHeightDistFalloff;
+\t\t\t\tuniform float fogHeightAmountMin;
+\t\t\t\tuniform float fogHeightAmountMax;
+\t\t\t\tfloat fogLerpValue;
+\t\t\t\t#define NEEDS_FOG_COLOR
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_FOG_COLOR
+\t\t\t\tvarying float skyColorLerpValue;
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_MODEL_POS_VARYING
+\t\t\t\tvarying vec3 vModelPos;
+\t\t\t#endif
+\t\t\t#ifdef NEEDS_UV
+\t\t\t\tvarying vec2 vUv;
+\t\t\t#endif
+
+\t\t\tfloat alpha = 1.0;
+
+\t\t\t#include <packing>
+\t\t\tvarying vec2 vHighPrecisionZW;
+
+\t\t\t${extraVariables}
+
+\t\t\t#ifdef NEEDS_FOG_COLOR
+\t\t\t\tvec3 getFogcolor(){
+\t\t\t\t\tfloat absLerpValue = abs(skyColorLerpValue);
+\t\t\t\t\tfloat lerpValue = pow(max(0.0, absLerpValue), skyPower);
+\t\t\t\t\tif (skyColorLerpValue < 0.0) {
+\t\t\t\t\t\treturn mix(skyMidCol, skyLowCol, lerpValue);
+\t\t\t\t\t} else {
+\t\t\t\t\t\treturn mix(skyMidCol, skyHighCol, lerpValue);
+\t\t\t\t\t}
+\t\t\t\t}
+\t\t\t#endif
+
+\t\t\t#ifdef FOG
+\t\t\tvec3 applyFog(vec3 col){
+\t\t\t\tcol = mix(col, getFogcolor(), fogLerpValue);
+\t\t\t\treturn col;
+\t\t\t}
+\t\t\t#endif
+
+\t\t\t${extraFunctions}
+
+\t\t\tvec3 modifyCol(vec3 col){
+\t\t\t\t${modifyColFn}
+\t\t\t\treturn col;
+\t\t\t}
+
+\t\t\tvec4 modifyTexCol(vec4 col, vec2 uv){
+\t\t\t\t${modifyTexColFn}
+\t\t\t\treturn col;
+\t\t\t}
+
+\t\t\tfloat computeFog(float dist, float fogAmount) {
+\t\t\t\treturn 1.0 - exp(-dist * fogAmount);
+\t\t\t}
+
+\t\t\tfloat computeHeightFog(float fogAmount, float fogHeightAmount, float dist, float originHeight, float deltaHeight) {
+\t\t\t\tfloat h = fogHeightAmount;
+\t\t\t\tfloat fog = (fogAmount / h) * exp(-originHeight * h) * (1.0 - exp(-dist * deltaHeight * h)) / deltaHeight;
+\t\t\t\treturn clamp(fog, 0.0, 1.0);
+\t\t\t}
+
+\t\t\tvoid main(){
+\t\t\t\t#ifdef FOG
+\t\t\t\t\tvec3 deltaPos = vec3(worldPos) - cameraPosition;
+\t\t\t\t\tfloat fogDistValue = length(deltaPos);
+\t\t\t\t\tif (fogHeightAmount < 0.00001) {
+\t\t\t\t\t\tfogLerpValue = computeFog(fogDistValue, fogAmount);
+\t\t\t\t\t} else {
+\t\t\t\t\t\tfloat min = computeFog(fogDistValue, fogHeightAmountMin);
+\t\t\t\t\t\tfloat max = computeFog(fogDistValue, fogHeightAmountMax);
+\t\t\t\t\t\tfloat distAmount = fogHeightAmount * pow(fogHeightDistFalloff, - fogDistValue);
+\t\t\t\t\t\tfloat heightFog = computeHeightFog(fogAmount, distAmount, fogDistValue, cameraPosition.y - fogHeightOffset, normalize(deltaPos).y);
+\t\t\t\t\t\tfogLerpValue = clamp(heightFog, min, max);
+\t\t\t\t\t}
+\t\t\t\t#endif
+\t\t\t\tvec3 col = modifyCol(vColor);
+\t\t\t\t#ifdef FOG
+\t\t\t\t\tcol = applyFog(col);
+\t\t\t\t#endif
+\t\t\t\tgl_FragColor = LinearTosRGB(vec4(col, alpha));
+\t\t\t}
+\t\t`;
+	}
+	createMaterial({
+		name = "",
+		vertexShaderOpts = {},
+		fragmentShaderOpts = {},
+		exactVertShader = null,
+		exactFragShader = null,
+		uniforms = {},
+		defaultAttributeValues = {},
+		fog = true,
+		needsFogColor = false,
+		applyWorldColor = true,
+		needsModelPosVarying = false,
+		needsUv = false,
+		depthWrite = true,
+		depthTest = true,
+		side = F,
+	} = {}) {
+		const m = {
+			fog,
+			needsFogColor,
+			needsModelPosVarying,
+			needsUv,
+			applyWorldColor,
+		};
+		let vertexShader;
+		let fragmentShader;
+		vertexShaderOpts = {
+			name,
+			...m,
+			...vertexShaderOpts,
+		};
+		fragmentShaderOpts = {
+			name,
+			...m,
+			...fragmentShaderOpts,
+		};
+		vertexShader = exactVertShader || this.buildVertexShader(vertexShaderOpts);
+		fragmentShader = exactFragShader || this.buildFragShader(fragmentShaderOpts);
+		uniforms = {
+			saturation: {
+				value: 1,
+			},
+			colorMultiplier: {
+				value: new Color(1, 1, 1),
+			},
+			colorAdder: {
+				value: new Color(0, 0, 0),
+			},
+			skyHighCol: {
+				value: new Color(),
+			},
+			skyMidCol: {
+				value: new Color(),
+			},
+			skyLowCol: {
+				value: new Color(),
+			},
+			skyPower: {
+				value: 1,
+			},
+			fogAmount: {
+				value: 0.002,
+			},
+			fogHeightAmount: {
+				value: 0,
+			},
+			fogHeightOffset: {
+				value: 0,
+			},
+			fogHeightDistFalloff: {
+				value: 0,
+			},
+			fogHeightAmountMin: {
+				value: 0,
+			},
+			fogHeightAmountMax: {
+				value: 0,
+			},
+			...uniforms,
+		};
+		const b = new ShaderMaterial({
+			name,
+			vertexShader,
+			fragmentShader,
+			uniforms,
+			side,
+			vertexColors: true,
+			depthWrite,
+			depthTest,
+		});
+		b.defaultAttributeValues = {
+			...b.defaultAttributeValues,
+			...defaultAttributeValues,
+		};
+		this.addCachedMaterial(b);
+		return b;
+	}
+}
+function ae(obj, { skinMatrices = null } = {}) {
+	let i = null;
+	const s = new Vector3();
+	for (const n of t_1(obj)) {
+		if (n instanceof Mesh && n.geometry) {
+			const t = n.geometry.attributes.position;
+			const o = n.geometry.attributes.skinIndex;
+			for (let n = 0; n < t.count; n++) {
+				s.fromBufferAttribute(t, n);
+				if (o && skinMatrices) {
+					const t = skinMatrices[o.getX(n)];
+					s.applyMatrix4(t);
+				}
+				if (i) {
+					i.expandByPoint(s);
+				} else {
+					i = new Box3(s.clone(), s.clone());
+				}
+			}
+		}
+	}
+	if (!i) {
+		return new Sphere(new Vector3(0, 0, 0), 1);
+	}
+	const n = i.getCenter(new Vector3());
+	let o = 0;
+	for (const i of t_1(obj)) {
+		if (i instanceof Mesh && i.geometry) {
+			const t = i.geometry.attributes.position;
+			const a = i.geometry.attributes.skinIndex;
+			for (let i = 0; i < t.count; i++) {
+				s.fromBufferAttribute(t, i);
+				if (a && skinMatrices) {
+					const t = skinMatrices[a.getX(i)];
+					s.applyMatrix4(t);
+				}
+				const r = n.distanceTo(s);
+				o = Math.max(o, r);
+			}
+		}
+	}
+	return new Sphere(n, o);
+}
+class re {
+	skinObjectOpts;
+	isInit = false;
+	destructed = false;
+	obj = null;
+	materials = [];
+	lastSetMatrices = null;
+	onInitCbs = new Set();
+	getSkinAbortController = new AbortController();
+	useWorldWeather;
+	initCalled = false;
+	constructor({ skinObjectOpts, init = true, useWorldWeather = true }) {
+		this.skinObjectOpts = skinObjectOpts;
+		this.useWorldWeather = useWorldWeather;
+		if (init) {
+			this.init();
+		}
+	}
+	destructor() {
+		this.destructed = true;
+		for (const t of this.materials) {
+			t.dispose();
+		}
+		this.materials = [];
+		if (this.obj) {
+			for (const t of t_1(this.obj)) {
+				if (t instanceof Mesh) {
+					t.geometry.dispose();
+				}
+			}
+			this.obj = null;
+		}
+		this.getSkinAbortController.abort();
+	}
+	async init() {
+		if (this.initCalled) {
+			return await this.waitForInit();
+		}
+		this.initCalled = true;
+		let t = null;
+		try {
+			t = await getMain().skins.getSkinObject(
+				this.skinObjectOpts,
+				this.getSkinAbortController.signal,
+			);
+		} catch (error) {
+			if (!(this.destructed && error instanceof DOMException && error.name == "AbortError")) {
+				throw error;
+			}
+		}
+		if (
+			t &&
+			((t.geometry.boundingSphere = new Sphere(new Vector3(0, 1, 0), 1)), !this.destructed)
+		) {
+			this.obj = t;
+			const e = new Map();
+			this.obj.traverse((t) => {
+				if (t instanceof Mesh) {
+					if (Array.isArray(t.material)) {
+						const i = t.material;
+						for (const [s, n] of i.entries()) {
+							let i = e.get(n);
+							if (!i) {
+								i = n.clone();
+								this.materials.push(i);
+								e.set(n, i);
+							}
+							t.material[s] = i;
+						}
+					} else {
+						let i = e.get(t.material);
+						if (!i) {
+							i = t.material.clone();
+							this.materials.push(i);
+							e.set(t.material, i);
+						}
+						t.material = i;
+					}
+				}
+			});
+		}
+		if (!this.useWorldWeather) {
+			for (const t of this.materials) {
+				GameMaterials.resetWeatherUniforms(t);
+			}
+		}
+		this.isInit = true;
+		for (const t of this.onInitCbs) {
+			t();
+		}
+		this.onInitCbs.clear();
+	}
+	async waitForInit() {
+		if (this.isInit) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		await t;
+	}
+	applySkeleton(t) {
+		this.lastSetMatrices = t.getMatrices();
+		for (const t of this.materials) {
+			if (t.uniforms.skinMatrices) {
+				t.uniforms.skinMatrices.value = this.lastSetMatrices;
+			}
+		}
+	}
+	setHitFlashMaterialsTime(t) {
+		for (const e of this.materials) {
+			e.uniforms.time.value = t;
+		}
+	}
+	setHitFlashMaterialsValue(t, e, i) {
+		if (t < 0 || t >= 5) {
+			throw new Error("Invalid index");
+		}
+		for (const s of this.materials) {
+			s.uniforms.hitFlashTimes.value[t] = e;
+			s.uniforms.hitFlashPositions.value[t].copy(i);
+		}
+	}
+	computeApproximateBoundingSphere() {
+		if (!this.obj) {
+			throw new Error("No model loaded");
+		}
+		return ae(this.obj, {
+			skinMatrices: this.lastSetMatrices,
+		});
+	}
+}
+class le extends Dialog {
+	onPurchaseSuccessCbs = new Set();
+	shopItem;
+	purchaseButton;
+	constructor(t, e, { renderOptions }) {
+		super(t, {
+			title: "Confirm your purchase",
+			testLabel: "confirmPurchase",
+		});
+		this.shopItem = new ge(t, e, {
+			usage: "preview",
+			renderOptions,
+			dialog: this,
+		});
+		this.el.appendChild(this.shopItem.el);
+		this.addButtonsContainer();
+		this.addButton({
+			text: "Cancel",
+			testLabel: "cancel",
+			onClick: () => {
+				this.close();
+			},
+		});
+		const s = {
+			testLabel: "purchase",
+			onClick: async () => {
+				await this.purchaseButtonClick();
+			},
+		};
+		const n = getMain().shopState.getVisibleItemPrice(e);
+		if (n > 0) {
+			s.showCurrency = true;
+			s.currency = n;
+		} else {
+			s.text = "Get Item";
+			if (e.hasRewardedAd) {
+				s.icon = "static/img/rewardedAdIcon.svg";
+			}
+		}
+		this.purchaseButton = this.addButton(s);
+		if (getMain().shopState.isPurchasingItem(e.id)) {
+			this.setButtonEnabled(false);
+			(async () => {
+				await getMain().shopState.waitForItemPurchase(e.id);
+				this.setButtonEnabled(true);
+			})();
+		}
+	}
+	destructor() {
+		this.shopItem.destructor();
+		super.destructor();
+	}
+	setButtonEnabled(t) {
+		this.purchaseButton.enabled = t;
+	}
+	async purchaseButtonClick() {
+		this.setButtonEnabled(false);
+		const t = getMain();
+		if (await t.shopState.purchaseItem(this.shopItem.config, t.poki, t.dialogManager, "shop")) {
+			this.onPurchaseSuccessCbs.forEach((t) => t());
+			this.close();
+		} else {
+			this.setButtonEnabled(true);
+		}
+	}
+	onPurchaseSuccess(t) {
+		this.onPurchaseSuccessCbs.add(t);
+	}
+}
+class he {
+	obj = new Object3D();
+	label;
+	useWorldWeather;
+	currentlyLoadingAbortController;
+	currentAssetName;
+	currentMeleeAsset;
+	onFirstAssetLoadCbs;
+	onNewAssetLoadedCbs;
+	currentlyLoadedMaterials;
+	constructor({ useWorldWeather = true, label = "" } = {}) {
+		this.obj.name = `${label} asset loader`;
+		this.label = label;
+		this.useWorldWeather = useWorldWeather;
+		this.currentlyLoadingAbortController = null;
+		this.currentAssetName = "";
+		this.currentMeleeAsset = null;
+		this.onFirstAssetLoadCbs = new Set();
+		this.onNewAssetLoadedCbs = new Set();
+		this.currentlyLoadedMaterials = [];
+	}
+	destructor() {
+		this.destroyMaterials();
+		this.destroyBowMeshes();
+	}
+	async setConfig(t) {
+		if (this.currentlyLoadingAbortController) {
+			this.currentlyLoadingAbortController.abort();
+		}
+		const e = new AbortController();
+		this.currentlyLoadingAbortController = e;
+		const i = getMain();
+		let s = null;
+		if (t.skinAssetName) {
+			const { skinAssetName, fallbackSkinAssetName } = t;
+			let o;
+			try {
+				o = await i.skins.buildConfigObject(
+					{
+						...t,
+						label: this.label,
+						skinAssetName,
+						fallbackSkinAssetName,
+					},
+					this.currentlyLoadingAbortController.signal,
+				);
+			} catch (error) {
+				if (error instanceof DOMException && error.name == "AbortError") {
+					return;
+				}
+				throw error;
+			}
+			s = o.asset;
+		}
+		if (this.currentMeleeAsset) {
+			this.obj.remove(this.currentMeleeAsset);
+		}
+		this.currentMeleeAsset = null;
+		this.destroyMaterials();
+		this.destroyBowMeshes();
+		if (s) {
+			this.currentMeleeAsset = s;
+			this.obj.add(s);
+		}
+		this.currentlyLoadingAbortController = null;
+		this.onFirstAssetLoadCbs.forEach((t) => t());
+		this.onFirstAssetLoadCbs.clear();
+		this.onNewAssetLoadedCbs.forEach((t) => t());
+	}
+	destroyMaterials() {
+		for (const t of this.currentlyLoadedMaterials) {
+			t.dispose();
+		}
+		this.currentlyLoadedMaterials = [];
+	}
+	destroyBowMeshes() {
+		if (this.currentMeleeAsset) {
+			for (const t of t_1(this.currentMeleeAsset)) {
+				if (t instanceof Mesh) {
+					t.geometry.dispose();
+				}
+			}
+		}
+	}
+	async waitForLoad() {
+		if (!this.isLoadingAsset) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(resolve));
+		await t;
+	}
+	get isLoadingAsset() {
+		return !this.currentMeleeAsset || Boolean(this.currentlyLoadingAbortController);
+	}
+	onNewAssetLoaded(t) {
+		this.onNewAssetLoadedCbs.add(t);
+	}
+}
+const de = {
+	smallBow: {
+		stringPullAmountTop: 0.12,
+		stringPullAmountMiddle: 0.26,
+		stringPullAmountBottom: 0.17,
+	},
+	mediumBow: {
+		bendAmount: 0.2,
+		stringDistFar: 0.7,
+		stringPullAmountTop: 0.045,
+		stringPullAmountMiddle: 0.53,
+		stringPullAmountBottom: 0.135,
+	},
+	largeBow: {
+		stringPullAmountTop: 0.24,
+		stringPullAmountMiddle: 0.53,
+		stringPullAmountBottom: 0.25,
+	},
+	smallCrossbow: {
+		stringDistNear: 0.02,
+		stringDistFar: 0.2,
+		stringPullAmountTop: 0,
+		stringPullAmountMiddle: 0.09,
+		stringPullAmountBottom: 0,
+	},
+	largeCrossbow: {
+		stringDistFar: 0.7,
+		stringPullAmountTop: 0.12,
+		stringPullAmountMiddle: 0.26,
+		stringPullAmountBottom: 0.12,
+	},
+	repeatingCrossbow: {
+		stringDistNear: 0.1,
+		stringDistFar: 0.2,
+		bendAmount: 0.1,
+		stringPullAmountTop: 0.02,
+		stringPullAmountMiddle: 0.135,
+		stringPullAmountBottom: 0.02,
+	},
+};
+class ce {
+	obj = new Object3D();
+	useWorldWeather;
+	lastFireAmount01;
+	lastVisibleCount;
+	currentBowAsset;
+	onFirstAssetLoadCbs;
+	onAssetChangeCbs;
+	currentlyLoadingAbortController;
+	currentlyLoadedMaterials;
+	currentArrowObjs;
+	currentArrowOffsets;
+	onArrowDestroyCallbacks;
+	arrowAssetLoader;
+	arrowObjectsConfig;
+	arrowPointIdle;
+	arrowPointLoaded;
+	constructor({ useWorldWeather = true } = {}) {
+		this.obj.name = "Bow asset loader";
+		this.useWorldWeather = useWorldWeather;
+		this.lastFireAmount01 = 0;
+		this.lastVisibleCount = 0;
+		this.currentBowAsset = null;
+		this.onFirstAssetLoadCbs = new Set();
+		this.onAssetChangeCbs = new Set();
+		this.currentlyLoadingAbortController = null;
+		this.currentlyLoadedMaterials = [];
+		this.currentArrowObjs = [];
+		this.currentArrowOffsets = [];
+		this.onArrowDestroyCallbacks = new Set();
+		this.arrowAssetLoader = new he({
+			useWorldWeather,
+			label: "Arrow",
+		});
+		this.arrowAssetLoader.onNewAssetLoaded(() => {
+			this.rebuildArrowObjects();
+			this.onArrowDestroyCallbacks.forEach((t) => t());
+			this.onArrowDestroyCallbacks.clear();
+		});
+		this.arrowObjectsConfig = {
+			arrowCount: 0,
+			arrowPositions: "stacked",
+		};
+		this.arrowPointIdle = new Object3D();
+		this.arrowPointIdle.name = "Arrow point idle";
+		this.obj.add(this.arrowPointIdle);
+		this.arrowPointLoaded = new Object3D();
+		this.arrowPointLoaded.name = "Arrow point loaded";
+		this.obj.add(this.arrowPointLoaded);
+	}
+	destructor() {
+		this.destroyMaterials();
+		this.destroyBowMeshes();
+		this.arrowAssetLoader.setConfig({
+			skinAssetName: null,
+		});
+	}
+	async setConfig(t) {
+		this.arrowAssetLoader.setConfig({
+			skinAssetName: t.arrowSkin,
+			fallbackSkinAssetName: "baseSkins/arrow.glb",
+			teamColor: t.teamColor,
+			teamId: t.teamId,
+		});
+		if (this.currentlyLoadingAbortController) {
+			this.currentlyLoadingAbortController.abort();
+		}
+		const e = new AbortController();
+		this.currentlyLoadingAbortController = e;
+		const i = getMain();
+		let s;
+		let morphOpts = {};
+		if (t.bowId) {
+			morphOpts = de[t.bowId] || {};
+		}
+		try {
+			s = await i.skins.getBowObject(
+				{
+					name: t.bowId,
+					teamId: t.teamId,
+					teamColor: t.teamColor,
+					morphOpts,
+					skinAssets: t.skins,
+					separateObjectNames: t.separateObjectNames || [],
+				},
+				this.currentlyLoadingAbortController.signal,
+			);
+		} catch (error) {
+			if (error instanceof DOMException && error.name == "AbortError") {
+				return;
+			}
+			throw error;
+		}
+		const { bow, arrowPointIdleMatrix, arrowPointLoadedMatrix } = s;
+		if (this.currentBowAsset) {
+			this.obj.remove(this.currentBowAsset);
+		}
+		this.destroyMaterials();
+		this.destroyBowMeshes();
+		this.currentBowAsset = bow;
+		this.obj.add(bow);
+		if (!(bow instanceof Mesh)) {
+			throw new Error("Assertion failed, bow is not a mesh");
+		}
+		const bow_material = bow.material;
+		if (!Array.isArray(bow_material)) {
+			throw new Error("Assertion failed, materials is not an array");
+		}
+		for (let t = 0; t < bow_material.length; t++) {
+			const e = bow_material[t].clone();
+			bow_material[t] = e;
+			e instanceof ShaderMaterial &&
+				(this.useWorldWeather || GameMaterials.resetWeatherUniforms(e));
+			this.currentlyLoadedMaterials.push(e);
+		}
+		this.arrowPointIdle.position.set(0, 0, 0);
+		this.arrowPointIdle.quaternion.identity();
+		this.arrowPointIdle.scale.set(1, 1, 1);
+		this.arrowPointIdle.applyMatrix4(arrowPointIdleMatrix);
+		this.arrowPointLoaded.position.set(0, 0, 0);
+		this.arrowPointLoaded.quaternion.identity();
+		this.arrowPointLoaded.scale.set(1, 1, 1);
+		this.arrowPointLoaded.applyMatrix4(arrowPointLoadedMatrix);
+		const arrowCount = t.arrowCount ?? 1;
+		const arrowPositions = t.arrowPositions ?? "stacked";
+		if (
+			!(
+				this.arrowObjectsConfig.arrowCount == arrowCount &&
+				this.arrowObjectsConfig.arrowPositions == arrowPositions
+			)
+		) {
+			this.arrowObjectsConfig = {
+				arrowCount,
+				arrowPositions,
+			};
+			this.rebuildArrowObjects();
+		}
+		this.internalUpdateFireAmount();
+		this.currentlyLoadingAbortController = null;
+		this.onFirstAssetLoadCbs.forEach((t) => t());
+		this.onFirstAssetLoadCbs.clear();
+		this.onAssetChangeCbs.forEach((t) => t(bow));
+	}
+	rebuildArrowObjects() {
+		this.currentArrowOffsets = [];
+		for (const t of this.currentArrowObjs) {
+			this.obj.remove(t);
+		}
+		this.currentArrowObjs = [];
+		const t = this.arrowAssetLoader.obj.children[0];
+		if (t) {
+			for (let e = 0; e < this.arrowObjectsConfig.arrowCount; e++) {
+				const i = t.clone();
+				i.position.z = 0.6;
+				this.obj.add(i);
+				this.currentArrowObjs.push(i);
+				const s = new Vector2();
+				if (this.arrowObjectsConfig.arrowPositions == "stacked") {
+					s.set(0, 0.01 * e);
+				} else {
+					s.x = Math.cos(e) * e * 0.01;
+					s.y = Math.sin(e) * e * 0.01;
+				}
+				this.currentArrowOffsets.push(s);
+			}
+			this.internalUpdateFireAmount();
+		}
+	}
+	getClonedArrowObject(t) {
+		const e = this.arrowAssetLoader.obj.children[0];
+		if (e) {
+			this.onArrowDestroyCallbacks.add(t);
+			return e.clone();
+		}
+		return null;
+	}
+	destroyMaterials() {
+		for (const t of this.currentlyLoadedMaterials) {
+			t.dispose();
+		}
+		this.currentlyLoadedMaterials = [];
+	}
+	destroyBowMeshes() {
+		if (this.currentBowAsset) {
+			for (const t of t_1(this.currentBowAsset)) {
+				if (t instanceof Mesh) {
+					t.geometry.dispose();
+				}
+			}
+		}
+	}
+	async waitForLoad() {
+		if (!this.isLoadingAsset) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(resolve));
+		await t;
+	}
+	onAssetChange(t) {
+		this.onAssetChangeCbs.add(t);
+	}
+	get isLoadingAsset() {
+		return !this.currentBowAsset || Boolean(this.currentlyLoadingAbortController);
+	}
+	get assetLoaded() {
+		return Boolean(this.currentBowAsset);
+	}
+	getLoadedArrowPointScale() {
+		return this.arrowPointLoaded.scale;
+	}
+	updateFireAmount(t, e) {
+		this.lastFireAmount01 = t;
+		this.lastVisibleCount = e;
+		this.internalUpdateFireAmount();
+	}
+	internalUpdateFireAmount() {
+		for (const [t, e] of this.currentArrowObjs.entries()) {
+			e.position.lerpVectors(
+				this.arrowPointIdle.position,
+				this.arrowPointLoaded.position,
+				this.lastFireAmount01,
+			);
+			const i = this.currentArrowOffsets[t];
+			e.position.x += i.x;
+			e.position.y += i.y;
+			e.scale.lerpVectors(
+				this.arrowPointIdle.scale,
+				this.arrowPointLoaded.scale,
+				this.lastFireAmount01,
+			);
+			e.quaternion.slerpQuaternions(
+				this.arrowPointIdle.quaternion,
+				this.arrowPointLoaded.quaternion,
+				this.lastFireAmount01,
+			);
+			e.visible = this.lastVisibleCount > t;
+		}
+		for (const t of this.currentlyLoadedMaterials) {
+			if (t instanceof ShaderMaterial) {
+				t.uniforms.bowMorphAmount.value = this.lastFireAmount01;
+			}
+		}
+	}
+}
+const ue = new Map();
+ue.set("movementSpeed", {
+	icon: "static/img/menuUI/shop/classIcons/movementSpeed.svg",
+	uiName: "Movement Speed",
+	defaultValue: 0,
+	min: 0,
+	max: 20,
+	tooltipCategories: ["armor"],
+});
+ue.set("armorStrength", {
+	icon: "static/img/menuUI/shop/classIcons/armorStrength.svg",
+	uiName: "Damage Protection",
+	defaultValue: 0,
+	min: 0,
+	max: 20,
+	tooltipCategories: ["armor"],
+});
+ue.set("healthRegenSpeed", {
+	icon: "static/img/menuUI/shop/classIcons/healthRegenSpeed.svg",
+	uiName: "Health Regen Speed",
+	defaultValue: 0,
+	min: 0,
+	max: 20,
+	tooltipCategories: ["armor"],
+});
+ue.set("shootingFocus", {
+	icon: "static/img/menuUI/shop/classIcons/shootingFocus.svg",
+	uiName: "Focus",
+	defaultValue: 0,
+	min: 0,
+	max: 10,
+	tooltipCategories: ["bow"],
+});
+ue.set("bowAttackStrength", {
+	icon: "static/img/menuUI/shop/classIcons/bowAttackStrength.svg",
+	uiName: "Attack Strength",
+	defaultValue: 0,
+	min: 0,
+	max: 10,
+	tooltipCategories: ["bow", "arrow"],
+});
+ue.set("arrowLoadingSpeed", {
+	icon: "static/img/menuUI/shop/classIcons/arrowLoadingSpeed.svg",
+	uiName: "Loading Speed",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["bow"],
+});
+ue.set("arrowFlySpeed", {
+	icon: "static/img/menuUI/shop/classIcons/arrowFlySpeed.svg",
+	uiName: "Travel Speed",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["arrow"],
+});
+ue.set("arrowEnemyStun", {
+	icon: "static/img/menuUI/shop/classIcons/arrowEnemyStun.svg",
+	uiName: "Stun Enemy",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["arrow"],
+});
+ue.set("meleeAttackStrength", {
+	icon: "static/img/menuUI/shop/classIcons/meleeAttackStrength.svg",
+	uiName: "Strength",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["melee"],
+});
+ue.set("meleeAttackSpeed", {
+	icon: "static/img/menuUI/shop/classIcons/meleeAttackSpeed.svg",
+	uiName: "Speed",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["melee"],
+});
+ue.set("meleeAttackReach", {
+	icon: "static/img/menuUI/shop/classIcons/meleeAttackReach.svg",
+	uiName: "Reach",
+	defaultValue: 0,
+	min: 0,
+	max: 5,
+	tooltipCategories: ["melee"],
+});
+ue.set("bloodlust", {
+	icon: "static/img/menuUI/shop/classIcons/bloodlust.svg",
+	uiName: "Bloodlust",
+	defaultValue: 0,
+	min: 0,
+	max: 11,
+	tooltipCategories: ["armor", "bow", "arrow", "melee"],
+});
+class pe {
+	el = document.createElement("div");
+	constructor({ zIndex, statClasses, aboveRect, showTotal, category }) {
+		this.el.classList.add("stat-class-tooltip", "transitioning", "wrinkledPaper");
+		this.el.style.setProperty("--wrinkled-paper-seed", String(intRandom(1, 99999)));
+		this.el.style.zIndex = String(zIndex);
+		document.body.appendChild(this.el);
+		const o = document.createElement("ul");
+		this.el.appendChild(o);
+		for (const [t, i] of ue) {
+			const a = statClasses[t] || 0;
+			if (!showTotal && a == 0) {
+				continue;
+			}
+			if (category && !i.tooltipCategories.includes(category)) {
+				continue;
+			}
+			const r = document.createElement("li");
+			o.appendChild(r);
+			const l = document.createElement("span");
+			let h;
+			l.classList.add("stat-class-icon");
+			l.style.backgroundImage = `url("${i.icon}")`;
+			r.appendChild(l);
+			if (showTotal) {
+				const t = Math.min(a + i.defaultValue, i.max);
+				h = `${i.uiName}: ${t}/${i.max}`;
+			} else {
+				h = `+${a} ${i.uiName}`;
+			}
+			const d = document.createTextNode(h);
+			r.appendChild(d);
+		}
+		this.el.style.left = `${aboveRect.left + aboveRect.width / 2}px`;
+		this.el.style.top = `${Math.max(aboveRect.top, this.el.clientHeight)}px`;
+		getComputedStyle(this.el).left;
+		this.el.classList.remove("transitioning");
+	}
+	destructor() {
+		this.el.remove();
+	}
+}
+class ge {
+	el?;
+	configIndex;
+	config;
+	usage;
+	renderOptions;
+	dialog;
+	destructed = false;
+	onSelectedChangeRequestCbs;
+	statsTooltip;
+	onHoveringChangeCbs;
+	selected;
+	owned;
+	isHovering;
+	isLooping;
+	shouldStopLooping;
+	prevNow;
+	boundAnimationLoop;
+	boundRemoveStatsTooltip;
+	scrollingContainer;
+	onConfirmPurchaseDialogOpenCbs;
+	renderView;
+	cam;
+	camTarget;
+	rotY;
+	defaultRotY;
+	scene;
+	skeleton;
+	loadingModelSym;
+	loadingModel;
+	visibleModel;
+	skinObject;
+	bowAsset;
+	skinObjectAsset;
+	currencyWrapperEl;
+	currencyContainer;
+	lockEl;
+	elementVisible;
+	skinObjectDirty;
+	intersectionObserver;
+	constructor(
+		public gameWrapper: HTMLElement,
+		e,
+		{ configIndex = 0, usage = "button", renderOptions, dialog, scrollingContainer },
+	) {
+		this.configIndex = configIndex;
+		this.config = e;
+		this.usage = usage;
+		this.renderOptions = renderOptions;
+		this.dialog = dialog;
+		if (usage == "button") {
+			this.el = document.createElement("button");
+		} else {
+			if (usage != "preview") {
+				throw new Error(`Unknown usage: ${usage}`);
+			}
+			this.el = document.createElement("div");
+		}
+		this.el.classList.add("shopItem", "wrinkledPaper", `shopItemUsage-${usage}`);
+		if (e.preventUnequip) {
+			this.el.classList.add("preventUnequip");
+		}
+		this.el.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		this.onSelectedChangeRequestCbs = new Set();
+		this.statsTooltip = null;
+		this.onHoveringChangeCbs = new Set();
+		this.selected = false;
+		this.owned = false;
+		this.isHovering = false;
+		this.isLooping = false;
+		this.shouldStopLooping = false;
+		this.prevNow = 0;
+		this.boundAnimationLoop = this.animationLoop.bind(this);
+		this.el.addEventListener("pointerenter", () => {
+			this.setIsHovering(true);
+			this.addStatsTooltip();
+		});
+		this.el.addEventListener("pointerleave", () => {
+			this.setIsHovering(false);
+			this.removeStatsTooltip();
+		});
+		this.boundRemoveStatsTooltip = this.removeStatsTooltip.bind(this);
+		this.scrollingContainer = scrollingContainer;
+		if (scrollingContainer) {
+			scrollingContainer.addEventListener("scroll", this.boundRemoveStatsTooltip);
+		}
+		this.el.addEventListener("click", () => {
+			this.usage != "preview" &&
+				(this.owned || this.selected
+					? this.requestSelectedState(!this.selected)
+					: this.openConfirmPurchaseDialog());
+		});
+		this.onConfirmPurchaseDialogOpenCbs = new Set();
+		this.renderView = getMain().renderer.createRenderView({
+			width: 200,
+			height: 200,
+		});
+		if (this.config.meleeSkin || this.config.bowSkin) {
+			this.renderView.canvas.classList.add("needs-mask");
+		}
+		this.el.appendChild(this.renderView.canvas);
+		this.cam = new PerspectiveCamera();
+		this.cam.name = "cam";
+		this.cam.far = 10;
+		this.camTarget = new Object3D();
+		this.camTarget.name = "cam target";
+		this.rotY = 0;
+		this.defaultRotY = 0;
+		this.setDefaultRotY(0.2 * Math.PI);
+		this.camTarget.add(this.cam);
+		this.scene = new Scene();
+		this.scene.add(this.camTarget);
+		this.renderView.setRenderObjects(this.scene, this.cam, false);
+		this.skeleton = new PlayerSkeleton({
+			gender: this.renderOptions.gender,
+		});
+		this.skeleton.addPoseLayer("shopItem");
+		this.loadingModelSym = null;
+		this.loadingModel = null;
+		this.visibleModel = null;
+		this.skinObject = null;
+		this.bowAsset = null;
+		this.skinObjectAsset = null;
+		this.currencyWrapperEl = null;
+		this.currencyContainer = null;
+		if (usage == "button") {
+			let t = true;
+			if (this.config.price || this.config.hasRewardedAd || this.config.requiredPeliEntitlements) {
+				t = false;
+			}
+			this.setOwned(t);
+		} else {
+			this.setOwned(true);
+		}
+		this.lockEl = document.createElement("div");
+		this.lockEl.classList.add("shopItemLock");
+		const r = !!this.config.hasRewardedAd && !isSteam();
+		this.lockEl.classList.toggle("rewarded-break-unlockable", r);
+		this.el.appendChild(this.lockEl);
+		if (this.requiresPeliEntitlements) {
+			const t = document.createElement("plus-icon-wrapper");
+			this.el.append(t);
+			const e = document.createElement("peli-plus-icon");
+			t.append(e);
+		}
+		this.elementVisible = false;
+		this.skinObjectDirty = true;
+		this.intersectionObserver = new IntersectionObserver((t) => {
+			this.elementVisible = false;
+			for (const e of t) {
+				if (e.target == this.el && e.isIntersecting) {
+					this.elementVisible = true;
+				}
+			}
+			if (this.elementVisible) {
+				this.reloadSkinObjectNow();
+			}
+		});
+		this.intersectionObserver.observe(this.el);
+		this.setSelectedState(this.selected);
+		this.setOwned(this.owned);
+		if (this.usage == "preview") {
+			this.startLooping();
+		}
+		this.updateAriaLabel();
+	}
+	get id() {
+		return this.config.id;
+	}
+	get requiresPeliEntitlements() {
+		return this.config.requiredPeliEntitlements && this.config.requiredPeliEntitlements.length > 0;
+	}
+	destructor() {
+		this.destructed = true;
+		getMain().renderer.removeRenderView(this.renderView);
+		if (this.loadingModel) {
+			this.loadingModel.destructor();
+		}
+		if (this.visibleModel) {
+			this.visibleModel.destructor();
+		}
+		if (this.bowAsset) {
+			this.bowAsset.destructor();
+		}
+		this.stopLooping();
+		this.intersectionObserver.unobserve(this.el);
+		this.intersectionObserver.disconnect();
+		this.removeStatsTooltip();
+		if (this.scrollingContainer) {
+			this.scrollingContainer.removeEventListener("scroll", this.boundRemoveStatsTooltip);
+		}
+	}
+	setRenderOptions(t) {
+		this.renderOptions = t;
+		this.skinObjectDirty = true;
+		if (this.elementVisible) {
+			this.reloadSkinObjectNow();
+		}
+	}
+	setDefaultRotY(t) {
+		this.defaultRotY = t;
+		this.camTarget.rotation.set(-0.1 * Math.PI, this.defaultRotY, 0, "YZX");
+	}
+	async reloadSkinObjectNow() {
+		if (!this.skinObjectDirty) {
+			return;
+		}
+		const t = Symbol("Loading model");
+		this.loadingModelSym = t;
+		if (this.loadingModel) {
+			this.loadingModel.destructor();
+			this.loadingModel = null;
+		}
+		let e = new Sphere();
+		if (this.bowAsset) {
+			this.bowAsset.destructor();
+		}
+		if (this.skinObjectAsset) {
+			this.skinObjectAsset.destructor();
+		}
+		if (this.config.bowSkin) {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				this.config.bowSkin.bowId,
+				{
+					equippedSkinIds: [this.config.id],
+				},
+			);
+			this.bowAsset = new ce({
+				useWorldWeather: false,
+			});
+			this.bowAsset.setConfig({
+				bowId: this.config.bowSkin.bowId,
+				teamId: 1,
+				skins,
+				arrowSkin,
+				arrowCount: 0,
+			});
+			if (this.config.categories) {
+				let t = false;
+				const e = ["smallBowHandle", "mediumBowHandle", "largeBowHandle"];
+				for (const i of this.config.categories) {
+					if (e.includes(i)) {
+						t = true;
+						break;
+					}
+				}
+				if (t) {
+					this.bowAsset.obj.rotateZ(-0.4);
+				}
+			}
+			this.scene.add(this.bowAsset.obj);
+			await this.bowAsset.waitForLoad();
+			if (t != this.loadingModelSym) {
+				return;
+			}
+			e = ae(this.bowAsset.obj);
+		} else if (this.config.meleeSkin) {
+			if (
+				getMain().skins.skinNetworkDataToMeleeSkinConfig({
+					equippedSkinIds: [this.config.id],
+				})
+			) {
+				this.skinObjectAsset = new he({
+					useWorldWeather: false,
+					label: "melee",
+				});
+				this.skinObjectAsset.setConfig({
+					skinAssetName: this.config.meleeSkin.skin,
+					teamId: 1,
+				});
+				this.scene.add(this.skinObjectAsset.obj);
+				await this.skinObjectAsset.waitForLoad();
+				if (t != this.loadingModelSym) {
+					return;
+				}
+				e = ae(this.skinObjectAsset.obj);
+			}
+		} else if (this.config.arrowSkin) {
+			this.skinObjectAsset = new he({
+				useWorldWeather: false,
+				label: "arrow",
+			});
+			this.skinObjectAsset.setConfig({
+				skinAssetName: this.config.arrowSkin,
+				teamId: 1,
+			});
+			this.scene.add(this.skinObjectAsset.obj);
+			this.skinObjectAsset.obj.position.add(new Vector3(0, 0.35, 0.35));
+			this.skinObjectAsset.obj.rotateX(-0.25 * Math.PI);
+			await this.skinObjectAsset.waitForLoad();
+			if (t != this.loadingModelSym) {
+				return;
+			}
+			e = new Sphere(new Vector3(), 0.4);
+			this.setDefaultRotY(0.5 * Math.PI);
+		} else {
+			const i = [];
+			const s = this.config.colorizableCategory;
+			let n = {};
+			if (this.renderOptions.gender == "male" && this.config.maleSkin) {
+				n = this.config.maleSkin;
+			} else if (this.renderOptions.gender == "female" && this.config.femaleSkin) {
+				n = this.config.femaleSkin;
+			}
+			if (s && n.additions) {
+				for (const [t, e] of Object.entries(n.additions)) {
+					const s = t;
+					for (const assetName of e) {
+						i.push({
+							assetName,
+							colorMultiplier: this.renderOptions.colorMultiplier,
+							joints: [s],
+						});
+					}
+				}
+			}
+			let o = {};
+			if (n.additions) {
+				o = n.additions;
+			}
+			if (this.config.showFullBodyInShopItem) {
+				o = getMain().skins.skinNetworkDataToSkinConfig({
+					equippedSkinIds: [this.config.id],
+					gender: this.renderOptions.gender,
+				}).equippedItems;
+			}
+			this.loadingModel = new re({
+				init: false,
+				skinObjectOpts: {
+					teamId: 1,
+					skin: {},
+					rawSkin: {
+						colorizedItems: i,
+						equippedItems: o,
+					},
+				},
+				useWorldWeather: false,
+			});
+			await this.loadingModel.init();
+			await this.skeleton.init();
+			await this.skeleton.waitForLinkLayerObjects();
+			if (!this.loadingModel.obj) {
+				return;
+			}
+			if (t != this.loadingModelSym) {
+				return;
+			}
+			if (this.skinObject) {
+				this.scene.remove(this.skinObject);
+			}
+			this.skinObject = this.loadingModel.obj;
+			if (this.visibleModel) {
+				this.visibleModel.destructor();
+			}
+			this.visibleModel = this.loadingModel;
+			this.loadingModel = null;
+			this.skeleton.applyLayers();
+			this.skeleton.updateMatrices();
+			this.visibleModel.applySkeleton(this.skeleton);
+			e = this.visibleModel.computeApproximateBoundingSphere();
+			this.scene.add(this.skinObject);
+		}
+		if (e) {
+			let t = 0;
+			let i = 0;
+			let s = 1;
+			let n = false;
+			if (this.config.bowSkin) {
+				const e = this.config.categories;
+				e &&
+					(e.includes("smallBowTip")
+						? ((t = 0.55), (s = 0.3))
+						: e.includes("smallBowHandle")
+							? ((i = 0.05), (s = 0.5))
+							: e.includes("mediumBowTip")
+								? ((t = 0.7), (s = 0.3))
+								: e.includes("mediumBowHandle")
+									? ((i = 0.08), (s = 0.7))
+									: e.includes("largeBowTip")
+										? ((t = 1), (s = 0.3))
+										: e.includes("largeBowHandle")
+											? ((i = 0.1), (s = 0.7))
+											: e.includes("repeatingCrossbowTip")
+												? ((i = 0.3), (s = 0.6))
+												: e.includes("repeatingCrossbowHandle")
+													? ((i = 0.15), (s = 0.7))
+													: e.includes("largeCrossbowTip")
+														? ((i = 0.3), (s = 0.7))
+														: e.includes("largeCrossbowHandle") && (s = 0.7));
+			} else if (this.config.meleeSkin) {
+				const e = this.config.meleeSkin.meleeId;
+				if (e == "bluntLight") {
+					t = 0.2;
+					s = 0.6;
+				} else if (e == "bluntHeavy") {
+					t = 0.45;
+					s = 0.4;
+				} else if (e == "pokeLight") {
+					t = 0.3;
+					s = 0.4;
+				} else if (e == "pokeHeavy") {
+					t = 0.6;
+					s = 0.5;
+				}
+				n = true;
+			}
+			this.camTarget.position.copy(e.center);
+			this.camTarget.position.y += t;
+			this.camTarget.position.z += i;
+			this.cam.position.z = 3 * Math.max(e.radius, 0.05) * s;
+			if (n) {
+				this.cam.rotateZ(0.25 * -Math.PI);
+			}
+		}
+		this.renderView.markDirty();
+		this.skinObjectDirty = false;
+	}
+	onSelectedChangeRequest(t) {
+		this.onSelectedChangeRequestCbs.add(t);
+	}
+	setOwned(t) {
+		this.owned = t;
+		this.el.classList.toggle("shopItemOwned", t);
+		this.el.classList.toggle("shopItemLocked", !t);
+		const amount = getMain().shopState.getVisibleItemPrice(this.config);
+		t || !amount
+			? this.currencyWrapperEl && this.currencyWrapperEl.remove()
+			: this.currencyWrapperEl ||
+				((this.currencyWrapperEl = document.createElement("div")),
+				this.currencyWrapperEl.classList.add("currency-wrapper"),
+				this.el.appendChild(this.currencyWrapperEl),
+				(this.currencyContainer = new CurrencyContainer({
+					amount,
+				})),
+				this.currencyWrapperEl.appendChild(this.currencyContainer.el));
+	}
+	setIsHovering(t) {
+		if (t != this.isHovering) {
+			this.isHovering = t;
+			if (t) {
+				this.startLooping();
+			}
+			for (const e of this.onHoveringChangeCbs) {
+				e(t);
+			}
+		}
+	}
+	startLooping() {
+		if (!this.isLooping) {
+			this.isLooping = true;
+			this.renderView.alwaysDirty = true;
+			this.animationLoop();
+		}
+	}
+	stopLooping() {
+		this.shouldStopLooping = true;
+	}
+	animationLoop() {
+		const t = performance.now();
+		if (!this.prevNow) {
+			this.prevNow = t;
+		}
+		const i = t - this.prevNow;
+		this.prevNow = t;
+		if (this.isHovering || this.usage == "preview") {
+			this.rotY -= 0.001 * i;
+			this.rotY = posMod(this.rotY + Math.PI, 2 * Math.PI) - Math.PI;
+		} else {
+			this.rotY = l_1(this.rotY, 0, 0.1);
+			if (Math.abs(this.rotY) < 0.001) {
+				this.stopLooping();
+			}
+		}
+		this.camTarget.rotation.y = this.rotY + this.defaultRotY;
+		if (this.shouldStopLooping) {
+			this.isLooping = false;
+			this.shouldStopLooping = false;
+			this.prevNow = 0;
+			return void (this.renderView && (this.renderView.alwaysDirty = false));
+		}
+		window.requestAnimationFrame(this.boundAnimationLoop);
+	}
+	onHoveringChange(t) {
+		this.onHoveringChangeCbs.add(t);
+	}
+	addStatsTooltip() {
+		if (this.statsTooltip) {
+			return;
+		}
+		if (this.usage != "button") {
+			return;
+		}
+		const zIndex = this.dialog.zIndex + 1;
+		if (!this.config.statClasses) {
+			return;
+		}
+		const e = this.el.getBoundingClientRect();
+		this.statsTooltip = new pe({
+			zIndex,
+			statClasses: this.config.statClasses,
+			aboveRect: e,
+		});
+	}
+	removeStatsTooltip() {
+		if (this.statsTooltip) {
+			this.statsTooltip.destructor();
+			this.statsTooltip = null;
+		}
+	}
+	setSelectedState(t) {
+		this.selected = t;
+		this.el.classList.toggle("selected", this.selected);
+		this.updateAriaLabel();
+	}
+	updateAriaLabel() {
+		let t = "";
+		if (this.usage == "button") {
+			let e = "";
+			e = this.selected
+				? "equipped"
+				: this.owned
+					? "not equipped"
+					: this.config.hasRewardedAd && !isSteam()
+						? "locked, click to watch rewarded ad and unlock"
+						: this.config.price
+							? `locked, unlock for ${this.config.price} coins`
+							: "locked";
+			t = `Shop item, ${this.config.id}, ${e}`;
+		} else {
+			if (this.usage == "preview") {
+				t = "Shop item preview";
+			}
+		}
+		this.el.setAttribute("aria-label", t);
+	}
+	*getSkinSlots() {
+		if (this.config.slots) {
+			yield* this.config.slots;
+		}
+	}
+	highlight() {
+		this.el.classList.add("highlight");
+		this.el.scrollIntoView({
+			behavior: "smooth",
+			block: "center",
+			inline: "center",
+		});
+	}
+	async openConfirmPurchaseDialog() {
+		if (
+			(this.config.requiredPeliEntitlements && this.config.requiredPeliEntitlements.length > 0) ||
+			(isSteam() && this.config.hasRewardedAd && !this.config.price)
+		) {
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				if (this.config.requiredPeliEntitlements?.includes("sneakPeeks")) {
+					t.subscription.showSubscribeModal({
+						flow: "getEarlyAccess",
+					});
+				} else {
+					t.subscription.showSubscribeModal({
+						flow: "unlockItem",
+					});
+				}
+			} else {
+				getMain().dialogManager.showAlert({
+					title: "Subscription required",
+					text: "A Pelican Party Plus subscription is required to unlock this item.",
+				});
+			}
+		} else {
+			const t = new le(this.gameWrapper, this.config, {
+				renderOptions: this.renderOptions,
+			});
+			getMain().dialogManager.addDialog(t);
+			t.onPurchaseSuccess(() => {
+				this.requestSelectedState(true);
+			});
+			this.onConfirmPurchaseDialogOpenCbs.forEach((e) => e(t));
+		}
+	}
+	requestSelectedState(t) {
+		if (!(this.config.preventUnequip && !t)) {
+			this.onSelectedChangeRequestCbs.forEach((e) => e(t));
+		}
+	}
+	onConfirmPurchaseDialogOpen(t) {
+		this.onConfirmPurchaseDialogOpenCbs.add(t);
+	}
+}
+class me {
+	el = document.createElement("div");
+	shopItems;
+	activeConfirmPurchaseDialogs;
+	currentHoveringItem;
+	onHoveringItemChangeCbs;
+	onSelectedItemChangeRequestCbs;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("shop-items-grid-view");
+		this.shopItems = new Map();
+		this.activeConfirmPurchaseDialogs = new Set();
+		this.currentHoveringItem = null;
+		this.onHoveringItemChangeCbs = new Set();
+		this.onSelectedItemChangeRequestCbs = new Set();
+	}
+	destructor() {
+		this.destructShopItems();
+	}
+	addShopItem(t, e) {
+		const i = new ge(this.gameWrapper, t, e);
+		this.el.appendChild(i.el);
+		i.onHoveringChange((t) => {
+			const currentHoveringItem = this.currentHoveringItem;
+			if (t) {
+				this.currentHoveringItem = i;
+			} else if (this.currentHoveringItem == i) {
+				this.currentHoveringItem = null;
+			}
+			if (this.currentHoveringItem != currentHoveringItem) {
+				for (const t of this.onHoveringItemChangeCbs) {
+					t(this.currentHoveringItem);
+				}
+			}
+		});
+		i.onConfirmPurchaseDialogOpen((t) => {
+			this.activeConfirmPurchaseDialogs.add(t);
+			t.addOnCloseCb(() => {
+				this.activeConfirmPurchaseDialogs.delete(t);
+			});
+		});
+		i.onSelectedChangeRequest((t) => {
+			this.onSelectedItemChangeRequestCbs.forEach((e) => e(i.id, t));
+		});
+		this.shopItems.set(i.id, i);
+	}
+	closeCreatedConfirmPurchaseDialogs() {
+		for (const t of this.activeConfirmPurchaseDialogs) {
+			t.close();
+		}
+	}
+	destructShopItems() {
+		for (const t of this.shopItems.values()) {
+			t.destructor();
+		}
+		for (this.shopItems.clear(); this.el.lastChild;) {
+			this.el.removeChild(this.el.lastChild);
+		}
+	}
+	loadShopItems(t, e) {
+		this.destructShopItems();
+		for (const [configIndex, s] of t.entries()) {
+			this.addShopItem(s, {
+				configIndex,
+				...e,
+			});
+		}
+		this.sortShopItems();
+	}
+	setRenderOptions(t) {
+		for (const e of this.shopItems.values()) {
+			e.setRenderOptions(t);
+		}
+	}
+	setSelectedItems(t) {
+		for (const e of this.shopItems.values()) {
+			e.setSelectedState(t.has(e.id));
+		}
+	}
+	setSelectedItemState(t, e) {
+		const i = this.shopItems.get(t);
+		if (i) {
+			i.setSelectedState(e);
+		}
+	}
+	onSelectedItemChangeRequest(t) {
+		this.onSelectedItemChangeRequestCbs.add(t);
+	}
+	setPurchasedItems(t) {
+		const e = getMain().getPeliSdk();
+		if (e) {
+			for (const i of this.shopItems.values()) {
+				let s;
+				if (i.config.requiredPeliEntitlements && i.config.requiredPeliEntitlements.length > 0) {
+					s = true;
+					for (const t of i.config.requiredPeliEntitlements) {
+						if (!e.entitlements.has(t)) {
+							s = false;
+							break;
+						}
+					}
+				} else {
+					s = i.config.hasRewardedAd
+						? e.entitlements.has("removeAds") || t.has(i.id)
+						: !(i.config.price && i.config.price > 0) || t.has(i.id);
+				}
+				i.setOwned(s);
+			}
+		} else {
+			for (const e of this.shopItems.values()) {
+				if ((e.config.price && e.config.price > 0) || e.config.hasRewardedAd) {
+					e.setOwned(t.has(e.id));
+				}
+			}
+		}
+		this.sortShopItems();
+	}
+	onHoveringItemChange(t) {
+		this.onHoveringItemChangeCbs.add(t);
+	}
+	sortShopItems() {
+		const t = Array.from(this.shopItems.values());
+		t.sort((t, e) => {
+			if (t.owned && !e.owned) {
+				return -1;
+			}
+			if (!t.owned && e.owned) {
+				return 1;
+			}
+			if (t.requiresPeliEntitlements && !e.requiresPeliEntitlements) {
+				return 1;
+			}
+			if (!t.requiresPeliEntitlements && e.requiresPeliEntitlements) {
+				return -1;
+			}
+			const i = getMain().shopState.getVisibleItemPrice(t.config);
+			const s = getMain().shopState.getVisibleItemPrice(e.config);
+			if (i != s) {
+				return i - s;
+			}
+			return t.configIndex - e.configIndex;
+		});
+		for (const e of t) {
+			this.el.appendChild(e.el);
+		}
+	}
+	performHighlightShopItemAction(t, e) {
+		const i = this.shopItems.get(t);
+		if (i) {
+			i.highlight();
+			e == "highlight" ||
+				(e == "highlight-and-equip"
+					? i.requestSelectedState(true)
+					: e == "open" && i.openConfirmPurchaseDialog());
+		}
+	}
+}
+class fe extends Dialog {
+	avatarsManager;
+	contentEl = document.createElement("div");
+	teamColorInput;
+	backgroundColorInput;
+	backgroundOpacityInput;
+	shapeInput;
+	cameraInput;
+	poseInput;
+	widthInput;
+	heightInput;
+	imageEl;
+	currentBlobReference;
+	createdDownloadBlobReferences;
+	skinConfig;
+	constructor(t, e, i, s) {
+		super(t);
+		this.avatarsManager = e;
+		this.contentEl.classList.add("skin-downloader-dialog-content");
+		this.el.appendChild(this.contentEl);
+		const n = document.createElement("div");
+		n.classList.add("skin-downloader-dialog-controls");
+		this.contentEl.appendChild(n);
+		const o = document.createElement("div");
+		o.textContent = "Team color ";
+		n.appendChild(o);
+		this.teamColorInput = document.createElement("input");
+		this.teamColorInput.type = "color";
+		this.teamColorInput.value = n_1[1].cssColor;
+		this.teamColorInput.addEventListener("change", () => this.reloadPreview());
+		o.appendChild(this.teamColorInput);
+		const a = document.createElement("div");
+		a.textContent = "Background color ";
+		n.appendChild(a);
+		this.backgroundColorInput = document.createElement("input");
+		this.backgroundColorInput.type = "color";
+		this.backgroundColorInput.value = n_1[2].cssColor;
+		this.backgroundColorInput.addEventListener("change", () => this.reloadPreview());
+		a.appendChild(this.backgroundColorInput);
+		const r = document.createElement("div");
+		r.textContent = "Background opacity ";
+		n.appendChild(r);
+		this.backgroundOpacityInput = document.createElement("input");
+		this.backgroundOpacityInput.type = "range";
+		this.backgroundOpacityInput.min = "0";
+		this.backgroundOpacityInput.max = "1";
+		this.backgroundOpacityInput.step = "0.01";
+		this.backgroundOpacityInput.value = "1";
+		this.backgroundOpacityInput.addEventListener("change", () => this.reloadPreview());
+		r.appendChild(this.backgroundOpacityInput);
+		const l = document.createElement("div");
+		l.textContent = "Shape ";
+		n.appendChild(l);
+		this.shapeInput = document.createElement("select");
+		for (const t of ["none", "circle"]) {
+			const e = document.createElement("option");
+			e.value = t;
+			e.textContent = t;
+			this.shapeInput.appendChild(e);
+		}
+		this.shapeInput.value = "circle";
+		this.shapeInput.addEventListener("change", () => this.reloadPreview());
+		l.appendChild(this.shapeInput);
+		const h = document.createElement("div");
+		h.textContent = "Camera ";
+		n.appendChild(h);
+		this.cameraInput = document.createElement("select");
+		for (const t of ["face-close", "face", "upper-body", "full-body"]) {
+			const e = document.createElement("option");
+			e.value = t;
+			e.textContent = t.replaceAll("-", " ");
+			this.cameraInput.appendChild(e);
+		}
+		this.cameraInput.value = "face-close";
+		this.cameraInput.addEventListener("change", () => this.reloadPreview());
+		h.appendChild(this.cameraInput);
+		const d = document.createElement("div");
+		d.textContent = "Pose ";
+		n.appendChild(d);
+		this.poseInput = document.createElement("select");
+		const c = [];
+		c.push(["", "None"]);
+		for (const { uiName, id } of allWeapons) {
+			c.push([id, uiName]);
+		}
+		for (const [t, e] of c) {
+			const i = document.createElement("option");
+			i.value = t;
+			i.textContent = e;
+			this.poseInput.appendChild(i);
+		}
+		this.poseInput.value = "";
+		this.poseInput.addEventListener("change", () => this.reloadPreview());
+		d.appendChild(this.poseInput);
+		const u = document.createElement("div");
+		u.textContent = "Size ";
+		n.appendChild(u);
+		this.widthInput = document.createElement("input");
+		this.widthInput.classList.add("skin-downloader-size-input");
+		this.widthInput.type = "number";
+		this.widthInput.value = "1024";
+		u.appendChild(this.widthInput);
+		u.appendChild(document.createTextNode(" x "));
+		this.heightInput = document.createElement("input");
+		this.heightInput.classList.add("skin-downloader-size-input");
+		this.heightInput.type = "number";
+		this.heightInput.value = "1024";
+		u.appendChild(this.heightInput);
+		const p = document.createElement("div");
+		p.classList.add("skin-downloader-download-container");
+		n.appendChild(p);
+		const downloadButton = new CustomButton({
+			text: "Download",
+			onClick: () => this.downloadCurrentAvatar(),
+		});
+		p.appendChild(downloadButton.el);
+		this.imageEl = document.createElement("div");
+		this.imageEl.classList.add("downloadable-skin-preview");
+		this.contentEl.appendChild(this.imageEl);
+		this.currentBlobReference = null;
+		this.createdDownloadBlobReferences = [];
+		this.skinConfig = s;
+		this.reloadPreview();
+	}
+	destructor() {
+		super.destructor();
+		if (this.currentBlobReference) {
+			this.currentBlobReference.destructor();
+			this.currentBlobReference = null;
+		}
+		for (const t of this.createdDownloadBlobReferences) {
+			t.destructor();
+		}
+		this.createdDownloadBlobReferences = [];
+	}
+	getCurrentAvatarConfig(width, height) {
+		const clipPathType = this.shapeInput.value ?? "none";
+		const cameraType = this.cameraInput.value ?? "face-close";
+		const value = this.teamColorInput.value;
+		const teamColor = {
+			r: parseInt(value.substring(1, 3), 16) / 255,
+			g: parseInt(value.substring(3, 5), 16) / 255,
+			b: parseInt(value.substring(5, 7), 16) / 255,
+		};
+		let a = null;
+		let bow = null;
+		if (this.poseInput.value) {
+			const t = getWeapon(this.poseInput.value);
+			a = [`bows/${t.bowId}/shopClassItem`];
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				t.bowId,
+				this.skinConfig,
+			);
+			bow = {
+				teamId: 1,
+				teamColor,
+				bowId: t.bowId,
+				arrowCount: 1,
+				skins,
+				arrowSkin,
+			};
+		}
+		const l = {
+			backgroundColor: this.backgroundColorInput.value,
+			backgroundAlpha: Number(this.backgroundOpacityInput.value),
+			width,
+			height,
+			cameraType,
+			clipPathType,
+			bow,
+			skinObjectOpts: {
+				teamColor,
+				skin: this.skinConfig,
+			},
+		};
+		if (a) {
+			l.skeletonPoseLayers = a;
+		}
+		return l;
+	}
+	reloadPreview() {
+		if (!this.skinConfig) {
+			return;
+		}
+		const t = 250 * globalThis.devicePixelRatio;
+		const e = this.getCurrentAvatarConfig(t, t);
+		const i = this.avatarsManager.getAvatar(e).getBlobUrlReference();
+		if (this.currentBlobReference) {
+			this.currentBlobReference.destructor();
+		}
+		this.currentBlobReference = i;
+		(async () => {
+			if (i != this.currentBlobReference) {
+				return void i.destructor();
+			}
+			const t = await i.getBlobUrl();
+			this.imageEl.style.backgroundImage = `url("${t}")`;
+		})();
+	}
+	downloadCurrentAvatar() {
+		if (!this.skinConfig) {
+			return;
+		}
+		const t = Number(this.widthInput.value);
+		const e = Number(this.heightInput.value);
+		const i = this.getCurrentAvatarConfig(t, e);
+		const s = this.avatarsManager.getAvatar(i).getBlobUrlReference();
+		this.createdDownloadBlobReferences.push(s);
+		(async () => {
+			const t = await s.getBlobUrl();
+			const e = document.createElement("a");
+			e.href = t;
+			e.download = "skin.png";
+			e.click();
+		})();
+	}
+}
+class we {
+	destructed = false;
+	el = document.createElement("div");
+	currentlyLoadedSkinData;
+	currentTeamId;
+	tooltipCategory;
+	statsTooltip;
+	renderView;
+	downloadButton;
+	cam;
+	camTarget;
+	rotY;
+	currentMouseYMultiplier;
+	scene;
+	modelRotationContainer;
+	bowParentObj;
+	meleeParentObj;
+	smoothCamPosOffset;
+	smoothCamTargetRot;
+	activeCamFollowingTarget;
+	activeSlotPositionId;
+	camPositions;
+	boundOnMouseMove;
+	lastMouseX;
+	lastMouseY;
+	skeleton;
+	activeExtraPoseLayer;
+	bowAssetLoader;
+	hoveringBowAssetLoader;
+	bowSkeletonObj;
+	currentVisibleBowId;
+	currentEquippedSkinIds;
+	hoveringBowVisible;
+	meleeAssetLoader;
+	hoveringMeleeAssetLoader;
+	meleeSkeletonObj;
+	currentVisibleMeleeSkinAssetName;
+	hoveringMeleeVisible;
+	activeModel;
+	loadingModel;
+	hoveringModel;
+	hoveringModelVisible;
+	lastHoveringModelCacheKey;
+	constructor(t) {
+		this.el.classList.add("shop-skin-preview", "wrinkledPaper", "wrinkled-paper-mask");
+		this.currentlyLoadedSkinData = null;
+		this.currentTeamId = 1;
+		this.el.addEventListener("click", () => {
+			this.currentTeamId++;
+			if (this.currentTeamId > 2) {
+				this.currentTeamId = 0;
+			}
+			this.updateBackgroundColor();
+			this.updateSkinModel();
+		});
+		this.tooltipCategory = "none";
+		this.statsTooltip = null;
+		this.el.addEventListener("pointerenter", () => {
+			if (this.statsTooltip) {
+				return;
+			}
+			if (!this.currentlyLoadedSkinData) {
+				return;
+			}
+			if (this.tooltipCategory == "none") {
+				return;
+			}
+			const t = this.el.getBoundingClientRect();
+			const { statClassValues } = getMain().skins.getStatClassValuesFromShopSkinIds(
+				this.currentlyLoadedSkinData.equippedSkinIds || [],
+				this.currentVisibleBowId,
+			);
+			const statClasses = {};
+			for (const [t, s] of statClassValues) {
+				statClasses[t] = s;
+			}
+			this.statsTooltip = new pe({
+				zIndex: 1000,
+				statClasses,
+				aboveRect: t,
+				showTotal: true,
+				category: this.tooltipCategory,
+			});
+		});
+		this.el.addEventListener("pointerleave", () => {
+			if (this.statsTooltip) {
+				this.statsTooltip.destructor();
+				this.statsTooltip = null;
+			}
+		});
+		this.renderView = getMain().renderer.createRenderView({
+			width: 400,
+			height: 600,
+		});
+		this.renderView.canvas.classList.add("shop-skin-preview-canvas");
+		this.el.appendChild(this.renderView.canvas);
+		this.downloadButton = document.createElement("div");
+		this.downloadButton.classList.add("shop-skin-preview-download-button");
+		this.downloadButton.addEventListener("click", () => {
+			if (this.currentlyLoadedSkinData) {
+				const e = new fe(t, getMain().avatars, getMain().skins, this.currentlyLoadedSkinData);
+				getMain().dialogManager.addDialog(e);
+			}
+		});
+		this.el.appendChild(this.downloadButton);
+		this.cam = new PerspectiveCamera(45, this.renderView.width / this.renderView.height, 0.1, 5);
+		this.cam.far = 10;
+		this.camTarget = new Object3D();
+		this.rotY = 0;
+		this.currentMouseYMultiplier = 1;
+		this.camTarget.add(this.cam);
+		this.scene = new Scene();
+		this.scene.add(this.camTarget);
+		this.modelRotationContainer = new Object3D();
+		this.scene.add(this.modelRotationContainer);
+		this.bowParentObj = new Object3D();
+		this.modelRotationContainer.add(this.bowParentObj);
+		this.bowParentObj.matrixAutoUpdate = false;
+		this.meleeParentObj = new Object3D();
+		this.modelRotationContainer.add(this.meleeParentObj);
+		this.meleeParentObj.matrixAutoUpdate = false;
+		this.smoothCamPosOffset = new Vector3();
+		this.smoothCamTargetRot = 0;
+		this.activeCamFollowingTarget = null;
+		this.activeSlotPositionId = null;
+		this.camPositions = new Map();
+		this.camPositions.set("full", {
+			pos: new Vector3(0, 1, 2.8),
+		});
+		this.camPositions.set("head", {
+			pos: new Vector3(0, 1.8, 1.3),
+			mouseYMultiplier: 0.2,
+		});
+		this.camPositions.set("torso", {
+			pos: new Vector3(0, 1.1, 1.7),
+		});
+		this.camPositions.set("arms", {
+			pos: new Vector3(0, 1.3, 1.5),
+			rot: 0.3,
+			mouseYMultiplier: 0.5,
+		});
+		this.camPositions.set("legs", {
+			pos: new Vector3(0, 0.35, 1.3),
+		});
+		this.camPositions.set("quiver", {
+			pos: new Vector3(0, 1.1, 2),
+			rot: -2.5,
+		});
+		this.camPositions.set("face", {
+			pos: new Vector3(0, 1.75, 0.6),
+			rot: 0.2,
+			mouseYMultiplier: 0.1,
+		});
+		this.camPositions.set("smallBow", {
+			pos: new Vector3(-0.3, 0, 1.9),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("smallBowHandle", {
+			pos: new Vector3(0, 0, 1.1),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("smallBowTip", {
+			pos: new Vector3(-0.3, 0.4, 0.8),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("mediumBow", {
+			pos: new Vector3(-0.3, 0, 2.2),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("mediumBowHandle", {
+			pos: new Vector3(-0.1, 0, 1.5),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("mediumBowTip", {
+			pos: new Vector3(-0.2, 0.5, 1),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("largeBow", {
+			pos: new Vector3(-0.3, 0, 3),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("largeBowHandle", {
+			pos: new Vector3(-0.1, 0, 1.8),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("largeBowTip", {
+			pos: new Vector3(-0.3, 0.9, 1.2),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("smallCrossbow", {
+			pos: new Vector3(0.1, 0, 1.9),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.3 * Math.PI,
+		});
+		this.camPositions.set("smallCrossbowHandle", {
+			pos: new Vector3(0.1, 0, 1.2),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("smallCrossbowTip", {
+			pos: new Vector3(0, 0, 1.7),
+			activeFollowingTarget: this.bowParentObj,
+			rot: 0.3,
+		});
+		this.camPositions.set("largeCrossbow", {
+			pos: new Vector3(0, 0, 2.7),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.3 * Math.PI,
+		});
+		this.camPositions.set("largeCrossbowHandle", {
+			pos: new Vector3(0, 0, 2.5),
+			activeFollowingTarget: this.bowParentObj,
+			rot: -0.5 * Math.PI,
+		});
+		this.camPositions.set("largeCrossbowTip", {
+			pos: new Vector3(-0.1, 0, 2.2),
+			activeFollowingTarget: this.bowParentObj,
+			rot: 0.7,
+		});
+		this.camPositions.set("melee", {
+			pos: new Vector3(0.3, 0.5, 2),
+			activeFollowingTarget: this.meleeParentObj,
+			rot: -1.7,
+		});
+		this.camPositions.set("arrow", {
+			pos: new Vector3(0, 0, 1),
+			activeFollowingTarget: this.bowParentObj,
+			rot: 0.9,
+		});
+		this.setActiveSlotPosition("full", true);
+		this.renderView.setRenderObjects(this.scene, this.cam);
+		this.boundOnMouseMove = this.onMouseMove.bind(this);
+		window.addEventListener("mousemove", this.boundOnMouseMove);
+		this.lastMouseX = 0;
+		this.lastMouseY = 0;
+		this.skeleton = new PlayerSkeleton();
+		this.skeleton.init();
+		this.activeExtraPoseLayer = null;
+		this.bowAssetLoader = new ce({
+			useWorldWeather: false,
+		});
+		this.bowAssetLoader.updateFireAmount(1, 1);
+		this.hoveringBowAssetLoader = new ce({
+			useWorldWeather: false,
+		});
+		this.hoveringBowAssetLoader.updateFireAmount(1, 1);
+		this.bowParentObj.add(this.bowAssetLoader.obj);
+		this.bowParentObj.add(this.hoveringBowAssetLoader.obj);
+		this.bowSkeletonObj = null;
+		this.currentVisibleBowId = null;
+		this.currentEquippedSkinIds = [];
+		this.hoveringBowVisible = false;
+		this.meleeAssetLoader = new he({
+			useWorldWeather: false,
+			label: "melee",
+		});
+		this.hoveringMeleeAssetLoader = new he({
+			useWorldWeather: false,
+			label: "melee",
+		});
+		this.meleeParentObj.add(this.meleeAssetLoader.obj);
+		this.meleeParentObj.add(this.hoveringMeleeAssetLoader.obj);
+		this.meleeSkeletonObj = null;
+		this.currentVisibleMeleeSkinAssetName = null;
+		this.hoveringMeleeVisible = false;
+		this.activeModel = null;
+		this.loadingModel = null;
+		this.hoveringModel = null;
+		this.hoveringModelVisible = false;
+		this.lastHoveringModelCacheKey = "";
+		this.initSkeleton();
+		this.updateSkinModel();
+		this.updateBackgroundColor();
+	}
+	destructor() {
+		this.destructed = true;
+		this.bowAssetLoader.destructor();
+		this.hoveringBowAssetLoader.destructor();
+		this.meleeAssetLoader.destructor();
+		this.hoveringMeleeAssetLoader.destructor();
+		getMain().renderer.removeRenderView(this.renderView);
+		this.removeModel(this.activeModel);
+		this.activeModel = null;
+		this.removeModel(this.loadingModel);
+		this.loadingModel = null;
+		this.removeModel(this.hoveringModel);
+		this.hoveringModel = null;
+		window.removeEventListener("mousemove", this.boundOnMouseMove);
+	}
+	async initSkeleton() {
+		await this.skeleton.waitForLoad();
+		const t = this.skeleton.addPoseLayer("shopPreview");
+		await t.waitForObjectLinks();
+		this.skeleton.applyLayers();
+		this.skeleton.updateMatrices();
+		this.updateModelRotation();
+		if (!this.skeleton.baseSkeletonObject) {
+			throw new Error("Assertion failed, skeleton is not initialized");
+		}
+		const e = this.skeleton.baseSkeletonObject.getObjectByName("bowHoldingPos");
+		if (!e) {
+			throw new Error("Assertion failed, bow holding pos object not found");
+		}
+		this.bowSkeletonObj = e;
+		const i = this.skeleton.baseSkeletonObject.getObjectByName("meleeHoldingPos");
+		if (!i) {
+			throw new Error("Assertion failed, melee holding pos object not found");
+		}
+		this.meleeSkeletonObj = i;
+	}
+	async addModel(t) {
+		if (t) {
+			await t.waitForInit();
+			if (t.obj) {
+				this.modelRotationContainer.add(t.obj);
+			}
+		}
+	}
+	removeModel(t) {
+		if (t) {
+			if (t.obj) {
+				this.modelRotationContainer.remove(t.obj);
+			}
+			t.destructor();
+		}
+	}
+	loop(t, i) {
+		let s = false;
+		if (this.cam.position.distanceTo(this.smoothCamPosOffset) > 0.01) {
+			s = true;
+		}
+		this.cam.position.lerp(this.smoothCamPosOffset, 0.1);
+		let n = new Vector3();
+		if (this.activeCamFollowingTarget) {
+			n = this.activeCamFollowingTarget.getWorldPosition(new Vector3());
+		}
+		if (this.camTarget.position.distanceTo(n) > 0.01) {
+			s = true;
+		}
+		this.camTarget.position.lerp(n, 0.1);
+		if (Math.abs(this.camTarget.rotation.y - this.smoothCamTargetRot) > 0.01) {
+			s = true;
+		}
+		this.camTarget.rotation.y = l_1(this.camTarget.rotation.y, this.smoothCamTargetRot, 0.1);
+		if (s) {
+			this.renderView.markDirty();
+		}
+	}
+	setHoveringModel(skinObjectOpts) {
+		this.hoveringModelVisible = false;
+		if (skinObjectOpts) {
+			this.hoveringModelVisible = true;
+			const e = getMain().skins.skinObjectOptsToCacheKey(skinObjectOpts);
+			if (this.lastHoveringModelCacheKey != e) {
+				this.lastHoveringModelCacheKey = e;
+				this.removeModel(this.hoveringModel);
+				this.hoveringModel = null;
+				if (skinObjectOpts) {
+					this.hoveringModel = new re({
+						skinObjectOpts,
+						useWorldWeather: false,
+					});
+					this.addModel(this.hoveringModel);
+					this.updateVisibleModelAfterHoveringInit();
+				}
+			}
+		}
+		this.updateVisibleModel();
+		this.hoveringBowVisible = false;
+		this.hoveringMeleeVisible = false;
+		if (skinObjectOpts) {
+			if (this.currentVisibleBowId) {
+				const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+					this.currentVisibleBowId,
+					skinObjectOpts.skin,
+				);
+				if (skins.length > 0) {
+					this.hoveringBowAssetLoader.setConfig({
+						bowId: this.currentVisibleBowId,
+						arrowCount: 1,
+						skins,
+						arrowSkin,
+						teamId: this.currentTeamId,
+					});
+					(async () => {
+						await this.hoveringBowAssetLoader.waitForLoad();
+						this.updateVisibleBow();
+					})();
+				}
+				this.hoveringBowVisible = true;
+			} else if (this.currentVisibleMeleeSkinAssetName) {
+				const e = getMain().skins.skinNetworkDataToMeleeSkinConfig(skinObjectOpts.skin);
+				if (e) {
+					this.hoveringMeleeAssetLoader.setConfig({
+						skinAssetName: e.skin,
+						teamId: this.currentTeamId,
+					});
+					(async () => {
+						await this.hoveringMeleeAssetLoader.waitForLoad();
+						this.updateVisibleMelee();
+					})();
+				}
+				this.hoveringMeleeVisible = true;
+			}
+		}
+		this.updateVisibleBow();
+		this.updateVisibleMelee();
+	}
+	setHoveringShopItemId(itemId) {
+		if (!this.currentlyLoadedSkinData) {
+			return;
+		}
+		const e = {
+			teamId: this.currentTeamId,
+			skin: getMain().skins.getConfigForPreviewShopItemId(this.currentlyLoadedSkinData, {
+				itemId,
+			}),
+		};
+		this.setHoveringModel(e);
+	}
+	setTemporaryColorCategory(colorCategory, colorMultiplier) {
+		if (this.currentlyLoadedSkinData) {
+			this.setHoveringModel({
+				teamId: this.currentTeamId,
+				skin: getMain().skins.getConfigForPreviewShopItemId(this.currentlyLoadedSkinData, {
+					colorCategory,
+					colorMultiplier,
+				}),
+			});
+		}
+	}
+	resetHoveringModel() {
+		this.setHoveringModel(null);
+	}
+	async updateVisibleModelAfterHoveringInit() {
+		if (this.hoveringModel) {
+			await this.hoveringModel.waitForInit();
+		}
+		this.updateVisibleModel();
+	}
+	updateSkinModel() {
+		if (this.currentlyLoadedSkinData) {
+			this.setCurrentSkinConfig(this.currentlyLoadedSkinData);
+		}
+	}
+	setCurrentSkinConfig(t) {
+		this.currentlyLoadedSkinData = t;
+		this.removeModel(this.loadingModel);
+		this.loadingModel = new re({
+			skinObjectOpts: {
+				teamId: this.currentTeamId,
+				skin: t,
+			},
+			useWorldWeather: false,
+		});
+		this.addModel(this.loadingModel);
+		this.replaceLoadingModel();
+		this.currentEquippedSkinIds = t.equippedSkinIds || [];
+		this.updateBowConfig();
+		this.updateMeleeConfig();
+	}
+	setTooltipCategory(t) {
+		this.tooltipCategory = t;
+	}
+	updateBackgroundColor() {
+		const t = (this.currentTeamId + 1) % n_1.length;
+		const e = n_1[t];
+		this.el.style.background = e.cssColor;
+	}
+	async replaceLoadingModel() {
+		if (this.loadingModel) {
+			await this.loadingModel.waitForInit();
+			if (this.loadingModel) {
+				this.removeModel(this.activeModel);
+				this.activeModel = this.loadingModel;
+				this.loadingModel = null;
+				this.removeModel(this.hoveringModel);
+				this.hoveringModel = null;
+				this.updateVisibleModel();
+			}
+		}
+	}
+	onMouseMove(t) {
+		const e = (t.clientX / window.innerWidth) * 2 - 1;
+		const i = (t.clientY / window.innerHeight) * 2 - 1;
+		this.lastMouseX = e;
+		this.lastMouseY = i * this.currentMouseYMultiplier;
+		this.updateModelRotation();
+	}
+	getVisibleModel() {
+		if (this.hoveringModel && this.hoveringModel.obj) {
+			return this.hoveringModel;
+		}
+		if (this.activeModel && this.activeModel.obj) {
+			return this.activeModel;
+		}
+		return null;
+	}
+	updateVisibleModel() {
+		let t = false;
+		if (this.hoveringModel && this.hoveringModel.obj) {
+			this.hoveringModel.obj.visible = this.hoveringModelVisible;
+			t = this.hoveringModelVisible;
+		}
+		if (this.activeModel && this.activeModel.obj) {
+			this.activeModel.obj.visible = !t;
+		}
+		this.updateSkeletonGender();
+		this.updateModelRotation();
+	}
+	updateVisibleBow() {
+		const t = Boolean(this.currentVisibleBowId);
+		const e = this.hoveringBowVisible && !this.hoveringBowAssetLoader.isLoadingAsset;
+		this.bowAssetLoader.obj.visible = t && !e;
+		this.hoveringBowAssetLoader.obj.visible = t && e;
+	}
+	updateVisibleMelee() {
+		const t = Boolean(this.currentVisibleMeleeSkinAssetName);
+		const e = this.hoveringMeleeVisible && !this.hoveringMeleeAssetLoader.isLoadingAsset;
+		this.meleeAssetLoader.obj.visible = t && !e;
+		this.hoveringMeleeAssetLoader.obj.visible = t && e;
+	}
+	async updateSkeletonGender() {
+		const t = this.getVisibleModel();
+		if (t) {
+			const e = t.skinObjectOpts.skin.gender || "male";
+			if (this.skeleton.gender != e) {
+				this.skeleton.setGender(e);
+				await this.skeleton.waitForLinkLayerObjects();
+				this.updateModelRotation();
+			}
+		}
+	}
+	updateModelRotation() {
+		const t = this.getVisibleModel();
+		if (t && t.obj) {
+			this.modelRotationContainer.rotation.y = this.lastMouseX;
+			if (this.skeleton.isInit && this.skeleton.allObjectLinksBuilt) {
+				this.skeleton.applyLayers();
+				this.skeleton.setLookRotY(this.lastMouseY, {});
+				this.skeleton.updateMatrices();
+				t.applySkeleton(this.skeleton);
+				if (this.bowSkeletonObj) {
+					this.bowParentObj.matrix.copy(this.bowSkeletonObj.matrixWorld);
+				}
+				if (this.meleeSkeletonObj) {
+					this.meleeParentObj.matrix.copy(this.meleeSkeletonObj.matrixWorld);
+				}
+				this.renderView.markDirty();
+			}
+		}
+	}
+	setActiveSlotPosition(t, e = false) {
+		this.activeSlotPositionId = t;
+		this.activeCamFollowingTarget = null;
+		const i = this.camPositions.get(t);
+		if (i) {
+			if (i.activeFollowingTarget) {
+				this.activeCamFollowingTarget = i.activeFollowingTarget;
+			}
+			if (i.pos) {
+				this.smoothCamPosOffset.copy(i.pos);
+				if (e) {
+					this.cam.position.copy(i.pos);
+				}
+			}
+			this.smoothCamTargetRot = i.rot || 0;
+			if (i.mouseYMultiplier !== undefined) {
+				this.currentMouseYMultiplier = i.mouseYMultiplier;
+			} else {
+				this.currentMouseYMultiplier = 1;
+			}
+		}
+	}
+	async setSkeletonPose(t) {
+		let e = false;
+		if (this.activeExtraPoseLayer) {
+			this.skeleton.removePoseLayer(this.activeExtraPoseLayer);
+			e = true;
+		}
+		if (t) {
+			const i = this.skeleton.addPoseLayer(t);
+			this.activeExtraPoseLayer = i;
+			await this.activeExtraPoseLayer.waitForObjectLinks();
+			if (this.activeExtraPoseLayer != i) {
+				return;
+			}
+			e = true;
+		}
+		if (e) {
+			await this.skeleton.waitForLoad();
+			this.skeleton.applyLayers();
+			this.skeleton.updateMatrices();
+			this.updateModelRotation();
+		}
+	}
+	setBow(t) {
+		this.currentVisibleBowId = t;
+		this.updateBowConfig();
+		this.updateVisibleBow();
+	}
+	updateBowConfig() {
+		if (this.currentVisibleBowId) {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				this.currentVisibleBowId,
+				{
+					equippedSkinIds: this.currentEquippedSkinIds,
+				},
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: this.currentVisibleBowId,
+				arrowCount: 1,
+				skins,
+				arrowSkin,
+				teamId: this.currentTeamId,
+			});
+		}
+	}
+	setMelee(t) {
+		this.currentVisibleMeleeSkinAssetName = t;
+		this.updateMeleeConfig();
+		this.updateVisibleMelee();
+	}
+	updateMeleeConfig() {
+		if (this.currentVisibleMeleeSkinAssetName) {
+			const t = getMain().skins.skinNetworkDataToMeleeSkinConfig({
+				equippedSkinIds: this.currentEquippedSkinIds,
+			});
+			if (t) {
+				this.meleeAssetLoader.setConfig({
+					skinAssetName: t.skin,
+					teamId: this.currentTeamId,
+				});
+			}
+		}
+	}
+}
+class be {
+	el;
+	dialog;
+	skinManager;
+	customizationId;
+	onBackButtonClickCbs;
+	pagedView;
+	createdGrids;
+	skinPreview;
+	filterSubPages;
+	constructor(
+		public gameWrapper: HTMLElement,
+		e,
+		{ id, rootHeader, dialog },
+	) {
+		let o;
+		this.el = document.createElement("div");
+		this.el.classList.add("shopDialogContent");
+		this.dialog = dialog;
+		this.skinManager = e;
+		this.customizationId = id;
+		this.onBackButtonClickCbs = new Set();
+		this.pagedView = new ee({
+			extraClasses: ["shop-paged-view-container"],
+		});
+		this.el.appendChild(this.pagedView.el);
+		this.createdGrids = new Map();
+		this.skinPreview = new we(gameWrapper);
+		this.el.appendChild(this.skinPreview.el);
+		this.updateSkinPreviewConfig();
+		this.filterSubPages = new Map();
+		let useSingleWeaponType = null;
+		if (id.type == "class") {
+			const t = getWeapon(id.classId);
+			o = {
+				itemName: "Bow",
+				buttonIcon: "static/img/menuUI/shop/categoryIcons/bow.svg",
+				buttonIconSize: 2.2,
+				subPages: [
+					this.createGridViewSubPage({
+						itemName: "Handle",
+						buttonIcon: "static/img/menuUI/shop/categoryIcons/bowHandle.svg",
+						buttonIconSize: 2.2,
+						...this.createBowGridViewConfig(t, "handle"),
+					}),
+					this.createGridViewSubPage({
+						itemName: "Tip",
+						buttonIcon: "static/img/menuUI/shop/categoryIcons/bowTip.svg",
+						buttonIconSize: 2.2,
+						...this.createBowGridViewConfig(t, "tip"),
+					}),
+				],
+				onBecomeVisible: () => {
+					this.setSkinPreview(this.createBowGridViewConfig(t, "full"));
+					this.skinPreview.setTooltipCategory("bow");
+				},
+			};
+			useSingleWeaponType = t.bowId;
+		} else {
+			const subPages = [];
+			for (const e of allWeapons) {
+				subPages.push({
+					itemName: e.uiName,
+					subPages: [
+						this.createGridViewSubPage({
+							itemName: "Handle",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/bowHandle.svg",
+							buttonIconSize: 2.2,
+							...this.createBowGridViewConfig(e, "handle"),
+						}),
+						this.createGridViewSubPage({
+							itemName: "Tip",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/bowTip.svg",
+							buttonIconSize: 2.2,
+							...this.createBowGridViewConfig(e, "tip"),
+						}),
+					],
+					onBecomeVisible: () => {
+						this.setSkinPreview(this.createBowGridViewConfig(e, "full"));
+						this.skinPreview.setTooltipCategory("bow");
+					},
+				});
+			}
+			o = {
+				itemName: "Bow",
+				buttonIcon: "static/img/menuUI/shop/categoryIcons/bow.svg",
+				buttonIconSize: 2.2,
+				subPages,
+				onBecomeVisible: () => {
+					this.resetSkinPreview();
+				},
+			};
+		}
+		this.pagedView.setActiveStructure({
+			header: rootHeader,
+			onBecomeVisible: () => {
+				this.resetSkinPreview();
+			},
+			onBackButtonClick: () => {
+				this.onBackButtonClickCbs.forEach((t) => t());
+			},
+			rightCorner: (t) => {
+				if (id.type == "class") {
+					const s = id.classId;
+					const n = this.skinManager.getClassSkinData(s, false);
+					const o = document.createElement("div");
+					o.classList.add("dialog-select-wrapper", "wrinkledPaper");
+					t.appendChild(o);
+					const a = document.createElement("select");
+					a.classList.add("dialog-select-input", "blueNight");
+					o.appendChild(a);
+					const r = document.createElement("option");
+					r.value = "none";
+					r.textContent = "None";
+					a.appendChild(r);
+					for (const t of e.skinPresets.keys()) {
+						const e = document.createElement("option");
+						e.value = String(t);
+						e.textContent = `Preset ${t + 1}`;
+						a.appendChild(e);
+					}
+					if (n.presetId == null) {
+						a.value = "none";
+					} else {
+						a.value = String(n.presetId);
+					}
+					a.addEventListener("change", () => {
+						const t = a.value == "none" ? null : Number(a.value);
+						this.skinManager.setClassPreset(s, t);
+						this.updateSkinPreviewConfig();
+					});
+				}
+			},
+			subPages: [
+				{
+					itemName: "Looks",
+					buttonIcon: "static/img/menuUI/shop/categoryIcons/face.svg",
+					buttonIconSize: 2.2,
+					onBecomeVisible: () => {
+						this.resetSkinPreview({
+							camPosition: "face",
+						});
+					},
+					rightCorner: (t) => {
+						const e = document.createElement("div");
+						e.classList.add("shop-gender-toggle-container");
+						t.appendChild(e);
+						const s = document.createElement("div");
+						s.classList.add("gender-icon", "male");
+						e.appendChild(s);
+						const n = document.createElement("input");
+						n.type = "checkbox";
+						n.classList.add("dialog-toggle-input", "wrinkledPaper");
+						n.ariaLabel = "Gender";
+						let o = "male";
+						if (id.type == "preset") {
+							const t = id.presetId;
+							o = this.skinManager.getPreset(t).gender || "male";
+						} else if (id.type == "class") {
+							const t = id.classId;
+							const e = this.skinManager.getClassSkinData(t, false);
+							let s;
+							if (e.presetId != null) {
+								s = this.skinManager.getPreset(e.presetId, false).gender;
+							}
+							o = e.gender || s || "male";
+						}
+						n.checked = o == "female";
+						n.addEventListener("change", () => {
+							const t = n.checked ? "female" : "male";
+							if (id.type == "preset") {
+								this.skinManager.setPresetGender(id.presetId, t);
+							} else if (id.type == "class") {
+								this.skinManager.setClassGender(id.classId, t);
+							}
+							this.updateSkinPreviewConfig();
+							this.pagedView.updateButtonVisibilies();
+						});
+						e.appendChild(n);
+						const a = document.createElement("div");
+						a.classList.add("gender-icon", "female");
+						e.appendChild(a);
+					},
+					subPages: [
+						this.createGridViewSubPage({
+							itemName: "Skin color",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/skinTone.svg",
+							buttonIconSize: 1.2,
+							filterOptions: {
+								shopCategoriesFilter: ["skinTone"],
+							},
+						}),
+						this.createGridViewSubPage({
+							itemName: "Hair",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/hair.svg",
+							buttonIconSize: 1.2,
+							filterOptions: {
+								shopCategoriesFilter: ["faceHair"],
+							},
+							colorButtonsCategory: "hair",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Eyebrows",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/eyebrows.svg",
+							buttonIconSize: 1.4,
+							filterOptions: {
+								shopCategoriesFilter: ["faceEyebrows"],
+							},
+							colorButtonsCategory: "eyebrows",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Eyes",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/eyes.svg",
+							buttonIconSize: 1.4,
+							filterOptions: {
+								shopCategoriesFilter: ["faceEyes"],
+							},
+						}),
+						this.createGridViewSubPage({
+							itemName: "Beard",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/face.svg",
+							buttonIconSize: 2.2,
+							filterOptions: {
+								shopCategoriesFilter: ["faceMustache", "faceBeard"],
+							},
+							colorButtonsCategory: "beard",
+						}),
+						{
+							itemName: "Tattoos",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/tattoo.svg",
+							subPages: [
+								this.createGridViewSubPage({
+									itemName: "Torso",
+									filterOptions: {
+										shopCategoriesFilter: ["torsoTattoo"],
+									},
+									skinPreviewCamPosition: "torso",
+								}),
+								this.createGridViewSubPage({
+									itemName: "Arms",
+									filterOptions: {
+										shopCategoriesFilter: ["armTattoo"],
+									},
+									skinPreviewCamPosition: "arms",
+								}),
+								this.createGridViewSubPage({
+									itemName: "Legs",
+									filterOptions: {
+										shopCategoriesFilter: ["legTattoo"],
+									},
+									skinPreviewCamPosition: "legs",
+								}),
+							],
+						},
+						this.createGridViewSubPage({
+							itemName: "Miscellaneous",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/misc.svg",
+							buttonIconSize: 1.4,
+							filterOptions: {
+								shopCategoriesFilter: ["faceMisc"],
+							},
+						}),
+					],
+				},
+				{
+					itemName: "Gear",
+					buttonIcon: "static/img/menuUI/shopChest.svg",
+					buttonIconSize: 2,
+					onBecomeVisible: () => {
+						this.resetSkinPreview();
+					},
+					subPages: [
+						this.createGridViewSubPage({
+							itemName: "Head",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/head.svg",
+							buttonIconSize: 1.7,
+							filterOptions: {
+								shopCategoriesFilter: ["head"],
+							},
+							skinPreviewCamPosition: "head",
+							previewTooltipCategory: "armor",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Torso",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/torso.svg",
+							buttonIconSize: 1.7,
+							filterOptions: {
+								shopCategoriesFilter: ["torso"],
+							},
+							skinPreviewCamPosition: "torso",
+							previewTooltipCategory: "armor",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Arms",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/arms.svg",
+							buttonIconSize: 1.7,
+							filterOptions: {
+								shopCategoriesFilter: ["arms", "hands"],
+							},
+							skinPreviewCamPosition: "arms",
+							previewTooltipCategory: "armor",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Legs",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/legs.svg",
+							buttonIconSize: 1.7,
+							filterOptions: {
+								shopCategoriesFilter: ["legs", "feet"],
+							},
+							skinPreviewCamPosition: "legs",
+							previewTooltipCategory: "armor",
+						}),
+						this.createGridViewSubPage({
+							itemName: "Quiver",
+							buttonIcon: "static/img/menuUI/shop/categoryIcons/quiver.svg",
+							buttonIconSize: 1.2,
+							filterOptions: {
+								shopCategoriesFilter: ["quiver"],
+							},
+							skinPreviewCamPosition: "quiver",
+							previewTooltipCategory: "armor",
+						}),
+					],
+				},
+				o,
+				this.createGridViewSubPage({
+					itemName: "Arrow",
+					bowId: "mediumBow",
+					skeletonPose: "bows/mediumBow/shootingLoaded",
+					buttonIcon: "static/img/menuUI/shop/categoryIcons/arrow.svg",
+					buttonIconSize: 1.9,
+					skinPreviewCamPosition: "arrow",
+					filterOptions: {
+						shopCategoriesFilter: ["arrow"],
+					},
+					previewTooltipCategory: "arrow",
+				}),
+				this.createGridViewSubPage({
+					itemName: "Melee",
+					meleeSkinAssetName: "meleePokeHeavySword",
+					skeletonPose: "melee/bladedHeavy/idle",
+					buttonIcon: "static/img/menuUI/shop/categoryIcons/melee.svg",
+					buttonIconSize: 1.9,
+					skinPreviewCamPosition: "melee",
+					filterOptions: {
+						shopCategoriesFilter: ["meleeBladed", "meleeBlunt", "meleePoke"],
+					},
+					previewTooltipCategory: "melee",
+				}),
+				this.createGridViewSubPage({
+					itemName: "Rewarded",
+					buttonIcon: "static/img/rewardedAdIcon.svg",
+					buttonIconSize: 1.4,
+					filterOptions: {
+						filterType: "rewarded",
+						useSingleWeaponType,
+					},
+				}),
+				this.createGridViewSubPage({
+					itemName: "Pelican Party+",
+					hasPeliPlusIcon: true,
+					buttonIconSize: 1.4,
+					filterOptions: {
+						filterType: "plusOnly",
+						useSingleWeaponType,
+					},
+				}),
+				this.createGridViewSubPage({
+					itemName: "Uncategorized",
+					filterOptions: {
+						filterType: "uncategorized",
+					},
+				}),
+				this.createGridViewSubPage({
+					itemName: "Missing",
+					filterOptions: {
+						filterType: "missing",
+					},
+				}),
+			],
+		});
+	}
+	destructor() {
+		this.closeCreatedDialogs();
+		for (const { grid } of this.createdGrids.values()) {
+			grid.destructor();
+		}
+		this.createdGrids.clear();
+		this.skinPreview.destructor();
+	}
+	onBackButtonClick(t) {
+		this.onBackButtonClickCbs.add(t);
+	}
+	closeCreatedDialogs() {
+		for (const { grid } of this.createdGrids.values()) {
+			grid.closeCreatedConfirmPurchaseDialogs();
+		}
+	}
+	loop(t, e) {
+		this.skinPreview.loop(t, e);
+	}
+	updateShopState(t) {
+		for (const { grid } of this.createdGrids.values()) {
+			grid.setPurchasedItems(t);
+		}
+	}
+	highlightOrOpenShopItem(t, e, i) {
+		let s;
+		let n;
+		for (const e of t) {
+			s = this.filterSubPages.get(e);
+			break;
+		}
+		if (!s) {
+			throw new Error(`No subpage structure found for shop item "${e}"`);
+		}
+		this.pagedView.jumpToSubPage(s);
+		for (const { grid, pagedViewStructure } of this.createdGrids.values()) {
+			if (pagedViewStructure === s) {
+				n = grid;
+				break;
+			}
+		}
+		if (!n) {
+			throw new Error("Assertion failed, no grid was created for the subpage");
+		}
+		n.performHighlightShopItemAction(e, i);
+	}
+	resetSkinPreview({ camPosition = "full" } = {}) {
+		this.skinPreview.setActiveSlotPosition(camPosition);
+		this.skinPreview.setSkeletonPose(null);
+		this.skinPreview.setBow(null);
+		this.skinPreview.setMelee(null);
+		this.skinPreview.setTooltipCategory("armor");
+	}
+	createBowGridViewConfig(t, e) {
+		let skinPreviewCamPosition = "full";
+		let shopCategoriesFilter = [];
+		if (e == "full") {
+			skinPreviewCamPosition = t.bowShopCamPosition;
+		} else if (e == "handle") {
+			skinPreviewCamPosition = t.bowHandleShopCamPosition;
+			shopCategoriesFilter = t.bowHandleShopCategories;
+		} else if (e == "tip") {
+			skinPreviewCamPosition = t.bowTipShopCamPosition;
+			shopCategoriesFilter = t.bowTipShopCategories;
+		}
+		const filterOptions = {
+			useSingleWeaponType: t.bowId,
+			hideNonBowSkins: true,
+			shopCategoriesFilter,
+		};
+		return {
+			skinPreviewCamPosition,
+			skeletonPose: `bows/${t.bowId}/${t.shopSkeletonLayer}`,
+			bowId: t.bowId,
+			filterOptions,
+		};
+	}
+	setSkinPreview({
+		skinPreviewCamPosition = null,
+		skeletonPose = null,
+		bowId = null,
+		meleeSkinAssetName = null,
+	}) {
+		if (skinPreviewCamPosition) {
+			this.skinPreview.setActiveSlotPosition(skinPreviewCamPosition);
+		}
+		this.skinPreview.setSkeletonPose(skeletonPose);
+		this.skinPreview.setBow(bowId);
+		this.skinPreview.setMelee(meleeSkinAssetName);
+	}
+	createGridViewSubPage({
+		itemName,
+		buttonIcon,
+		hasPeliPlusIcon,
+		buttonIconSize,
+		filterOptions,
+		skinPreviewCamPosition = null,
+		skeletonPose = null,
+		bowId = null,
+		meleeSkinAssetName = null,
+		colorButtonsCategory = "none",
+		previewTooltipCategory = "none",
+	}) {
+		const pagedViewStructure = {
+			itemName,
+			buttonIcon,
+			hasPeliPlusIcon,
+			buttonIconSize,
+			buttonVisible: () => {
+				const loadedConfigData = getMain().config.shopConfig.loadedConfigData;
+				if (!loadedConfigData) {
+					return true;
+				}
+				const e = this.getCurrentSkinData().gender || "male";
+				return (
+					this.filterPurchasableItems(loadedConfigData.purchasableItems, e, filterOptions).length >
+					0
+				);
+			},
+			onBecomeVisible: () => {
+				this.skinPreview.setTooltipCategory(previewTooltipCategory);
+				this.setSkinPreview({
+					skinPreviewCamPosition,
+					skeletonPose,
+					bowId,
+					meleeSkinAssetName,
+				});
+			},
+			customSubPage: (t) => {
+				this.createShopItemsGrid(t, {
+					filterOptions,
+					pagedViewStructure,
+					colorButtonsCategory,
+				});
+			},
+			customSubPageDestroyed: (t) => {
+				this.destroyShopItemsGrid(t);
+			},
+		};
+		if (colorButtonsCategory != "none") {
+			pagedViewStructure.rightCorner = (t) => {
+				t.classList.add("shop-color-buttons-corner");
+				for (const { cssColor, skinColor } of Yt) {
+					const s = document.createElement("button");
+					s.classList.add("shop-color-button");
+					s.style.backgroundColor = cssColor;
+					t.appendChild(s);
+					s.addEventListener("click", () => {
+						const skins = getMain().skins;
+						if (this.customizationId.type == "preset") {
+							skins.setPresetSkinItemColor(
+								this.customizationId.presetId,
+								colorButtonsCategory,
+								skinColor,
+							);
+						} else if (this.customizationId.type == "class") {
+							skins.setClassSkinItemColor(
+								this.customizationId.classId,
+								colorButtonsCategory,
+								skinColor,
+							);
+						}
+						this.updateSkinPreviewConfig();
+						const e = this.getShopItemRenderOptions(colorButtonsCategory);
+						for (const t of this.createdGrids.values()) {
+							t.grid.setRenderOptions(e);
+						}
+					});
+					s.addEventListener("mouseenter", () => {
+						this.skinPreview.setTemporaryColorCategory(colorButtonsCategory, skinColor);
+					});
+					s.addEventListener("mouseleave", () => {
+						this.skinPreview.resetHoveringModel();
+					});
+				}
+			};
+		}
+		if (filterOptions.shopCategoriesFilter) {
+			for (const t of filterOptions.shopCategoriesFilter) {
+				this.filterSubPages.set(t, pagedViewStructure);
+			}
+		}
+		return pagedViewStructure;
+	}
+	filterPurchasableItems(
+		t,
+		e,
+		{ filterType = "default", shopCategoriesFilter, useSingleWeaponType, hideNonBowSkins },
+	) {
+		if (filterType == "missing") {
+			return [];
+		}
+		if (filterType == "uncategorized") {
+			return t.filter((t) => !t.categories);
+		}
+		{
+			const a = getMain().shopState.purchasedItems;
+			const r = getMain().getPeliSdk();
+			const l = Boolean(r?.entitlements.has("removeAds"));
+			return t.filter((t) => {
+				if (filterType == "rewarded") {
+					if (
+						getMain().shopState.getVisibleItemPrice(t) > 0 ||
+						!t.hasRewardedAd ||
+						a.has(t.id) ||
+						l
+					) {
+						return false;
+					}
+				}
+				if (filterType == "plusOnly") {
+					return t.requiredPeliEntitlements && t.requiredPeliEntitlements.length > 0;
+				}
+				if (useSingleWeaponType && t.bowSkin && useSingleWeaponType != t.bowSkin.bowId) {
+					return false;
+				}
+				if (hideNonBowSkins && !t.bowSkin) {
+					return false;
+				}
+				if (!(t.showFullBodyInShopItem || t.bowSkin || t.meleeSkin || t.arrowSkin)) {
+					if (e == "male" && !t.maleSkin) {
+						return false;
+					}
+					if (e == "female" && !t.femaleSkin) {
+						return false;
+					}
+				}
+				if (shopCategoriesFilter) {
+					if (!t.categories) {
+						return false;
+					}
+					let e = false;
+					for (const i of t.categories) {
+						if (shopCategoriesFilter.includes(i)) {
+							e = true;
+							break;
+						}
+					}
+					if (!e) {
+						return false;
+					}
+				}
+				if (!this.showHiddenItems) {
+					if (t.shopVisibility == "hidden") {
+						return false;
+					}
+					if (isSteam() && t.hasRewardedAd && !t.price && !a.has(t.id) && !l) {
+						return false;
+					}
+					if (t.shopVisibility == "seasonal" && !a.has(t.id)) {
+						const e = t.seasonalRange;
+						if (!e) {
+							return false;
+						}
+						if (e.startDay && e.endDay && e.startMonth && e.endMonth) {
+							const t = new Date();
+							const i = new Date(t.getFullYear(), e.startMonth - 1, e.startDay);
+							const s = new Date(t.getFullYear(), e.endMonth - 1, e.endDay);
+							const n = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+							if (n < i || n > s) {
+								return false;
+							}
+						}
+					}
+				}
+				return true;
+			});
+		}
+	}
+	getShopItemRenderOptions(t) {
+		const e = this.getCurrentSkinData();
+		const gender = e.gender || "male";
+		let s = [1, 1, 1];
+		if (t == "hair" && e.hairColorMultiplier) {
+			s = e.hairColorMultiplier;
+		} else if (t == "eyebrows" && e.eyebrowColorMultiplier) {
+			s = e.eyebrowColorMultiplier;
+		} else if (t == "beard" && e.beardColorMultiplier) {
+			s = e.beardColorMultiplier;
+		}
+		return {
+			colorMultiplier: s,
+			gender,
+		};
+	}
+	createShopItemsGrid(
+		scrollingContainer,
+		{ filterOptions, pagedViewStructure, colorButtonsCategory },
+	) {
+		const grid = new me(this.gameWrapper);
+		scrollingContainer.appendChild(grid.el);
+		const reloadFilteredItems = () => {
+			const renderOptions = this.getShopItemRenderOptions(colorButtonsCategory);
+			const loadedConfigData = getMain().config.shopConfig.loadedConfigData;
+			const a = loadedConfigData ? loadedConfigData.purchasableItems : [];
+			const r = this.filterPurchasableItems(a, renderOptions.gender, filterOptions);
+			grid.loadShopItems(r, {
+				renderOptions,
+				dialog: this.dialog,
+				scrollingContainer,
+			});
+		};
+		const a = getMain();
+		a.config.shopConfig.onConfigChange(reloadFilteredItems);
+		grid.onHoveringItemChange((t) => {
+			let e = null;
+			(t && t.selected) ||
+				(t && t.config && t.config.id && (e = t.config.id),
+				e ? this.skinPreview.setHoveringShopItemId(e) : this.skinPreview.resetHoveringModel());
+		});
+		grid.setPurchasedItems(a.shopState.purchasedItems);
+		if (this.customizationId.type == "preset") {
+			const t = this.customizationId.presetId;
+			const e = this.skinManager.getPreset(t);
+			const i = new Set(e.equippedSkinIds);
+			grid.setSelectedItems(i);
+			grid.onSelectedItemChangeRequest((e, i) => {
+				if (i) {
+					const i = this.skinManager.addShopItemToPreset(e, t);
+					for (const t of i) {
+						grid.setSelectedItemState(t, false);
+					}
+				} else {
+					this.skinManager.removeShopItemFromPreset(e, t);
+				}
+				grid.setSelectedItemState(e, i);
+				this.updateSkinPreviewConfig();
+			});
+		} else if (this.customizationId.type == "class") {
+			const t = this.customizationId.classId;
+			this.updateSelectedItemsForClass(t, grid);
+			grid.onSelectedItemChangeRequest((e, i) => {
+				if (i) {
+					this.skinManager.addShopItemToClass(e, t);
+				} else {
+					this.skinManager.removeShopItemFromClass(e, t);
+				}
+				this.updateSelectedItemsForClass(t, grid);
+				this.updateSkinPreviewConfig();
+			});
+		}
+		this.createdGrids.set(scrollingContainer, {
+			grid,
+			reloadFilteredItems,
+			pagedViewStructure,
+		});
+	}
+	updateSelectedItemsForClass(t, e) {
+		const i = this.skinManager.getClassSkinData(t, false);
+		let s = [];
+		if (i.presetId != null) {
+			const t = this.skinManager.getPreset(i.presetId, false);
+			if (t.equippedSkinIds) {
+				s = t.equippedSkinIds;
+			}
+		}
+		const n = new Set(s);
+		if (i.equippedSkinIds) {
+			for (const t of i.equippedSkinIds) {
+				this.skinManager.addItemAndRemoveDuplicateSlots(n, t);
+			}
+		}
+		if (i.unequippedSkinIds) {
+			for (const t of i.unequippedSkinIds) {
+				n.delete(t);
+			}
+		}
+		e.setSelectedItems(n);
+	}
+	getCurrentSkinData() {
+		if (this.customizationId.type == "preset") {
+			return this.skinManager.getPreset(this.customizationId.presetId);
+		}
+		if (this.customizationId.type == "class") {
+			return this.skinManager.getClassSkinDataWithAppliedPreset(this.customizationId.classId);
+		}
+		throw new Error("Assertion failed, unknown customization type.");
+	}
+	updateSkinPreviewConfig() {
+		const t = this.getCurrentSkinData();
+		this.skinPreview.setCurrentSkinConfig(t);
+	}
+	destroyShopItemsGrid(t) {
+		const e = this.createdGrids.get(t);
+		if (!e) {
+			return;
+		}
+		const { grid, reloadFilteredItems } = e;
+		grid.destructor();
+		this.createdGrids.delete(t);
+		getMain().config.shopConfig.removeOnConfigChange(reloadFilteredItems);
+	}
+}
+class ye {
+	el = document.createElement("div");
+	backgroundEl;
+	imageEl;
+	seed;
+	classId;
+	updateReference;
+	constructor(t, { extraClasses = [] } = {}) {
+		this.el.classList.add(
+			"class-selection-image-container",
+			"wrinkledPaper",
+			"wrinkled-paper-mask",
+			...extraClasses,
+		);
+		this.backgroundEl = document.createElement("div");
+		this.backgroundEl.classList.add("class-selection-image-background", "wrinkledPaper");
+		this.el.appendChild(this.backgroundEl);
+		this.imageEl = document.createElement("div");
+		this.imageEl.classList.add("class-selection-image");
+		this.el.appendChild(this.imageEl);
+		this.seed = intRandom(0, 99999);
+		const i = `
+\t\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t`;
+		this.el.style.cssText = i;
+		this.backgroundEl.style.cssText = i;
+		this.classId = t;
+		const s = getMain().classSelectionImageManager;
+		this.updateReference = s.createUpdateReference(t);
+		this.updateReference.onBlobUrlChange((t) => {
+			this.imageEl.style.backgroundImage = `url("${t}")`;
+		});
+		this.updateReference.needsUpdates = true;
+	}
+	destructor() {
+		this.updateReference.destructor();
+	}
+	set needsUpdates(t) {
+		this.updateReference.needsUpdates = t;
+	}
+	setCssColor(t, e) {
+		this.backgroundEl.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t\t--wrinkled-paper-color: ${t};
+\t\t\t--wrinkled-paper-border-color: ${e};
+\t\t`;
+	}
+}
+class Se {
+	el = document.createElement("div");
+	onClickCbs;
+	classSelectionImage;
+	constructor(t) {
+		this.el.classList.add("shop-skin-selection-item", "shop-class-selection-item");
+		const e = document.createElement("h3");
+		e.classList.add("dialogTitle", "blueNight");
+		e.textContent = t.uiName;
+		this.el.appendChild(e);
+		this.onClickCbs = new Set();
+		this.classSelectionImage = new ye(t.id);
+		const { colors } = getMain().gameManager.getMyTeamColor();
+		this.classSelectionImage.setCssColor(colors.cssColor, colors.cssColorDark);
+		this.el.appendChild(this.classSelectionImage.el);
+		const editButton = new CustomButton({
+			text: "Edit",
+			onClick: () => {
+				this.onClickCbs.forEach((t) => t());
+			},
+			extraClasses: ["shop-skin-selection-edit-button"],
+		});
+		this.el.appendChild(editButton.el);
+	}
+	set needsAvatarUpdates(t) {
+		this.classSelectionImage.needsUpdates = t;
+	}
+	destructor() {
+		this.classSelectionImage.destructor();
+	}
+	onClick(t) {
+		this.onClickCbs.add(t);
+	}
+}
+class ve {
+	el = document.createElement("div");
+	avatarBlobUrlReference;
+	constructor({ preset, onEditButtonClick, showDeleteButton, onDeleteButtonClick }) {
+		this.el.classList.add("shop-skin-selection-item");
+		const n = document.createElement("div");
+		n.classList.add("shop-skin-selection-image", "wrinkledPaper", "wrinkled-paper-mask");
+		n.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		this.el.appendChild(n);
+		const editButton = new CustomButton({
+			text: "Edit",
+			onClick: onEditButtonClick,
+			extraClasses: ["shop-skin-selection-edit-button"],
+		});
+		this.el.appendChild(editButton.el);
+		const a = getMain().avatars.getAvatar({
+			skinObjectOpts: {
+				skin: preset,
+				teamId: 1,
+			},
+			width: 200,
+			height: 300,
+			clipPathType: "none",
+			cameraType: "full-body",
+			backgroundColor: n_1[2].cssColor,
+		});
+		this.avatarBlobUrlReference = a.getBlobUrlReference();
+		(async () => {
+			const t = await this.avatarBlobUrlReference.getBlobUrl();
+			n.style.backgroundImage = `url("${t}")`;
+		})();
+		if (showDeleteButton) {
+			const deleteButton = new CustomButton({
+				text: "x",
+				extraClasses: ["corner-delete-button"],
+				onClick: onDeleteButtonClick,
+			});
+			deleteButton.el.ariaLabel = "Delete preset";
+			this.el.appendChild(deleteButton.el);
+		}
+	}
+	destructor() {
+		this.avatarBlobUrlReference.destructor();
+	}
+}
+class Ce {
+	skinManager;
+	onPresetOpenClickCbs = new Set();
+	onBackButtonClickCbs = new Set();
+	el = document.createElement("div");
+	presetsList;
+	createdPresetItems;
+	addPresetButton;
+	constructor(t) {
+		this.skinManager = t;
+		const e = document.createElement("div");
+		e.classList.add("dialog-title-header-container");
+		this.el.appendChild(e);
+		const backButton = new CustomButton({
+			isIconButton: true,
+			ariaLabel: "Back",
+			icon: "static/img/arrow.svg",
+			extraClasses: ["header-button", "header-back-button"],
+			onClick: () => {
+				this.onBackButtonClickCbs.forEach((t) => t());
+			},
+		});
+		e.appendChild(backButton.el);
+		const s = document.createElement("h2");
+		s.textContent = "Presets";
+		s.classList.add("dialogTitle", "blueNight", "shop-presets-title");
+		e.appendChild(s);
+		this.presetsList = document.createElement("div");
+		this.presetsList.classList.add("shop-skin-selection-list");
+		this.el.appendChild(this.presetsList);
+		this.createdPresetItems = [];
+		this.addPresetButton = new CustomButton({
+			text: "+",
+			extraClasses: ["shop-skin-selection-list-add-button"],
+			onClick: () => {
+				t.addPreset();
+				this.updatePresetList();
+				this.presetsList.scroll(this.presetsList.scrollWidth, 0);
+			},
+		});
+		this.updatePresetList();
+	}
+	destructor() {
+		for (const t of this.createdPresetItems) {
+			t.destructor();
+		}
+	}
+	updatePresetList() {
+		while (this.presetsList.firstChild) {
+			this.presetsList.removeChild(this.presetsList.firstChild);
+		}
+		const createdPresetItems = this.createdPresetItems;
+		this.createdPresetItems = [];
+		for (const [t, preset] of this.skinManager.skinPresets.entries()) {
+			const i = new ve({
+				preset,
+				onEditButtonClick: () => {
+					this.onPresetOpenClickCbs.forEach((e) => e(t));
+				},
+				showDeleteButton: this.skinManager.skinPresets.length > 1,
+				onDeleteButtonClick: async () => {
+					getMain().dialogManager.showAlert({
+						text: "Are you sure you want to delete this preset?",
+						buttons: [
+							{
+								text: "Yes",
+								onClick: () => {
+									this.skinManager.deletePreset(t);
+									this.updatePresetList();
+								},
+							},
+							{
+								text: "No",
+							},
+						],
+					});
+				},
+			});
+			this.presetsList.appendChild(i.el);
+			this.createdPresetItems.push(i);
+		}
+		this.presetsList.appendChild(this.addPresetButton.el);
+		for (const e of createdPresetItems) {
+			e.destructor();
+		}
+	}
+	onPresetOpenClick(t) {
+		this.onPresetOpenClickCbs.add(t);
+	}
+	onBackButtonClick(t) {
+		this.onBackButtonClickCbs.add(t);
+	}
+}
+class ke extends Dialog {
+	currentCustomizationView = null;
+	currentPresetsView = null;
+	mainViewVisible = true;
+	ownedCoinsContainer = document.createElement("div");
+	currencyContainer;
+	classSelectionContainer;
+	presetsButton;
+	classSelectionListEl;
+	createdClassSelectionItems;
+	boundUpdateShopState;
+	constructor(t) {
+		super(t, {
+			testLabel: "shop",
+		});
+		this.ownedCoinsContainer.classList.add("ownedCoinsContainer", "wrinkledPaper", "allow-select");
+		this.el.appendChild(this.ownedCoinsContainer);
+		this.currencyContainer = new CurrencyContainer();
+		this.ownedCoinsContainer.appendChild(this.currencyContainer.el);
+		this.classSelectionContainer = document.createElement("div");
+		this.classSelectionContainer.classList.add("shop-class-selection-container");
+		this.el.appendChild(this.classSelectionContainer);
+		this.presetsButton = new CustomButton({
+			text: "Presets",
+			onClick: () => {
+				this.showPresetsView();
+			},
+		});
+		this.classSelectionContainer.appendChild(this.presetsButton.el);
+		this.classSelectionListEl = document.createElement("div");
+		this.classSelectionListEl.classList.add(
+			"shop-skin-selection-list",
+			"shop-class-selection-list",
+		);
+		this.classSelectionContainer.appendChild(this.classSelectionListEl);
+		this.createdClassSelectionItems = [];
+		for (const t of allWeapons) {
+			const e = new Se(t);
+			this.classSelectionListEl.appendChild(e.el);
+			e.onClick(() => {
+				this.showCustomizationView({
+					id: {
+						type: "class",
+						classId: t.id,
+					},
+					rootHeader: t.uiName,
+					dialog: this,
+				});
+			});
+			this.createdClassSelectionItems.push(e);
+		}
+		this.boundUpdateShopState = this.updateShopState.bind(this);
+		getMain().shopState.onStateChanged(this.boundUpdateShopState);
+		getMain().shopState.fetchCurrentData();
+		this.updateShopState();
+	}
+	destructor() {
+		getMain().shopState.removeOnStateChanged(this.boundUpdateShopState);
+		this.hideCustomizationView();
+		this.hidePresetsView();
+		super.destructor();
+		for (const t of this.createdClassSelectionItems) {
+			t.destructor();
+		}
+		this.createdClassSelectionItems = [];
+		this.hidePresetsView();
+	}
+	onClose() {
+		if (this.currentCustomizationView) {
+			this.currentCustomizationView.closeCreatedDialogs();
+		}
+	}
+	loop(t, e) {
+		if (this.currentCustomizationView) {
+			this.currentCustomizationView.loop(t, e);
+		}
+	}
+	updateShopState() {
+		this.currencyContainer.setAmount(getMain().shopState.ownedCoins);
+		if (this.currentCustomizationView) {
+			this.currentCustomizationView.updateShopState(getMain().shopState.purchasedItems);
+		}
+	}
+	updateMainViewVisibility() {
+		const t = this.currentCustomizationView == null && this.currentPresetsView == null;
+		if (t != this.mainViewVisible) {
+			this.mainViewVisible = t;
+			this.classSelectionContainer.style.display = t ? "" : "none";
+			for (const e of this.createdClassSelectionItems) {
+				e.needsAvatarUpdates = t;
+			}
+		}
+	}
+	showPresetCustomizationView(presetId) {
+		this.showCustomizationView({
+			id: {
+				type: "preset",
+				presetId,
+			},
+			rootHeader: `Preset ${presetId + 1}`,
+			dialog: this,
+		});
+	}
+	showCustomizationView(t) {
+		if (this.currentCustomizationView) {
+			return;
+		}
+		const skins = getMain().skins;
+		this.currentCustomizationView = new be(this.gameWrapper, skins, t);
+		this.el.appendChild(this.currentCustomizationView.el);
+		this.currentCustomizationView.onBackButtonClick(() => {
+			this.hideCustomizationView();
+			if (t.id.type == "preset") {
+				this.showPresetsView();
+			}
+			this.updateMainViewVisibility();
+		});
+		this.hidePresetsView();
+		this.updateMainViewVisibility();
+	}
+	hideCustomizationView() {
+		if (this.currentCustomizationView) {
+			if (this.el.contains(this.currentCustomizationView.el)) {
+				this.el.removeChild(this.currentCustomizationView.el);
+			}
+			this.currentCustomizationView.destructor();
+			this.currentCustomizationView = null;
+		}
+	}
+	showPresetsView() {
+		if (!this.currentPresetsView) {
+			this.currentPresetsView = new Ce(getMain().skins);
+			this.currentPresetsView.onPresetOpenClick((t) => {
+				this.showPresetCustomizationView(t);
+			});
+			this.currentPresetsView.onBackButtonClick(() => {
+				this.hidePresetsView();
+				this.updateMainViewVisibility();
+			});
+			this.el.appendChild(this.currentPresetsView.el);
+			this.updateMainViewVisibility();
+		}
+	}
+	hidePresetsView() {
+		if (this.currentPresetsView) {
+			if (this.el.contains(this.currentPresetsView.el)) {
+				this.el.removeChild(this.currentPresetsView.el);
+			}
+			this.currentPresetsView.destructor();
+			this.currentPresetsView = null;
+		}
+	}
+	openShopItemSubPage(t, e) {
+		const i = getMain();
+		const i_skins = i.skins;
+		const loadedConfigData = i.config.shopConfig.loadedConfigData;
+		if (!loadedConfigData) {
+			throw new Error("Assertion failed, the shop config hasn't been loaded");
+		}
+		const o = new Map();
+		for (const t of Object.values(i_skins.classSkins)) {
+			if (t.presetId != null) {
+				const e = o.get(t.presetId) || 0;
+				o.set(t.presetId, e + 1);
+			}
+		}
+		let a = 0;
+		let r = 0;
+		for (const [t, e] of o) {
+			if (e > r) {
+				a = t;
+				r = e;
+			}
+		}
+		this.showPresetCustomizationView(a);
+		if (!this.currentCustomizationView) {
+			throw new Error("Assertion failed, customization view not visible");
+		}
+		const l = loadedConfigData.purchasableItems.find((e) => e.id == t);
+		if (!l) {
+			throw new Error(`The item "${t}" doesn't exist in the currently loaded shop config.`);
+		}
+		if (l.categories) {
+			return this.currentCustomizationView.highlightOrOpenShopItem(l.categories, t, e);
+		}
+		throw new Error("Uncategorized shop items are not supported yet");
+	}
+	highlightShopItem(t, e) {
+		this.openShopItemSubPage(t, e);
+	}
+	openShopItem(t) {
+		this.openShopItemSubPage(t, "open");
+	}
+}
+class Pe extends Dialog {
+	avatarEl;
+	boundChangeAvatarUrl;
+	usernameForm;
+	usernameDummyText;
+	usernameInput;
+	usernameEditButton;
+	boundUpdateProfileState;
+	stats;
+	constructor(t, { showExtraStats }) {
+		super(t);
+		const i = document.createElement("div");
+		i.classList.add("profile-container");
+		this.el.appendChild(i);
+		this.avatarEl = document.createElement("div");
+		this.avatarEl.classList.add("avatar");
+		i.appendChild(this.avatarEl);
+		this.boundChangeAvatarUrl = this.changeAvatarUrl.bind(this);
+		getMain().playerAvatarManager.onAvatarUrlChange(this.boundChangeAvatarUrl);
+		this.usernameForm = document.createElement("form");
+		this.usernameForm.addEventListener("submit", (t) => {
+			t.preventDefault();
+			this.submitUsername();
+			this.usernameInput.blur();
+			return false;
+		});
+		this.usernameForm.addEventListener("click", () => {
+			const t = getMain();
+			if (t.profileState.isGuest) {
+				t.auth.loginIfNotLoggedIn();
+			} else {
+				this.usernameInput.focus();
+			}
+		});
+		i.appendChild(this.usernameForm);
+		this.usernameDummyText = document.createElement("div");
+		this.usernameDummyText.classList.add("dummy-text", "blueNight");
+		this.usernameForm.appendChild(this.usernameDummyText);
+		this.usernameInput = document.createElement("input");
+		this.usernameInput.classList.add("dialog-text-input", "blueNight", "wrinkledPaper");
+		this.usernameInput.placeholder = "Username";
+		this.usernameInput.maxLength = 20;
+		this.usernameInput.addEventListener("change", async () => {
+			this.submitUsername();
+		});
+		this.usernameInput.addEventListener("blur", () => {
+			this.updateUsernameInputVisibility();
+		});
+		this.usernameInput.addEventListener("focus", () => {
+			this.updateUsernameInputVisibility();
+		});
+		this.usernameForm.appendChild(this.usernameInput);
+		this.usernameEditButton = document.createElement("button");
+		this.usernameEditButton.classList.add("edit-button");
+		this.usernameEditButton.ariaLabel = "edit username";
+		this.usernameEditButton.type = "button";
+		this.usernameForm.appendChild(this.usernameEditButton);
+		this.boundUpdateProfileState = this.updateProfileState.bind(this);
+		const s = document.createElement("div");
+		s.classList.add("profile-stats");
+		this.el.appendChild(s);
+		this.stats = new Map();
+		const n = (t, e, { hasIcon = true } = {}) => {
+			const n = document.createElement("div");
+			s.appendChild(n);
+			n.classList.add("wrinkledPaper", "profile-stat");
+			n.style.cssText = `
+\t\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t\t`;
+			const o = document.createElement("div");
+			o.classList.add("profile-stat-icon");
+			if (hasIcon) {
+				o.style.background = `url(static/img/profileStats/${t}.svg)`;
+			}
+			n.appendChild(o);
+			const a = document.createElement("div");
+			a.textContent = e;
+			n.appendChild(a);
+			const valueEl = document.createElement("div");
+			valueEl.textContent = "-";
+			n.appendChild(valueEl);
+			this.stats.set(t, {
+				valueEl,
+			});
+		};
+		n("gamesPlayed", "Games Played");
+		n("gamesWon", "Games Won");
+		n("flagsCaptured", "Flags Captured");
+		n("totalPoints", "Points Scored");
+		n("kills", "Kills");
+		n("deaths", "Deaths");
+		if (showExtraStats) {
+			n("elo", "Elo Rating", {
+				hasIcon: false,
+			});
+		}
+		getMain().profileState.onStateChanged(this.boundUpdateProfileState);
+		getMain().profileState.fetchCurrentData();
+		this.updateProfileState();
+		this.updateUsernameInputVisibility();
+	}
+	destructor() {
+		super.destructor();
+		getMain().profileState.removeOnStateChanged(this.boundUpdateProfileState);
+		getMain().playerAvatarManager.removeOnAvatarUrlChange(this.boundChangeAvatarUrl);
+	}
+	updateProfileState() {
+		const t = getMain();
+		const t_profileState = t.profileState;
+		const i = t_profileState.getUsername();
+		this.usernameInput.value = i;
+		for (const { valueEl } of this.stats.values()) {
+			valueEl.textContent = "-";
+		}
+		for (const [e, i] of Object.entries(t.profileState.stats)) {
+			const s = e;
+			const n = this.stats.get(s);
+			if (n) {
+				let e = Math.round(i);
+				if (s == "elo") {
+					e = Math.round(t.profileState.getElo());
+				}
+				n.valueEl.textContent = String(e);
+			}
+		}
+		let s = true;
+		const usernameData = t.profileState.usernameData;
+		if (usernameData && (usernameData.protected || usernameData.verified)) {
+			s = false;
+		}
+		this.usernameInput.disabled = !s || t_profileState.isGuest;
+		this.usernameForm.classList.toggle("editable", s);
+		this.usernameEditButton.style.display = s ? "" : "none";
+		this.updateUsernameInputVisibility();
+	}
+	async submitUsername() {
+		if (!(await getMain().profileState.setUsername(this.usernameInput.value))) {
+			this.updateProfileState();
+		}
+	}
+	updateUsernameInputVisibility() {
+		const t = document.activeElement == this.usernameInput || !this.usernameInput.value;
+		this.usernameForm.classList.toggle("input-visible", t);
+		if (t) {
+			this.usernameInput.style.width = "250px";
+		} else {
+			this.usernameDummyText.textContent = this.usernameInput.value;
+			this.usernameInput.style.width = `${this.usernameDummyText.clientWidth}px`;
+		}
+	}
+	changeAvatarUrl(t) {
+		if (t) {
+			this.avatarEl.style.backgroundImage = `url(${t})`;
+		}
+	}
+}
+class xe {
+	el = document.createElement("button");
+	clickCbs;
+	avatarEl;
+	usernameEl;
+	ownedCoins;
+	boundAvatarUrlChanged;
+	constructor() {
+		this.el.classList.add("main-menu-corner-profile");
+		this.clickCbs = new Set();
+		this.el.addEventListener("click", (t) => {
+			this.clickCbs.forEach((e) => e(t));
+		});
+		this.avatarEl = document.createElement("div");
+		this.avatarEl.classList.add("avatar");
+		this.el.appendChild(this.avatarEl);
+		this.usernameEl = document.createElement("div");
+		this.usernameEl.classList.add("main-menu-username", "blueNight", "whiteBigText");
+		this.usernameEl.textContent = "Guest";
+		this.el.appendChild(this.usernameEl);
+		this.ownedCoins = new CurrencyContainer({
+			testLabel: "cornerProfile",
+		});
+		this.el.appendChild(this.ownedCoins.el);
+		this.boundAvatarUrlChanged = this.avatarUrlChanged.bind(this);
+	}
+	init() {
+		getMain().shopState.onStateChanged(() => {
+			this.ownedCoins.setAmount(getMain().shopState.ownedCoins);
+		});
+		getMain().profileState.onStateChanged(() => {
+			this.setUsername(getMain().profileState.getUsername());
+		});
+	}
+	setUsername(t) {
+		if (!t) {
+			t = "Guest";
+		}
+		this.usernameEl.textContent = t;
+		this.usernameEl.classList.toggle(
+			"blueNight",
+			((t, e = true) => {
+				if (e) {
+					t = t.toLowerCase();
+				}
+				for (const e of t) {
+					if (!" !%*+,-.:;=?0123456789abcdefghijklmnopqrstuvwxyz".includes(e)) {
+						return false;
+					}
+				}
+				return true;
+			})(t),
+		);
+	}
+	onClick(t) {
+		this.clickCbs.add(t);
+	}
+	setMainMenuVisibility(t) {
+		if (t) {
+			getMain().playerAvatarManager.onAvatarUrlChange(this.boundAvatarUrlChanged);
+		} else {
+			getMain().playerAvatarManager.removeOnAvatarUrlChange(this.boundAvatarUrlChanged);
+		}
+	}
+	avatarUrlChanged(t) {
+		if (t) {
+			this.avatarEl.style.backgroundImage = `url("${t}")`;
+		}
+	}
+}
+class Me {
+	configManager;
+	mainMenu;
+	gameManager;
+	shopStateManager;
+	pokiManager;
+	dialogManager;
+	skinManager;
+	indexedDb;
+	promoViewData = new Map();
+	activePromo = null;
+	activePromos = [];
+	el = document.createElement("div");
+	bannerEl;
+	button;
+	constructor(t, e, i, s, n, o, a, r) {
+		this.configManager = t;
+		this.mainMenu = e;
+		this.gameManager = i;
+		this.shopStateManager = s;
+		this.pokiManager = n;
+		this.dialogManager = o;
+		this.skinManager = a;
+		this.indexedDb = r;
+		this.el.classList.add("main-menu-promo-banner-container", "hidden");
+		this.bannerEl = document.createElement("div");
+		this.bannerEl.classList.add("main-menu-promo-banner", "wrinkledPaper", "wrinkled-paper-mask");
+		this.bannerEl.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		this.el.appendChild(this.bannerEl);
+		this.bannerEl.addEventListener("click", () => {
+			this.onPromoClick();
+		});
+		this.button = new CustomButton({
+			text: "",
+			extraClasses: ["main-menu-promo-button"],
+			onClick: () => {
+				this.onPromoClick();
+			},
+		});
+		this.el.appendChild(this.button.el);
+	}
+	async init() {
+		await this.loadPromoViewData();
+		this.configManager.promosConfig.onConfigChange((t) => {
+			this.activePromos = t.activePromos;
+			this.loadNewBestPromo();
+		});
+		this.shopStateManager.onStateChanged(() => {
+			const t = this.activePromo?.actionShopItem;
+			if (t && this.shopStateManager.itemIsPurchased(t)) {
+				this.loadNewBestPromo();
+			}
+		});
+		this.mainMenu.onVisibilityChange(() => {
+			this.updateVisibility();
+		});
+		this.gameManager.onIsInGamesLoopChange(() => {
+			this.updateVisibility();
+		});
+		{
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				t.entitlements.onChange(() => {
+					this.activePromo &&
+						this.activePromo.action == "showSubscribeModal" &&
+						(t.subscription.canShowSubscribeModal({
+							flow: this.activePromo.subscribeFlow,
+						}) ||
+							this.loadNewBestPromo());
+				});
+			}
+		}
+	}
+	loadNewBestPromo() {
+		let t = null;
+		let e = Infinity;
+		let activePromos = this.activePromos;
+		const s = new Set(this.promoViewData.keys());
+		for (const t of activePromos) {
+			s.delete(t.id);
+		}
+		for (const t of s) {
+			this.promoViewData.delete(t);
+		}
+		activePromos = activePromos.filter((t) => !!(t && t.id && t.image));
+		activePromos = activePromos.filter((t) => {
+			if (t.actionShopItem && this.shopStateManager.itemIsPurchased(t.actionShopItem)) {
+				return false;
+			}
+			if (
+				isSteam() &&
+				(t.action == "purchaseRewardedShopItem" || t.action == "showSubscribeModal")
+			) {
+				return false;
+			}
+			if (t.action == "showSubscribeModal") {
+				0;
+				const e = getMain().getPeliSdk();
+				if (
+					!e ||
+					!e.subscription.canShowSubscribeModal({
+						flow: t.subscribeFlow,
+					})
+				) {
+					return false;
+				}
+			}
+			if (t.seasonalRange) {
+				const e = t.seasonalRange;
+				if (e.startDay && e.endDay && e.startMonth && e.endMonth) {
+					const t = new Date();
+					const i = new Date(t.getFullYear(), e.startMonth - 1, e.startDay);
+					const s = new Date(t.getFullYear(), e.endMonth - 1, e.endDay);
+					const n = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+					if (n < i || n > s) {
+						return false;
+					}
+				}
+			}
+			const e = this.getPromoViewData(t.id);
+			const i = t.maxViewCount || 5;
+			return !(-1 != i && e.viewCount >= i);
+		});
+		if (Boolean(activePromos.find((t) => t.seasonalRange))) {
+			activePromos = activePromos.filter((t) => t.seasonalRange);
+		}
+		for (const s of activePromos) {
+			const i = this.getPromoViewData(s.id);
+			if (i.viewCount <= e) {
+				t = s;
+				e = i.viewCount;
+			}
+		}
+		this.setActivePromo(t);
+	}
+	async loadPromoViewData() {
+		let t = [];
+		try {
+			t = await this.indexedDb.get("promoViewData");
+		} catch {}
+		if (!t) {
+			t = [];
+		}
+		this.promoViewData = new Map();
+		for (const e of t) {
+			if (e && e.id) {
+				this.promoViewData.set(e.id, e);
+			}
+		}
+	}
+	async savePromoViewData() {
+		const t = [];
+		for (const e of this.promoViewData.values()) {
+			t.push(e);
+		}
+		try {
+			await this.indexedDb.set("promoViewData", t);
+		} catch {}
+	}
+	setActivePromo(t) {
+		this.el.classList.add("hidden");
+		if (!t || !t.id || !t.image) {
+			return;
+		}
+		this.activePromo = t;
+		const e = `url("${this.configManager.basePath}promos/${t.image}")`;
+		this.bannerEl.style.backgroundImage = `${e}`;
+		this.bannerEl.style.backgroundImage = `${e} !important`;
+		if (t.buttonText) {
+			this.button.setText(t.buttonText);
+		}
+		t.buttonIcon
+			? isSteam() && t.buttonIcon == "rewardedAdIcon.svg"
+				? this.button.setIcon(null)
+				: this.button.setIcon(`static/img/${t.buttonIcon}`)
+			: t.hasPeliPlusIcon
+				? this.button.setPeliPlusIcon()
+				: this.button.setIcon(null);
+		this.button.visible = !!t.buttonText;
+		this.updateVisibility();
+		this.updatePromoViewdata(t.id, (t) => {
+			t.viewCount++;
+		});
+	}
+	async onPromoClick() {
+		if (!this.activePromo) {
+			return;
+		}
+		let t = "highlightShopItem";
+		if (this.activePromo.action) {
+			t = this.activePromo.action;
+		}
+		if (t == "highlightShopItem") {
+			if (this.activePromo.actionShopItem) {
+				this.mainMenu
+					.openShopDialog()
+					.highlightShopItem(this.activePromo.actionShopItem, "highlight");
+			}
+		} else if (t == "openShopItem") {
+			if (this.activePromo.actionShopItem) {
+				this.mainMenu.openShopDialog().openShopItem(this.activePromo.actionShopItem);
+			}
+		} else if (t == "purchaseRewardedShopItem") {
+			if (isSteam()) {
+				getMain().dialogManager.showAlert({
+					title: "Item not available",
+					text: "This item is not available on your platform",
+				});
+			} else {
+				const t = this.activePromo.actionShopItem;
+				if (t) {
+					const e = this.configManager.shopConfig.getPurchaseableItem(t);
+					if (e) {
+						if (getMain().shopState.getVisibleItemPrice(e) <= 0 && e.hasRewardedAd) {
+							const i = this.mainMenu.openShopDialog();
+							const s = (await this.shopStateManager.purchaseItem(
+								e,
+								this.pokiManager,
+								this.dialogManager,
+								"in-menu",
+							))
+								? "highlight-and-equip"
+								: "open";
+							i.highlightShopItem(t, s);
+						}
+					}
+				}
+			}
+		} else if (t == "openShop") {
+			this.mainMenu.openShopDialog();
+		} else if (t == "openUrl") {
+			const t = this.activePromo.actionOpenUrl;
+			t &&
+				(getMain().poki.isPokiBuild
+					? getMain().poki.openExternalLink(t)
+					: window.open(t, "_blank", "noopener,noreferrer"));
+		} else if (t == "showSubscribeModal") {
+			if (this.activePromo.subscribeFlow) {
+				(await getMain().getPeliSdkOrThrowAsync()).subscription.showSubscribeModal({
+					flow: this.activePromo.subscribeFlow,
+				});
+			}
+		} else if (t == "highlightMap" && this.activePromo.actionHighlightMap) {
+			this.mainMenu.openMapsDialog().highlightItem(this.activePromo.actionHighlightMap);
+		}
+	}
+	updateVisibility() {
+		this.el.classList.toggle("hidden", !this.activePromo);
+	}
+	getPromoViewData(id) {
+		const e = this.promoViewData.get(id);
+		return (
+			e || {
+				id,
+				viewCount: 0,
+			}
+		);
+	}
+	updatePromoViewdata(t, e) {
+		let i = this.getPromoViewData(t);
+		const s = e(i);
+		if (s) {
+			i = s;
+		}
+		this.promoViewData.set(t, i);
+		this.savePromoViewData();
+	}
+}
+class Ae {
+	el = document.createElement("input");
+	constructor({
+		value = "",
+		placeholder = "",
+		extraClasses = [],
+		onInput = null,
+		spellCheck = false,
+		maxLength = null,
+	} = {}) {
+		this.el.value = value;
+		this.el.placeholder = placeholder;
+		this.el.classList.add("dialog-text-input", "blueNight", "wrinkledPaper", ...extraClasses);
+		if (!spellCheck) {
+			this.el.autocomplete = "off";
+			this.el.setAttribute("autocorrect", "off");
+			this.el.autocapitalize = "off";
+			this.el.spellcheck = false;
+		}
+		if (maxLength != null) {
+			this.el.maxLength = maxLength;
+		}
+		if (onInput) {
+			this.el.addEventListener("input", onInput);
+		}
+	}
+	get value() {
+		return this.el.value;
+	}
+	set value(t) {
+		this.el.value = t;
+	}
+}
+class Ie extends Error {
+	constructor() {
+		super("Unable to connect to matchmake server");
+	}
+}
+class Le extends Dialog {
+	squadManager;
+	settings = new Map();
+	privateSquadOnlySettings = new Set();
+	privateSquadSetting = new Setting({
+		text: "Private squad",
+		type: "toggle",
+	});
+	leaderOnlyMessage;
+	constructor(t, e) {
+		super(t);
+		this.squadManager = e;
+		this.settings.set("privateSquad", this.privateSquadSetting);
+		this.privateSquadSetting.onValueChange(() => {
+			this.updateDisabledState();
+		});
+		const i = new Setting({
+			text: "Score Timer",
+			type: "toggle",
+		});
+		this.settings.set("scoreTimer", i);
+		this.privateSquadOnlySettings.add(i);
+		this.leaderOnlyMessage = document.createElement("div");
+		this.leaderOnlyMessage.classList.add("squad-settings-leader-only-message");
+		this.leaderOnlyMessage.textContent = "Only the squad leader can change these settings.";
+		this.el.appendChild(this.leaderOnlyMessage);
+		for (const [t, i] of this.settings) {
+			if (e.currentSquadSettings) {
+				i.setValue(e.currentSquadSettings[t]);
+			}
+			this.el.appendChild(i.el);
+			i.onValueChange((i) => {
+				e.setSquadSetting(t, i);
+			});
+		}
+		e.onSquadSettingChange(this.onSquadSettingChange);
+		e.onMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
+		this.updateDisabledState();
+		this.updateLeaderMessageVisibility();
+	}
+	destructor() {
+		super.destructor();
+		this.squadManager.removeOnSquadSettingChange(this.onSquadSettingChange);
+		this.squadManager.removeOnMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
+	}
+	onSquadSettingChange = (t, e) => {
+		const i = this.settings.get(t);
+		if (i) {
+			i.setValue(e);
+		}
+	};
+	onMySquadLeaderStateChange = () => {
+		this.updateDisabledState();
+		this.updateLeaderMessageVisibility();
+	};
+	updateLeaderMessageVisibility() {
+		const myClientIsSquadLeader = this.squadManager.myClientIsSquadLeader;
+		this.leaderOnlyMessage.style.display = myClientIsSquadLeader ? "none" : "";
+	}
+	updateDisabledState() {
+		if (this.squadManager.myClientIsSquadLeader) {
+			this.privateSquadSetting.setDisabled(false);
+			const t = this.privateSquadSetting.getValue();
+			for (const e of this.privateSquadOnlySettings) {
+				e.setDisabled(!t);
+			}
+		} else {
+			for (const t of this.settings.values()) {
+				t.setDisabled(true);
+			}
+		}
+	}
+}
+class Te {
+	cb;
+	id = -1;
+	ms;
+	isDestructed = false;
+	constructor(t, e, i = false) {
+		this.cb = t;
+		this.ms = e;
+		if (i) {
+			this.start();
+		}
+	}
+	destructor() {
+		this.stop();
+		this.isDestructed = true;
+	}
+	get isRunning() {
+		return -1 != this.id;
+	}
+	stop() {
+		if (!this.isDestructed) {
+			return this.id >= 0 && (clearTimeout(this.id), (this.id = -1), true);
+		}
+	}
+	start(t = this.ms) {
+		if (!this.isDestructed) {
+			this.stop();
+			this.id = setTimeout(this.execute.bind(this), t);
+		}
+	}
+	execute() {
+		this.id = -1;
+		if (this.cb) {
+			this.cb();
+		}
+	}
+	static promise(t) {
+		return new Promise((resolve, reject) => {
+			setTimeout(() => {
+				resolve();
+			}, t);
+		});
+	}
+}
+class Ee {
+	value;
+	target;
+	velocity = 0;
+	springMultiplier;
+	maxSpring;
+	dampening;
+	loopValue;
+	loopStart;
+	loopEnd;
+	constructor({
+		startValue = 0,
+		springMultiplier = 0.02,
+		maxSpring = Infinity,
+		dampening = 0.6,
+		loopValue = false,
+		loopStart = -Math.PI,
+		loopEnd = Math.PI,
+	} = {}) {
+		this.value = startValue;
+		this.target = startValue;
+		this.springMultiplier = springMultiplier;
+		this.maxSpring = maxSpring;
+		this.dampening = dampening;
+		this.loopValue = loopValue;
+		this.loopStart = loopStart;
+		this.loopEnd = loopEnd;
+	}
+	loop(e, i) {
+		let s = this.target - this.value;
+		if (this.loopValue) {
+			this.target = this.performValueLoop(this.target);
+			const t = this.loopEnd - this.loopStart;
+			const e = this.target;
+			const i = this.target - t;
+			const n = this.target + t;
+			const o = e - this.value;
+			const a = i - this.value;
+			const r = n - this.value;
+			s = o;
+			if (Math.abs(a) < Math.abs(s)) {
+				s = a;
+			}
+			if (Math.abs(r) < Math.abs(s)) {
+				s = r;
+			}
+		}
+		s *= this.springMultiplier;
+		s = clamp(s, -this.maxSpring, this.maxSpring);
+		this.velocity += s;
+		this.velocity *= this.dampening;
+		this.value += this.velocity * i;
+		if (this.loopValue) {
+			this.value = this.performValueLoop(this.value);
+		}
+	}
+	performValueLoop(t) {
+		return wrap(t, this.loopStart, this.loopEnd);
+	}
+}
+class De {
+	xValue;
+	yValue;
+	zValue;
+	constructor({
+		startValue = new Vector3(),
+		springMultiplier = 0.02,
+		maxSpring = Infinity,
+		dampening = 0.6,
+	} = {}) {
+		this.xValue = new Ee({
+			startValue: startValue.x,
+			springMultiplier,
+			maxSpring,
+			dampening,
+		});
+		this.yValue = new Ee({
+			startValue: startValue.y,
+			springMultiplier,
+			maxSpring,
+			dampening,
+		});
+		this.zValue = new Ee({
+			startValue: startValue.z,
+			springMultiplier,
+			maxSpring,
+			dampening,
+		});
+	}
+	loop(t, e) {
+		this.xValue.loop(t, e);
+		this.yValue.loop(t, e);
+		this.zValue.loop(t, e);
+	}
+	get value() {
+		return new Vector3(this.xValue.value, this.yValue.value, this.zValue.value);
+	}
+	set value(t) {
+		this.xValue.value = t.x;
+		this.yValue.value = t.y;
+		this.zValue.value = t.z;
+	}
+	get target() {
+		return new Vector3(this.xValue.target, this.yValue.target, this.zValue.target);
+	}
+	set target(t) {
+		this.xValue.target = t.x;
+		this.yValue.target = t.y;
+		this.zValue.target = t.z;
+	}
+	addImpulse(t) {
+		this.xValue.velocity += t.x;
+		this.yValue.velocity += t.y;
+		this.zValue.velocity += t.z;
+	}
+}
+const Oe = {
+	posOffset: new Vector3(),
+	rotOffset: new Vector3(),
+	posFovMultiplierX: 0,
+	posFovMultiplierY: 0,
+	posBaseFovMultiplierX: 0,
+	walkBobMultiplier: 1,
+	valuesSmoothing: 0.2,
+	pitchHeightMultiplier: 0.3,
+	minFov: 0,
+	maxFov: 180,
+};
+class Fe {
+	player;
+	holdingObject;
+	usePrimaryParent = true;
+	thirdPersonParentName;
+	secondaryThirdPersonParentName;
+	firstPersonPosOffset = new Vector3();
+	firstPersonRotOffset = new Quaternion();
+	smoothFirstPersonPosOffset = new Vector3();
+	smoothFirstPersonRotOffset = new Quaternion();
+	smoothFirstPersonPosFovMultiplierX = 0;
+	smoothFirstPersonPosBaseFovMultiplierX = 0;
+	smoothFirstPersonPosFovMultiplierY = 0;
+	smoothFirstPersonWalkBobMultiplier = 0;
+	smoothFirstPersonPitchHeightMultiplier = 0;
+	smoothFirstPersonMinFov = 0;
+	smoothFirstPersonMaxFov = 0;
+	prevCamPosValid = false;
+	prevCamRotValid = false;
+	prevCamPos = new Vector3();
+	prevCamRotForwardVector = new Vector3();
+	camPosOffsetPhysics = new De({
+		springMultiplier: 0.01,
+		maxSpring: 0.001,
+		dampening: 0.6,
+	});
+	camRotOffsetPhysics = new Ee({
+		springMultiplier: 0.003,
+		maxSpring: 0.001,
+		dampening: 0.8,
+	});
+	renderOverlay = getMain().renderer.createRenderOverlay();
+	firstPersonObjContainer = new Object3D();
+	linkedThirdPersonObject;
+	firstPersonConfig;
+	constructor(
+		t,
+		{ holdingObject, thirdPersonParentName, secondaryThirdPersonParentName, firstPersonConfig },
+	) {
+		this.player = t;
+		this.holdingObject = holdingObject;
+		this.thirdPersonParentName = thirdPersonParentName;
+		this.secondaryThirdPersonParentName = secondaryThirdPersonParentName || null;
+		this.firstPersonObjContainer.name = "FirstPersonObjContainer";
+		this.renderOverlay.scene.add(this.firstPersonObjContainer);
+		this.linkedThirdPersonObject = null;
+		this.firstPersonConfig = {
+			...Oe,
+		};
+		this.setFirstPersonConfig(firstPersonConfig || {}, true);
+		this.updateRenderOverlayEnabled();
+		this.updateParent();
+		this.updateFirstPersonPosition();
+		this.firstPersonMoveDown();
+	}
+	destructor() {
+		this.player.removeHoldingHandler(this);
+		getMain().renderer.removeRenderOverlay(this.renderOverlay);
+		if (this.firstPersonObjContainer.parent) {
+			this.firstPersonObjContainer.parent.remove(this.firstPersonObjContainer);
+		}
+		if (this.holdingObject.parent) {
+			this.holdingObject.parent.remove(this.holdingObject);
+		}
+	}
+	updateRenderOverlayEnabled() {
+		this.renderOverlay.enabled = this.player.useFirstPersonHoldingHandlers;
+	}
+	setUsePrimaryParent(t) {
+		if (this.usePrimaryParent != t) {
+			this.usePrimaryParent = t;
+			this.updateParent();
+		}
+	}
+	updateParent() {
+		if (this.holdingObject.parent) {
+			this.holdingObject.parent.remove(this.holdingObject);
+		}
+		if (this.player.useFirstPersonHoldingHandlers) {
+			this.firstPersonObjContainer.add(this.holdingObject);
+			this.holdingObject.position.set(0, 0, 0);
+			this.holdingObject.rotation.set(0, 0, 0);
+		} else if (this.player.obj && this.player.skeleton && this.player.skeleton.isInit) {
+			if (!this.player.skeleton.baseSkeletonObject) {
+				throw new Error("Assertion failed, skeleton is not initialized");
+			}
+			const t = this.usePrimaryParent
+				? this.thirdPersonParentName
+				: this.secondaryThirdPersonParentName;
+			if (t) {
+				this.linkedThirdPersonObject = this.player.skeleton.baseSkeletonObject.getObjectByName(t);
+				if (this.linkedThirdPersonObject) {
+					this.player.obj.add(this.holdingObject);
+					this.holdingObject.position.set(0, 0, 0);
+					this.holdingObject.rotation.set(0, 0, 0);
+					this.holdingObject.scale.setScalar(1);
+				}
+			}
+		}
+	}
+	loop(t, i) {
+		if (this.player.useFirstPersonHoldingHandlers) {
+			this.smoothFirstPersonPosOffset.lerp(
+				this.firstPersonPosOffset,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonRotOffset.slerp(
+				this.firstPersonRotOffset,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonPosFovMultiplierX = l_1(
+				this.smoothFirstPersonPosFovMultiplierX,
+				this.firstPersonConfig.posFovMultiplierX,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonPosBaseFovMultiplierX = l_1(
+				this.smoothFirstPersonPosBaseFovMultiplierX,
+				this.firstPersonConfig.posBaseFovMultiplierX,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonPosFovMultiplierY = l_1(
+				this.smoothFirstPersonPosFovMultiplierY,
+				this.firstPersonConfig.posFovMultiplierY,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonWalkBobMultiplier = l_1(
+				this.smoothFirstPersonWalkBobMultiplier,
+				this.firstPersonConfig.walkBobMultiplier,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonPitchHeightMultiplier = l_1(
+				this.smoothFirstPersonPitchHeightMultiplier,
+				this.firstPersonConfig.pitchHeightMultiplier,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonMinFov = l_1(
+				this.smoothFirstPersonMinFov,
+				this.firstPersonConfig.minFov,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			this.smoothFirstPersonMaxFov = l_1(
+				this.smoothFirstPersonMaxFov,
+				this.firstPersonConfig.maxFov,
+				this.firstPersonConfig.valuesSmoothing,
+			);
+			const s = this.player.getCamPos();
+			const n = this.player.getCamRot();
+			if (!this.prevCamPosValid) {
+				this.prevCamPos.copy(s);
+				this.prevCamPosValid = true;
+			}
+			const o = s.clone().sub(this.prevCamPos);
+			o.applyQuaternion(n.invert());
+			const a = new Vector3(0, 0, 1).clone().applyQuaternion(n);
+			a.y = 0;
+			if (!this.prevCamRotValid) {
+				this.prevCamRotForwardVector.copy(a);
+				this.prevCamRotValid = true;
+			}
+			let r = this.prevCamRotForwardVector.angleTo(a);
+			if (this.prevCamRotForwardVector.clone().cross(a).y > 0) {
+				r *= -1;
+			}
+			this.prevCamPos.copy(s);
+			this.prevCamRotForwardVector.copy(a);
+			const l = o.clone();
+			l.clampLength(0, 0.07);
+			this.camPosOffsetPhysics.target = l;
+			this.camPosOffsetPhysics.loop(t, i);
+			this.camRotOffsetPhysics.target = r;
+			this.camRotOffsetPhysics.loop(t, i);
+			this.updateFirstPersonPosition();
+		} else if (this.player.obj && this.linkedThirdPersonObject) {
+			this.holdingObject.matrixWorld.multiplyMatrices(
+				this.player.obj.matrixWorld,
+				this.linkedThirdPersonObject.matrixWorld,
+			);
+			for (const t of this.holdingObject.children) {
+				t.updateWorldMatrix(false, true);
+			}
+		}
+	}
+	setFirstPersonConfig(t, e = false) {
+		this.firstPersonConfig = {
+			...Oe,
+			...t,
+		};
+		this.firstPersonPosOffset.copy(this.firstPersonConfig.posOffset);
+		const s = new Euler().setFromVector3(this.firstPersonConfig.rotOffset, "YXZ");
+		this.firstPersonRotOffset.setFromEuler(s);
+		this.firstPersonRotOffset.multiply(
+			new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), Math.PI),
+		);
+		if (e) {
+			this.smoothFirstPersonPosOffset.copy(this.firstPersonConfig.posOffset);
+			this.smoothFirstPersonRotOffset.copy(this.firstPersonRotOffset);
+			this.smoothFirstPersonPosFovMultiplierX = this.firstPersonConfig.posFovMultiplierX;
+			this.smoothFirstPersonPosBaseFovMultiplierX = this.firstPersonConfig.posBaseFovMultiplierX;
+			this.smoothFirstPersonPosFovMultiplierY = this.firstPersonConfig.posFovMultiplierY;
+			this.smoothFirstPersonWalkBobMultiplier = this.firstPersonConfig.walkBobMultiplier;
+			this.smoothFirstPersonPitchHeightMultiplier = this.firstPersonConfig.pitchHeightMultiplier;
+			this.smoothFirstPersonMinFov = this.firstPersonConfig.minFov;
+			this.smoothFirstPersonMaxFov = this.firstPersonConfig.maxFov;
+			this.updateRenderOverlayFovs();
+			this.renderOverlay.updateProjectionMatrix();
+		}
+		this.updateFirstPersonPosition();
+	}
+	updateFirstPersonPosition() {
+		if (!this.player.useFirstPersonHoldingHandlers) {
+			return;
+		}
+		const t = getMain();
+		const e = this.player.getCamRot();
+		const i = new Vector3(0, 1, 0);
+		const s = new Vector3(0, 0, 1);
+		const n = new Vector3(1, 0, 0);
+		const o = i.clone().applyQuaternion(e);
+		const a = s.clone().applyQuaternion(e);
+		const r = n.clone().applyQuaternion(e);
+		const l = a.clone();
+		if (o.y < 0.1) {
+			l.copy(o);
+			if (a.y > 0) {
+				l.negate();
+			}
+		}
+		l.y = 0;
+		let h = l.angleTo(s);
+		if (s.clone().cross(l).y > 0) {
+			h = -h;
+		}
+		let d = a.angleTo(l);
+		if (a.clone().cross(l).dot(r) > 0) {
+			d = -d;
+		}
+		const c = new Quaternion();
+		n.applyQuaternion(e);
+		c.setFromAxisAngle(n, d);
+		new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -h);
+		const g = this.smoothFirstPersonPosOffset.clone();
+		const m = Math.min(window.innerWidth / window.innerHeight, 2);
+		const fov = this.renderOverlay.cam.fov;
+		const w = Math.tan(fov / 115) * m;
+		const b = Math.tan(fov / 115);
+		const y = Math.tan(t.cam.baseFov / 115) * m;
+		g.x += w * this.smoothFirstPersonPosFovMultiplierX;
+		g.x += y * this.smoothFirstPersonPosBaseFovMultiplierX;
+		g.y -= b * this.smoothFirstPersonPosFovMultiplierY;
+		g.y -= d * this.smoothFirstPersonPitchHeightMultiplier;
+		if (t.settingsManager.getValue("walkHeadBob")) {
+			g.x +=
+				0.1 * Math.cos(this.player.legsMoveTForCos / 2) * this.smoothFirstPersonWalkBobMultiplier;
+			g.y +=
+				-0.07 * Math.sin(this.player.legsMoveTForCos) * this.smoothFirstPersonWalkBobMultiplier;
+		}
+		g.sub(this.camPosOffsetPhysics.value);
+		g.x += this.camRotOffsetPhysics.value;
+		const S = new Quaternion();
+		S.multiply(this.smoothFirstPersonRotOffset);
+		this.firstPersonObjContainer.position.copy(g);
+		this.firstPersonObjContainer.quaternion.copy(S);
+		this.updateRenderOverlayFovs();
+		this.firstPersonObjContainer.updateWorldMatrix(false, true);
+	}
+	updateRenderOverlayFovs() {
+		this.renderOverlay.minFov = this.smoothFirstPersonMinFov;
+		this.renderOverlay.maxFov = this.smoothFirstPersonMaxFov;
+	}
+	useFirstPersonUpdated() {
+		this.updateRenderOverlayEnabled();
+		this.updateParent();
+	}
+	playerObjectChanged() {
+		this.updateParent();
+	}
+	addFirstPersonImpulse(t) {
+		if (this.player.useFirstPersonHoldingHandlers) {
+			this.camPosOffsetPhysics.addImpulse(t);
+		}
+	}
+	firstPersonMoveDown() {
+		this.camPosOffsetPhysics.yValue.value = 0.3;
+	}
+}
+class Collider {
+	constructor(
+		public rigidBody: RigidBody,
+		public radius: number,
+		public heightOffset: number,
+		public bodyPart: string,
+		public arrowDamage: number,
+	) {}
+	get center() {
+		const pos = this.rigidBody.pos.clone();
+		pos.y += this.heightOffset;
+		return pos;
+	}
+	rayCast(from, dir) {
+		const { x, y, z } = from;
+		const { x: x_1, y: y_1, z: z_1 } = dir;
+		const center = this.center;
+		const { x: x_2, y: y_2, z: z_2 } = center;
+		const u = 2 * (x * x_1 + y * y_1 + z * z_1 - x_1 * x_2 - y_1 * y_2 - z_1 * z_2);
+		const p =
+			u * u -
+			4 *
+				(x * x -
+					2 * x * x_2 +
+					x_2 * x_2 +
+					y * y -
+					2 * y * y_2 +
+					y_2 * y_2 +
+					z * z -
+					2 * z * z_2 +
+					z_2 * z_2 -
+					this.radius * this.radius);
+		if (p < 0) {
+			return null;
+		}
+		const g = (-u - Math.sqrt(p)) / 2;
+		if (g < 0) {
+			return null;
+		}
+		const m = from.clone().addScaledVector(dir, g);
+		return {
+			dist: m.distanceTo(from),
+			pos: m,
+			collider: this,
+		};
+	}
+}
+class Ve {
+	invWorldMatrix;
+	invWorldMatrixNoTranslate;
+	worldMatrix;
+	aabb = null;
+	ignoreArrows;
+	isLadder;
+	isLadderAllSides;
+	isDeathTrigger;
+	shootSfx;
+	allowJump;
+	allowWalk;
+	movePlayerUp;
+	slippery;
+	slowDownPlayerAmount;
+	airFrictionModifier;
+	touchDamageAmount;
+	touchDamageDistance;
+	triggerHingeId;
+	triggerAppearingObjectId;
+	excludeTeamId;
+	excludeWearingShopItems;
+	constructor(
+		t,
+		{
+			ignoreArrows = false,
+			isLadder = false,
+			isLadderAllSides = false,
+			excludeTeamId = -1,
+			excludeWearingShopItems = [],
+			isDeathTrigger = false,
+			shootSfx = "",
+			allowJump = true,
+			allowWalk = true,
+			movePlayerUp = true,
+			slippery = false,
+			slowDownPlayerAmount = 0,
+			airFrictionModifier = 0,
+			touchDamageAmount = 0,
+			touchDamageDistance = 1.5,
+			triggerHingeId = -1,
+			triggerAppearingObjectId = -1,
+		},
+	) {
+		this.invWorldMatrix = t.clone().invert();
+		this.invWorldMatrixNoTranslate = this.invWorldMatrix.clone().setPosition(0, 0, 0);
+		this.worldMatrix = t;
+		this.ignoreArrows = ignoreArrows;
+		this.isLadder = isLadder;
+		this.isLadderAllSides = isLadderAllSides;
+		this.isDeathTrigger = isDeathTrigger;
+		this.shootSfx = shootSfx;
+		this.allowJump = allowJump;
+		this.allowWalk = allowWalk;
+		this.movePlayerUp = movePlayerUp;
+		this.slippery = slippery;
+		this.slowDownPlayerAmount = slowDownPlayerAmount;
+		this.airFrictionModifier = airFrictionModifier;
+		this.touchDamageAmount = touchDamageAmount;
+		this.touchDamageDistance = touchDamageDistance;
+		this.triggerHingeId = triggerHingeId;
+		this.triggerAppearingObjectId = triggerAppearingObjectId;
+		this.excludeTeamId = excludeTeamId;
+		this.excludeWearingShopItems = excludeWearingShopItems;
+	}
+	rayCast(t, e) {
+		throw new Error("base class");
+	}
+	getSphereManifold(t, e) {
+		throw new Error("base class");
+	}
+	isTriggerCollider() {
+		return this.slowDownPlayerAmount > 0 || this.airFrictionModifier > 0;
+	}
+}
+const Re = 1;
+const Ue = 2;
+const qe = 3;
+const He = 4;
+const We = 5;
+const Ne = 6;
+class je extends Ve {
+	box = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
+	aabb;
+	cachedUpFaces;
+	constructor(...t) {
+		super(...t);
+		this.aabb = this.box.clone();
+		this.aabb.applyMatrix4(this.worldMatrix);
+		this.cachedUpFaces = null;
+	}
+	getSphereManifold(t, e) {
+		const i = t.clone().applyMatrix4(this.invWorldMatrix);
+		const s = this.box.clampPoint(i, new Vector3());
+		let n = 0;
+		(s.x <= -1 || s.x >= 1) && n++;
+		(s.y <= -1 || s.y >= 1) && n++;
+		(s.z <= -1 || s.z >= 1) && n++;
+		const isAtEdge = n >= 2;
+		const a = this.getUpFaces();
+		const isAtUpFace = this.getIsOnFace(s, a[0]);
+		const isAtSecondUpFace = this.getIsOnFace(s, a[1]);
+		s.applyMatrix4(this.worldMatrix);
+		const h = e - t.distanceTo(s);
+		return {
+			colliderType: "box",
+			pos: s,
+			isAtEdge,
+			isAtUpFace,
+			isAtSecondUpFace,
+			normal: t.clone().sub(s).normalize(),
+			penetration: h,
+		};
+	}
+	getUpFaces() {
+		if (this.cachedUpFaces) {
+			return this.cachedUpFaces;
+		}
+		const t = new Vector3();
+		const e = new Vector3(1, 0, 0);
+		const i = new Vector3(0, 1, 0);
+		const s = new Vector3(0, 0, 1);
+		t.applyMatrix4(this.worldMatrix);
+		e.applyMatrix4(this.worldMatrix);
+		i.applyMatrix4(this.worldMatrix);
+		s.applyMatrix4(this.worldMatrix);
+		e.sub(t);
+		i.sub(t);
+		s.sub(t);
+		e.normalize();
+		i.normalize();
+		s.normalize();
+		const n = e.clone().negate();
+		const o = i.clone().negate();
+		const a = s.clone().negate();
+		const r = new Vector3(0, 1, 0);
+		const l = [
+			{
+				face: Re,
+				normal: i,
+				dot: 0,
+			},
+			{
+				face: Ue,
+				normal: o,
+				dot: 0,
+			},
+			{
+				face: qe,
+				normal: e,
+				dot: 0,
+			},
+			{
+				face: He,
+				normal: n,
+				dot: 0,
+			},
+			{
+				face: We,
+				normal: s,
+				dot: 0,
+			},
+			{
+				face: Ne,
+				normal: a,
+				dot: 0,
+			},
+		];
+		for (const t of l) {
+			t.dot = t.normal.dot(r);
+		}
+		l.sort((t, e) => e.dot - t.dot);
+		this.cachedUpFaces = l;
+		return this.cachedUpFaces;
+	}
+	getIsOnFace(t, e) {
+		switch (e.face) {
+			case Re:
+				return t.y >= 1;
+			case Ue:
+				return t.y <= -1;
+			case qe:
+				return t.x >= 1;
+			case He:
+				return t.x <= -1;
+			case We:
+				return t.z >= 1;
+			case Ne:
+				return t.z <= -1;
+		}
+		return false;
+	}
+	rayCast(t, e) {
+		const i = t;
+		t = t.clone().applyMatrix4(this.invWorldMatrix);
+		e = e.clone().applyMatrix4(this.invWorldMatrixNoTranslate);
+		const s = (this.box.min.x - t.x) / e.x;
+		const n = (this.box.max.x - t.x) / e.x;
+		const o = (this.box.min.y - t.y) / e.y;
+		const a = (this.box.max.y - t.y) / e.y;
+		const r = (this.box.min.z - t.z) / e.z;
+		const l = (this.box.max.z - t.z) / e.z;
+		const h = Math.min(Math.max(s, n), Math.max(o, a), Math.max(r, l));
+		if (h < 0) {
+			return null;
+		}
+		const d = Math.max(Math.min(s, n), Math.min(o, a), Math.min(r, l));
+		if (d < h) {
+			const s = t.clone().addScaledVector(e, d);
+			s.applyMatrix4(this.worldMatrix);
+			return {
+				dist: s.distanceTo(i),
+				pos: s,
+				collider: this,
+			};
+		}
+		return null;
+	}
+}
+class Ge {
+	enabled = true;
+	constructor() {}
+	beginPhysicsSteps() {}
+	stepVelocity(t) {}
+	resolveMapCollisionsOctree(t) {}
+	endPhysicsSteps() {}
+}
+function ze(t, e, i, s) {
+	const n = t.clone().sub(i);
+	const o = -n.length() + s + e;
+	const a = n.normalize();
+	return {
+		colliderType: "sphere",
+		pos: i.clone().add(a.clone().multiplyScalar(s)),
+		normal: a,
+		penetration: o,
+	};
+}
+function $e(center, radius, flySphereCenter, flySphereRadius) {
+	const n = ze(center, radius, flySphereCenter, flySphereRadius);
+	n.penetration *= -1;
+	n.normal.multiplyScalar(-1);
+	return n;
+}
+class RigidBody extends Ge {
+	pos = new Vector3();
+	velocity = new Vector3();
+	totalForce = new Vector3();
+	colliders;
+	aabb = new Box3();
+	gravity;
+	prevLastFloorTouchTime;
+	lastLandTime;
+	lastFloorTouchTime;
+	lastJumpableColliderTouchTime;
+	isOnFloor;
+	isOnJumpableCollider;
+	isOnUnwalkableCollider;
+	lastJumpTime;
+	inAirAfterJump;
+	climbingLadder;
+	climbingLadderNormal;
+	isTouchingDamageCollider;
+	lastTouchDamageColliderPosition;
+	lastTouchDamageColliderTime;
+	wasOnFloorLastFrame;
+	isOnSlipperyCollider;
+	slowDownColliderAmount;
+	airFrictionModifier;
+	fly;
+	noclip;
+	constructor(
+		public physicsManager: PhysicsManager,
+		public player: Player,
+	) {
+		super();
+		this.colliders = [
+			new Collider(this, 0.4, 0.4, "feet", 1 / 3),
+			new Collider(this, 0.5, 1.1, "body", 0.5),
+			new Collider(this, 0.3, 1.7, "head", 1),
+		];
+		for (const t of this.colliders) {
+			const e = t.radius;
+			const i = new Box3(new Vector3(-e, -e, -e), new Vector3(e, e, e));
+			i.translate(t.center);
+			this.aabb.union(i);
+		}
+		this.gravity = new Vector3(0, -20, 0);
+		this.prevLastFloorTouchTime = 0;
+		this.lastLandTime = 0;
+		this.lastFloorTouchTime = 0;
+		this.lastJumpableColliderTouchTime = 0;
+		this.isOnFloor = false;
+		this.isOnJumpableCollider = false;
+		this.isOnUnwalkableCollider = false;
+		this.lastJumpTime = 0;
+		this.inAirAfterJump = false;
+		this.climbingLadder = null;
+		this.climbingLadderNormal = null;
+		this.isTouchingDamageCollider = false;
+		this.lastTouchDamageColliderPosition = null;
+		this.lastTouchDamageColliderTime = -Infinity;
+		this.wasOnFloorLastFrame = false;
+		this.isOnSlipperyCollider = false;
+		this.slowDownColliderAmount = 0;
+		this.airFrictionModifier = 0;
+		this.fly = false;
+		this.noclip = false;
+	}
+	beginPhysicsSteps() {
+		this.wasOnFloorLastFrame = this.isOnFloor;
+		this.isOnFloor = false;
+		this.isOnSlipperyCollider = false;
+		this.isOnJumpableCollider = false;
+		this.isOnUnwalkableCollider = false;
+	}
+	stepVelocity(t) {
+		if (!(this.climbingLadder || this.fly)) {
+			this.velocity.addScaledVector(this.gravity, t);
+		}
+		this.velocity.addScaledVector(this.totalForce, t);
+		let e = 0.9995;
+		let i = e;
+		if (this.fly) {
+			e = 0.9;
+			i = 0.9;
+		} else if (this.isOnSlipperyCollider) {
+			e = 0.2;
+			i = 0.2;
+		} else if (this.climbingLadder) {
+			e = 0.9999;
+			i = 0.9999;
+		} else if (!this.wasOnFloorLastFrame) {
+			i = 0.2;
+			e = 0.9;
+		}
+		e = Math.max(e, this.airFrictionModifier);
+		i = Math.max(i, this.airFrictionModifier);
+		const s = (1 - e) ** t;
+		const n = (1 - i) ** t;
+		this.velocity.x *= s;
+		this.velocity.y *= n;
+		this.velocity.z *= s;
+		this.pos.addScaledVector(this.velocity, t);
+	}
+	updateLastFloorTouchTime() {
+		this.lastFloorTouchTime = getMain().now;
+	}
+	endPhysicsSteps() {
+		if (this.isOnFloor && !this.wasOnFloorLastFrame) {
+			this.prevLastFloorTouchTime = this.lastFloorTouchTime;
+			this.lastLandTime = getMain().now;
+		}
+		if (this.isOnFloor || this.climbingLadder) {
+			this.updateLastFloorTouchTime();
+			this.inAirAfterJump = false;
+		}
+		if (this.isOnJumpableCollider) {
+			this.lastJumpableColliderTouchTime = getMain().now;
+		}
+		this.totalForce.set(0, 0, 0);
+	}
+	get inAirTime() {
+		if (this.isOnFloor || this.climbingLadder) {
+			return 0;
+		}
+		return getMain().now - this.lastFloorTouchTime;
+	}
+	get prevInAirTime() {
+		if (this.isOnFloor || this.climbingLadder) {
+			return this.lastLandTime - this.prevLastFloorTouchTime;
+		}
+		return this.inAirTime;
+	}
+	get onFloorTime() {
+		if (this.isOnFloor) {
+			return getMain().now - this.lastLandTime;
+		}
+		return 0;
+	}
+	get onJumpableColliderTime() {
+		if (this.isOnJumpableCollider || this.climbingLadder) {
+			return 0;
+		}
+		return getMain().now - this.lastJumpableColliderTouchTime;
+	}
+	getCurrentPlayerAabb() {
+		const t = this.aabb.clone();
+		t.translate(this.pos);
+		return t;
+	}
+	getIntersectingOctreeNodes() {
+		const t = this.getCurrentPlayerAabb();
+		return this.physicsManager.getOctreeNodesInAabb(t);
+	}
+	getPlayerManifolds(t, e) {
+		const i = this.getCurrentPlayerAabb();
+		return this.getManifoldsHelper(i, this.colliders, t, e);
+	}
+	getManifoldsHelper(t, e, i, s) {
+		const n = [];
+		label: for (const collider of this.physicsManager.getCollidersForAabbUsingOctree(t)) {
+			if (
+				collider.aabb &&
+				collider.aabb.intersectsBox(t) &&
+				collider.excludeTeamId != this.player.teamId
+			) {
+				if (
+					collider.excludeWearingShopItems.length > 0 &&
+					this.player.equippedSkinData.equippedSkinIds
+				) {
+					for (const t of collider.excludeWearingShopItems) {
+						if (this.player.equippedSkinData.equippedSkinIds.includes(t)) {
+							continue label;
+						}
+					}
+				}
+				if (i || !collider.isTriggerCollider()) {
+					for (const t of e) {
+						const e = collider.getSphereManifold(t.center, t.radius);
+						if (e.penetration > 0) {
+							n.push({
+								manifold: e,
+								mapCollider: collider,
+								playerCollider: t,
+							});
+						}
+					}
+				}
+			}
+		}
+		if (s && this.player.hasOwnership && this.fly) {
+			if (this.physicsManager.flySphereRadius < Infinity) {
+				for (const t of e) {
+					const e = $e(
+						t.center,
+						t.radius,
+						this.physicsManager.flySphereCenter,
+						this.physicsManager.flySphereRadius,
+					);
+					if (e.penetration > 0) {
+						n.push({
+							manifold: e,
+							mapCollider: null,
+							playerCollider: t,
+						});
+					}
+				}
+			}
+			if (this.physicsManager.flyRoofHeight < Infinity) {
+				for (const t of e) {
+					const e = t.center.y - this.physicsManager.flyRoofHeight;
+					if (e > 0) {
+						n.push({
+							manifold: {
+								penetration: e,
+								colliderType: "roof",
+								normal: new Vector3(0, -1, 0),
+								pos: t.center.clone().add(new Vector3(0, t.radius, 0)),
+							},
+							mapCollider: null,
+							playerCollider: t,
+						});
+					}
+				}
+			}
+		}
+		return n;
+	}
+	isAboveJumpableCollider() {
+		let t = null;
+		for (const e of this.colliders) {
+			if (e.bodyPart == "feet") {
+				t = e;
+				break;
+			}
+		}
+		if (!t) {
+			return false;
+		}
+		const e = [];
+		const t_center = t.center;
+		for (let s = 0; s < 5; s++) {
+			const center = t_center.clone();
+			center.y -= 0.1 * s;
+			e.push({
+				center,
+				radius: t.radius,
+			});
+		}
+		const s = new Box3();
+		s.expandByPoint(e[0].center);
+		s.expandByPoint(e[e.length - 1].center);
+		s.expandByScalar(t.radius);
+		const n = this.getManifoldsHelper(s, e, false, false);
+		for (const { manifold } of n) {
+			const e = manifold.normal.dot(new Vector3(0, 1, 0));
+			if (e > 0.3 || this.manifoldShouldMovePlayerUp(manifold, e)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	manifoldShouldMovePlayerUp(t, e) {
+		return t.colliderType == "box" && t.isAtEdge && t.isAtUpFace && e > 0.1;
+	}
+	resolveMapCollisionsOctree(t) {
+		if (this.noclip) {
+			return;
+		}
+		const e = this.getPlayerManifolds(false, false);
+		this.slowDownColliderAmount = 0;
+		this.airFrictionModifier = 0;
+		let i = 0;
+		let s = 0;
+		let n = Infinity;
+		if (!this.fly) {
+			for (const { manifold, mapCollider, playerCollider } of e) {
+				const e = manifold.normal.dot(new Vector3(0, 1, 0));
+				if (mapCollider) {
+					if (mapCollider.isDeathTrigger) {
+						continue;
+					}
+					if (!mapCollider.movePlayerUp) {
+						continue;
+					}
+					if (this.needsLadderPhysics(manifold, mapCollider)) {
+						continue;
+					}
+				}
+				let r = false;
+				if (
+					playerCollider.bodyPart == "feet" &&
+					(e > 0.6 || this.manifoldShouldMovePlayerUp(manifold, e))
+				) {
+					r = true;
+				}
+				if (r && manifold.penetration > 0) {
+					const e = manifold.normal.clone();
+					e.setLength(manifold.penetration + 1e-7);
+					const a = manifold.normal.clone().cross(new Vector3(0, 1, 0));
+					if (a.lengthSq() > 0) {
+						const i = a.clone().cross(manifold.normal);
+						let s = 0;
+						if (i.x != 0) {
+							s = Math.abs(e.x / i.x);
+						} else if (i.z != 0) {
+							s = Math.abs(e.z / i.z);
+						}
+						i.multiplyScalar(s);
+						e.add(i);
+					}
+					if (e.y > 0 && e.y < 1) {
+						i = Math.max(e.y, i);
+						this.isOnFloor = true;
+						if (mapCollider) {
+							s = Math.max(s, mapCollider.touchDamageAmount);
+							n = Math.min(n, mapCollider.touchDamageDistance);
+							if (mapCollider.allowJump) {
+								this.isOnJumpableCollider = true;
+							}
+							if (!mapCollider.allowWalk) {
+								this.isOnUnwalkableCollider = true;
+							}
+							if (mapCollider.slippery) {
+								this.isOnSlipperyCollider = true;
+							}
+						}
+					}
+				}
+			}
+		}
+		let o = e;
+		const a = this.pos.clone();
+		if (i > 0) {
+			this.pos.y += i;
+		}
+		const r = new Map();
+		for (const { manifold, mapCollider } of e) {
+			if (!mapCollider) {
+				continue;
+			}
+			let e = r.get(mapCollider) || 0;
+			e = Math.max(e, manifold.penetration);
+			r.set(mapCollider, e);
+		}
+		let l = false;
+		const h = this.getPlayerManifolds(true, true);
+		for (const { manifold, mapCollider } of h) {
+			if (mapCollider && !mapCollider.isTriggerCollider()) {
+				if (!r.has(mapCollider)) {
+					l = true;
+					break;
+				}
+				{
+					const i = r.get(mapCollider);
+					if (i != null && manifold.penetration > i) {
+						l = true;
+						break;
+					}
+				}
+			}
+		}
+		if (l) {
+			this.pos.copy(a);
+		} else {
+			o = h;
+		}
+		let d = null;
+		for (const { manifold, mapCollider, playerCollider } of o) {
+			const o = this.needsLadderPhysics(manifold, mapCollider);
+			if (mapCollider) {
+				s = Math.max(s, mapCollider.touchDamageAmount);
+				n = Math.min(n, mapCollider.touchDamageDistance);
+				if (mapCollider.slowDownPlayerAmount > 0) {
+					const i = q(0, 0.5, 0, mapCollider.slowDownPlayerAmount, manifold.penetration, true);
+					this.slowDownColliderAmount = Math.max(this.slowDownColliderAmount, i);
+					continue;
+				}
+				if (mapCollider.airFrictionModifier > 0) {
+					this.airFrictionModifier = Math.max(
+						this.airFrictionModifier,
+						mapCollider.airFrictionModifier,
+					);
+					continue;
+				}
+			}
+			const a = this.velocity.dot(manifold.normal);
+			if (a < 0) {
+				const s = manifold.normal.dot(new Vector3(0, 1, 0));
+				mapCollider &&
+					(mapCollider.isDeathTrigger
+						? this.player.dieFromFall()
+						: o &&
+							(mapCollider.isLadderAllSides || (playerCollider.bodyPart != "head" && s > -0.1)) &&
+							((d = mapCollider), (this.climbingLadderNormal = manifold.normal.clone())));
+				this.velocity.addScaledVector(manifold.normal, -a);
+				const n = 0.8;
+				const r = 0.001;
+				const l = Math.max(manifold.penetration - r, 0) * n;
+				const h = manifold.normal.clone().multiplyScalar(l);
+				this.pos.add(h);
+				playerCollider.bodyPart != "feet" ||
+					this.fly ||
+					(s > 0.3 &&
+						!o &&
+						mapCollider &&
+						((this.isOnFloor = true),
+						mapCollider.allowJump && (this.isOnJumpableCollider = true),
+						mapCollider.allowWalk || (this.isOnUnwalkableCollider = true),
+						mapCollider.slippery && (this.isOnSlipperyCollider = true)));
+			}
+		}
+		if (!d) {
+			const t = this.climbingLadder;
+			if (t) {
+				for (const e of this.colliders) {
+					if (t.getSphereManifold(e.center, e.radius).penetration > -0.05) {
+						d = t;
+					}
+				}
+			}
+		}
+		if (!d && this.climbingLadder && getMain().now - this.lastJumpTime > 300) {
+			this.velocity.y *= 0.3;
+		}
+		this.climbingLadder = d;
+		{
+			const t = getMain().now;
+			const e = s > 0;
+			const i = t - this.lastTouchDamageColliderTime < 300;
+			let o = false;
+			if (e) {
+				this.lastTouchDamageColliderTime = t;
+			}
+			const a = e && !i;
+			if (a != this.isTouchingDamageCollider) {
+				this.isTouchingDamageCollider = a;
+				if (a) {
+					o = true;
+				}
+			}
+			if (e && this.lastTouchDamageColliderPosition) {
+				if (this.lastTouchDamageColliderPosition.distanceTo(this.pos) > n) {
+					o = true;
+				}
+			}
+			if (o) {
+				this.player.touchedDamageCollider(s);
+				this.lastTouchDamageColliderPosition = this.pos.clone();
+			}
+		}
+	}
+	needsLadderPhysics(t, e) {
+		if (!(e instanceof je)) {
+			return false;
+		}
+		if (t.colliderType != "box") {
+			return false;
+		}
+		if (!e.isLadder && !e.isLadderAllSides) {
+			return false;
+		}
+		const i = new Vector3(0, 1, 0);
+		const s = t.normal.dot(i);
+		if (s > -0.0001 && s < 0.0001) {
+			if (e.getUpFaces()[0].normal.dot(i) > 0.9999) {
+				return true;
+			}
+		}
+		return !!e.isLadderAllSides || (t.isAtSecondUpFace && !t.isAtEdge);
+	}
+	applyForce(t) {
+		this.totalForce.add(t);
+	}
+	getAllowJump() {
+		return !(this.onJumpableColliderTime > 200) && !this.inAirAfterJump && !(this.velocity.y > 5);
+	}
+	jump(t) {
+		this.isOnFloor = false;
+		this.isOnJumpableCollider = false;
+		this.isOnUnwalkableCollider = false;
+		this.isOnSlipperyCollider = false;
+		this.inAirAfterJump = true;
+		this.lastJumpTime = getMain().now;
+		const e = Math.max(0, t - this.velocity.y);
+		this.velocity.y += e;
+	}
+}
+const Je = 1;
+const Ke = 2;
+const Ye = 3;
+const Xe = 4;
+const Qe = 5;
+class AntiCheat {
+	reportedPlayerTimes = new Map();
+	onPlayerNeedsReportCbs = new Set();
+	constructor() {}
+	reportPlayer(t, e, i) {
+		const s = this.reportedPlayerTimes.get(t);
+		const now = getMain().now;
+		if (!(s && now < s + 1000)) {
+			this.reportedPlayerTimes.set(t, now);
+			this.onPlayerNeedsReportCbs.forEach((s) => s(t, e, i));
+		}
+	}
+	onPlayerNeedsReport(t) {
+		this.onPlayerNeedsReportCbs.add(t);
+	}
+}
+class ti {
+	weight = 0;
+	speed;
+	active = false;
+	onActiveChangeCbs = new Set();
+	constructor({ speed = 0.01 } = {}) {
+		this.speed = speed;
+	}
+	loop(t, e) {
+		if (t) {
+			this.weight += e * this.speed;
+		} else {
+			this.weight -= e * this.speed;
+		}
+		if (t != this.active) {
+			this.active = t;
+			this.onActiveChangeCbs.forEach((e) => e(t));
+		}
+		this.weight = clampTo01(this.weight);
+	}
+	onActiveChange(t) {
+		this.onActiveChangeCbs.add(t);
+	}
+}
+function ei(t, e, i) {
+	return {
+		armR: e * t,
+		armL: i * t,
+	};
+}
+function ii(t, shootingActivity, weight) {
+	return [
+		{
+			name: `bows/${t}/running`,
+			weight: 1,
+		},
+		{
+			name: `bows/${t}/shooting`,
+			weight: shootingActivity.weight,
+		},
+		{
+			name: `bows/${t}/shootingLoaded`,
+			weight,
+		},
+	];
+}
+function si(t, attackStartActivity, attackEndActivity) {
+	return [
+		{
+			name: `melee/${t}/idle`,
+			weight: 1,
+		},
+		{
+			name: `melee/${t}/attackStart`,
+			weight: attackStartActivity.weight,
+		},
+		{
+			name: `melee/${t}/attackEnd`,
+			weight: attackEndActivity.weight,
+		},
+	];
+}
+class ni {
+	sfxName;
+	player;
+	sfxOptions;
+	playingState = false;
+	currentSfxInstance = null;
+	constructor(t, { player, sfxOptions }) {
+		this.sfxName = t;
+		this.player = player;
+		this.sfxOptions = sfxOptions;
+	}
+	setPlayingState(t) {
+		if (t != this.playingState) {
+			if (t) {
+				this.startPullSfx();
+			} else {
+				this.stopPullSfx();
+			}
+			this.playingState = t;
+		}
+	}
+	async startPullSfx() {
+		if (!this.currentPullSfx) {
+			this.currentPullSfx = await getMain().sfx.playSound(this.sfxName, {
+				pos: this.player.getSfxPos(),
+				...this.sfxOptions,
+			});
+			if (!this.playingState) {
+				this.stopPullSfx();
+			}
+		}
+	}
+	stopPullSfx() {
+		if (this.currentPullSfx) {
+			this.currentPullSfx.stop();
+		}
+		this.currentPullSfx = null;
+	}
+}
+class oi {
+	holdingHandler;
+	upConfig;
+	downConfig;
+	offscreenConfig;
+	minDownVelocity;
+	forcedConfig;
+	prevUsePrimaryPosition;
+	usePrimaryPosition;
+	holdingHandlerDown;
+	constructor(t, { upConfig, downConfig, offscreenConfig, minDownVelocity = 8 }) {
+		this.holdingHandler = t;
+		this.upConfig = upConfig;
+		this.downConfig = downConfig;
+		if (!offscreenConfig) {
+			let posOffset;
+			let rotOffset;
+			if (downConfig.posOffset) {
+				posOffset = downConfig.posOffset.clone();
+				posOffset.y -= 0.5;
+			} else {
+				posOffset = new Vector3(-0.6, -2, -1.3);
+			}
+			rotOffset = downConfig.rotOffset ? downConfig.rotOffset.clone() : new Vector3(-0.6, 0, -1.3);
+			offscreenConfig = {
+				posOffset,
+				rotOffset,
+				pitchHeightMultiplier: 0,
+				maxFov: downConfig.maxFov,
+			};
+			if (downConfig.posBaseFovMultiplierX != null) {
+				offscreenConfig.posBaseFovMultiplierX = downConfig.posBaseFovMultiplierX;
+			}
+			if (downConfig.posFovMultiplierX != null) {
+				offscreenConfig.posFovMultiplierX = downConfig.posFovMultiplierX;
+			}
+			if (downConfig.posFovMultiplierY != null) {
+				offscreenConfig.posFovMultiplierY = downConfig.posFovMultiplierY;
+			}
+		}
+		this.offscreenConfig = offscreenConfig;
+		this.minDownVelocity = minDownVelocity;
+		this.forcedConfig = null;
+		this.prevUsePrimaryPosition = true;
+		this.usePrimaryPosition = true;
+		this.holdingHandlerDown = false;
+		this.updateHoldingHandler(true);
+	}
+	setUsePrimaryPosition(t) {
+		this.usePrimaryPosition = t;
+		if (t) {
+			this.holdingHandlerDown = false;
+		}
+		this.updateHoldingHandler();
+	}
+	loop(t, e, { forceDown = false, forceConfig = null } = {}) {
+		let holdingHandlerDown = this.holdingHandlerDown;
+		if (forceDown) {
+			holdingHandlerDown = true;
+		} else if (t) {
+			holdingHandlerDown = false;
+		} else if (getMain().settingsManager.getValue("lowerFirstPersonWeaponWhenWalking")) {
+			const t = e.rigidBody.velocity.clone();
+			t.y = 0;
+			if (t.length() > this.minDownVelocity) {
+				holdingHandlerDown = true;
+			}
+		}
+		let o = false;
+		if (this.usePrimaryPosition != this.prevUsePrimaryPosition) {
+			this.prevUsePrimaryPosition = this.usePrimaryPosition;
+			o = true;
+		}
+		if (holdingHandlerDown != this.holdingHandlerDown) {
+			this.holdingHandlerDown = holdingHandlerDown;
+			o = true;
+		}
+		if (forceConfig != this.forcedConfig) {
+			this.forcedConfig = forceConfig;
+			o = true;
+		}
+		if (o) {
+			this.updateHoldingHandler();
+		}
+	}
+	updateHoldingHandler(t = false) {
+		const e = this.usePrimaryPosition
+			? this.forcedConfig
+				? this.forcedConfig
+				: this.holdingHandlerDown
+					? this.downConfig
+					: this.upConfig
+			: this.offscreenConfig;
+		this.holdingHandler.setFirstPersonConfig(e, t);
+	}
+}
+class ai {
+	player;
+	actionIsDown = false;
+	rawActionIsDown = false;
+	firstPersonVisible = true;
+	isPrimaryWeapon = true;
+	equipSfxName = "";
+	holdingHandler;
+	holdingHandlerManager;
+	constructor(t, holdingObject, i) {
+		this.player = t;
+		this.holdingHandler = this.player.createHoldingHandler({
+			holdingObject,
+			thirdPersonParentName: i.thirdPersonParentName,
+			secondaryThirdPersonParentName: i.secondaryThirdPersonParentName,
+		});
+		this.holdingHandlerManager = new oi(this.holdingHandler, i.holdingHandlerManagerOptions);
+	}
+	destructor() {
+		this.holdingHandler.destructor();
+	}
+	playerSkinUpdated() {}
+	actionDown(t) {
+		this.rawActionIsDown = true;
+		if (!this.actionIsDown) {
+			this.actionIsDown = true;
+			this.onActionDown(
+				t || {
+					fromTouchButton: false,
+				},
+			);
+		}
+	}
+	actionUp(t) {
+		this.rawActionIsDown = false;
+		if (this.actionIsDown) {
+			this.actionIsDown = false;
+			this.onActionUp(
+				t || {
+					fromTouchButton: false,
+				},
+			);
+		}
+	}
+	onActionDown(t) {}
+	onActionUp(t) {}
+	onPlayerDied() {}
+	onPlayerRespawned() {}
+	getToggleCooldownValue() {
+		return 300;
+	}
+	setFirstPersonVisibility(t) {
+		if (this.firstPersonVisible != t) {
+			this.firstPersonVisible = t;
+			this.updatePrimaryPosition();
+		}
+	}
+	setIsPrimaryWeapon(t) {
+		if (this.isPrimaryWeapon != t) {
+			this.isPrimaryWeapon = t;
+			this.updatePrimaryPosition();
+			if (t) {
+				if (this.equipSfxName) {
+					this.playSfx(this.equipSfxName);
+				}
+			} else {
+				this.actionUp();
+			}
+		}
+	}
+	updatePrimaryPosition() {
+		this.holdingHandler.setUsePrimaryParent(this.isPrimaryWeapon);
+		this.holdingHandlerManager.setUsePrimaryPosition(
+			this.isPrimaryWeapon && this.firstPersonVisible,
+		);
+	}
+	playSfx(t, e) {
+		getMain().sfx.playSound(t, {
+			pos: this.player.getSfxPos(),
+			...e,
+		});
+	}
+	loop(t, e) {}
+	adjustFov(t) {
+		return t;
+	}
+	getWalkSpeedMultiplier() {
+		return 1;
+	}
+	getAdditionalWalkAcceleration() {
+		return null;
+	}
+	getAdditionalWalkAcceleration3d() {
+		return null;
+	}
+	getAdditionalWalkAccelerationClampLength() {
+		return 1;
+	}
+	getLookInputMultiplier() {
+		return 1;
+	}
+	getJumpForceMultiplier() {
+		return 1;
+	}
+	getThirdPersonSkeletonLayers() {
+		return [];
+	}
+	getThirdPersonSkeletonMultipliers(t) {
+		return {};
+	}
+}
+class ri extends ai {
+	bowWeaponId;
+	bowWeaponTypeId;
+	equipSfxName;
+	bowAssetLoader;
+	constructor(t, e, i, s) {
+		const n = new ce();
+		super(t, n.obj, s);
+		this.bowWeaponId = e;
+		this.bowWeaponTypeId = i;
+		this.equipSfxName = "weapon/equipBow";
+		this.bowAssetLoader = n;
+	}
+	destructor() {
+		super.destructor();
+		this.bowAssetLoader.destructor();
+	}
+	getAutoShootEnabled() {
+		if (!this.player.hasOwnership) {
+			return false;
+		}
+		return getMain().settingsManager.getValue("autoShoot");
+	}
+	actionDown(t) {
+		this.rawActionIsDown = true;
+		if (this.actionIsDown) {
+			return;
+		}
+		const e = this.player.recentlyDestroyedWeapons.get(this.bowWeaponId);
+		if (!(e && performance.now() - e < 1000)) {
+			this.actionIsDown = true;
+			this.onActionDown(
+				t || {
+					fromTouchButton: false,
+				},
+			);
+		}
+	}
+	actionUp(t) {
+		this.rawActionIsDown = false;
+		this.actionIsDown &&
+			((this.getAutoShootEnabled() &&
+				this.isPrimaryWeapon &&
+				!this.getAutoShootActionUp() &&
+				!this.player.dead) ||
+				((this.actionIsDown = false),
+				this.onActionUp(
+					t || {
+						fromTouchButton: false,
+					},
+				)));
+	}
+	shootArrow(t) {
+		if (this.player.hasOwnership) {
+			const pos = this.player.getCamPos();
+			const s = this.player.getShootDirection();
+			const n = this.player.game.crosshair.currentAccuracy;
+			const computeO = (t, i) => {
+				const s = t.clone();
+				s.x += 1;
+				s.cross(t).normalize();
+				const n = new Quaternion();
+				n.setFromAxisAngle(t, Math.random() * Math.PI * 2);
+				s.applyQuaternion(n);
+				const o = new Quaternion();
+				o.setFromAxisAngle(s, l_1(-i, i, Math.random()));
+				return t.clone().applyQuaternion(o);
+			};
+			const o = computeO(s, q(0, 30, 0, 0.05, n));
+			const a = this.player.getSendArrowId();
+			const r = getMain().network.sendCreateArrow(this.player.game, this.player.id, {
+				arrowId: a,
+				pos,
+				dir: o,
+				fireAmount01: t,
+			});
+			this.player.game.arrowManager.createArrow(this.player, r);
+		}
+	}
+	verifyArrowFrequency(t) {
+		return true;
+	}
+	getArrowOpts(t) {
+		throw new Error("getArrowOpts is not implemented");
+	}
+	loop(t, e) {
+		super.loop(t, e);
+		if (
+			this.actionIsDown &&
+			!this.rawActionIsDown &&
+			this.getAutoShootEnabled() &&
+			this.getAutoShootActionUp()
+		) {
+			this.actionIsDown = false;
+			this.onActionUp({
+				fromTouchButton: false,
+			});
+		}
+	}
+	getAutoShootActionUp() {
+		return true;
+	}
+	getAccuracyOffset() {
+		return 0;
+	}
+	getWalkAccuracyMultiplier() {
+		return 2;
+	}
+	getClonedArrowObject(t) {
+		return this.bowAssetLoader.getClonedArrowObject(t);
+	}
+	getLoadSpeed(t, i) {
+		const s = this.player.getStatClassValue("arrowLoadingSpeed");
+		return l_1(t, i, s);
+	}
+}
+class li extends ri {
+	lastFireTime = 0;
+	prevArrowVisible = false;
+	lastActionWasTouch = false;
+	lastActionDownStart = 0;
+	loadingActivity = new ti();
+	shootingActivity = new ti();
+	constructor(...t) {
+		super(...t, "smallCrossbow", {
+			thirdPersonParentName: "bowHoldingPos",
+			secondaryThirdPersonParentName: "crossbowSecondaryPos",
+			holdingHandlerManagerOptions: {
+				downConfig: {
+					posOffset: new Vector3(-0.3, 0.1, -1.1),
+					rotOffset: new Vector3(-0.5, Math.PI / 2, 0),
+					posFovMultiplierX: 0.2,
+					posFovMultiplierY: 1,
+					minFov: 0,
+					maxFov: 90,
+				},
+				upConfig: {
+					posOffset: new Vector3(0, -0.4, -1.1),
+					rotOffset: new Vector3(0, 0, 0.2),
+					posFovMultiplierX: 0.4,
+					valuesSmoothing: 0.4,
+					minFov: 0,
+					maxFov: 90,
+				},
+			},
+		});
+		this.updateBowAsset();
+	}
+	getAccuracyOffset() {
+		return 8;
+	}
+	getWalkAccuracyMultiplier() {
+		return 1.4;
+	}
+	getWalkSpeedMultiplier() {
+		return 1.1;
+	}
+	getToggleCooldownValue() {
+		return 100;
+	}
+	getArrowOpts(t) {
+		const e = new Vector3();
+		e.set(1, 1, 1);
+		if (this.bowAssetLoader.assetLoaded) {
+			e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+		}
+		return {
+			visualOffset: new Vector3(0, -0.12, 0.15),
+			damageMultiplier: 1 / 3,
+			scale: e,
+		};
+	}
+	onActionDown(t) {
+		this.lastActionWasTouch = t.fromTouchButton;
+		this.lastActionDownStart = performance.now();
+		if (!t.fromTouchButton) {
+			this.handleShootOrLoadAction();
+		}
+	}
+	onActionUp(t) {
+		this.lastActionWasTouch = t.fromTouchButton;
+		if (t.fromTouchButton) {
+			this.handleShootOrLoadAction();
+		}
+	}
+	handleShootOrLoadAction() {
+		if (!this.getCooldownActive()) {
+			this.shootArrow(1);
+			this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005));
+			getMain().sfx.playSound("weapon/smallCrossbow/shoot", {
+				pos: this.player.getSfxPos(),
+				minPitch: 0.9,
+				maxPitch: 1.1,
+			});
+			this.fireAmount01 = 0;
+			this.lastFireTime = getMain().now;
+		}
+	}
+	getCooldownActive() {
+		return getMain().now - this.lastFireTime < this.getArrowReadyMs();
+	}
+	getArrowVisibleMs() {
+		return this.getLoadSpeed(300, 180);
+	}
+	getArrowReadyMs() {
+		const t = this.getLoadSpeed(700, 400);
+		if (
+			!this.lastActionWasTouch &&
+			this.getAutoShootEnabled() &&
+			this.actionIsDown &&
+			performance.now() > this.lastActionDownStart + 200
+		) {
+			return 1.3 * t;
+		}
+		return t;
+	}
+	loop(t, e) {
+		super.loop(t, e);
+		if (this.getAutoShootEnabled() && this.actionIsDown) {
+			this.handleShootOrLoadAction();
+		}
+		const i = this.getArrowVisibleMs();
+		const s = this.getArrowReadyMs();
+		const n = t - this.lastFireTime;
+		const o = n < 3000;
+		const a = i < n && n < s;
+		const forceDown = a || this.player.dead;
+		const l = q(i, s, 0, 1, n, true);
+		const h = n > this.getArrowVisibleMs();
+		if (h != this.prevArrowVisible) {
+			if (h) {
+				getMain().sfx.playSound("weapon/bow/arrowReady", {
+					pos: this.player.getSfxPos(),
+					minPitch: 0.95,
+					maxPitch: 1.05,
+				});
+			}
+			this.prevArrowVisible = h;
+		}
+		this.bowAssetLoader.updateFireAmount(l, h && this.isPrimaryWeapon ? 1 : 0);
+		this.holdingHandlerManager.loop(o, this.player, {
+			forceDown,
+		});
+		this.loadingActivity.loop(a, e);
+		this.shootingActivity.loop(o, e);
+	}
+	verifyArrowFrequency(t) {
+		return t < 0.004;
+	}
+	getThirdPersonSkeletonLayers() {
+		return [
+			{
+				name: "bows/smallCrossbow/running",
+				weight: 1,
+			},
+			{
+				name: "bows/smallCrossbow/shooting",
+				weight: this.shootingActivity.weight,
+			},
+			{
+				name: "bows/smallCrossbow/loading",
+				weight: this.loadingActivity.weight,
+			},
+		];
+	}
+	getThirdPersonSkeletonMultipliers(t) {
+		const e = this.shootingActivity.weight * (1 - this.loadingActivity.weight);
+		if (t == "female") {
+			return ei(e, 0.4, 0);
+		}
+		if (t == "male") {
+			return ei(e, 0.4, -0.2);
+		}
+		throw new Error("invalid gender");
+	}
+	playerSkinUpdated() {
+		this.updateBowAsset();
+	}
+	updateBowAsset() {
+		const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+			"smallCrossbow",
+			this.player.equippedSkinData,
+		);
+		this.bowAssetLoader.setConfig({
+			bowId: "smallCrossbow",
+			teamId: this.player.teamId,
+			skins,
+			arrowSkin,
+		});
+	}
+}
+class hi {
+	weapon;
+	isAttacking = false;
+	constructor(t) {
+		this.weapon = t;
+	}
+	startAttacking() {
+		this.isAttacking = true;
+	}
+	stopAttacking() {
+		this.isAttacking = false;
+	}
+	loop() {
+		if (this.isAttacking) {
+			if (this.weapon.attack()) {
+				this.isAttacking = false;
+				return true;
+			}
+		}
+		return false;
+	}
+}
+class di extends ai {
+	#a = null;
+	get lastSkinAssetName() {
+		return this.#a;
+	}
+	equipSfxName;
+	hitSfxName;
+	swingSfxName;
+	hitSfxOptions;
+	meleeAssetLoader;
+	constructor(t, e) {
+		const i = new he({
+			label: "melee",
+		});
+		super(t, i.obj, e);
+		this.equipSfxName = "weapon/equipMelee";
+		this.hitSfxName = "";
+		this.swingSfxName = "";
+		this.hitSfxOptions = null;
+		this.meleeAssetLoader = i;
+	}
+	destructor() {
+		super.destructor();
+		this.meleeAssetLoader.destructor();
+	}
+	getRequiredHorizontalAngleMultiplier() {
+		return 1;
+	}
+	getRequiredVerticalAngleMultiplier() {
+		return 1;
+	}
+	attack() {
+		if (!this.player.hasOwnership) {
+			return false;
+		}
+		if (this.player.dead) {
+			return false;
+		}
+		if (this.player.teamId == noAttackTeam) {
+			return false;
+		}
+		const t = this.player.getCamPos();
+		const i = this.player.getLookDirection();
+		let s = l_1(2, 4, this.player.getStatClassValue("meleeAttackReach"));
+		s *= this.getRangeMultiplier();
+		let n = null;
+		for (const collider of this.player.game.physics.getPlayerColliders()) {
+			if (collider.rigidBody.player == this.player) {
+				continue;
+			}
+			if (!s_1(this.player.teamId, collider.rigidBody.player.teamId)) {
+				continue;
+			}
+			if (collider.rigidBody.player.dead) {
+				continue;
+			}
+			const o = t.clone().sub(collider.center);
+			const a = o.clone();
+			a.y = 0;
+			const r = i.clone();
+			r.y = 0;
+			const l = a.angleTo(r);
+			const h = a.clone();
+			const d = new Quaternion();
+			d.setFromAxisAngle(new Vector3(0, 1, 0), 0.5 * Math.PI);
+			h.applyQuaternion(d);
+			const c = i.clone();
+			c.projectOnPlane(h);
+			const g = o.angleTo(c);
+			const m = o.length();
+			if (m < s) {
+				const t = (1 / m) * this.getRequiredHorizontalAngleMultiplier();
+				const s = (1 / m) * this.getRequiredVerticalAngleMultiplier();
+				if (l < t && g < s) {
+					const score = o.angleTo(i) * m;
+					if (!n || score < n.score) {
+						n = {
+							collider,
+							score,
+						};
+					}
+				}
+			}
+		}
+		if (n) {
+			const e = n.collider;
+			const i = this.player.game.physics.getRayCastCache(t, e.center);
+			if (i) {
+				const s = this.player.game.physics.rayCastMapColliders(
+					i,
+					(t) => !t.collider.ignoreArrows && t.collider.excludeTeamId != this.player.teamId,
+				);
+				if (s) {
+					const i = t.distanceTo(e.center) - e.radius;
+					if (s.dist < i) {
+						return false;
+					}
+				}
+			}
+			const s = e.rigidBody.player;
+			s.addMeleeHitFlash();
+			if (this.player.hasOwnership) {
+				if (this.lastSkinAssetName == "bladedLightFork") {
+					const t = s.getMeleeDamage(this.player);
+					const { damageWithArmorStrength } = s.getDamageAmountForCurrentArmor(t);
+					s.addOwnedPlayerForkDamage(damageWithArmorStrength);
+				}
+				this.ownedPlayerAttacked(s);
+			}
+			getMain().sfx.playSound("feedback/hitPlayer");
+			this.playHitSfx();
+			getMain().network.sendMeleeHitPlayer(s.id, s.currentSpawnId, this.player.id);
+			return true;
+		}
+		return false;
+	}
+	playHitSfx() {
+		if (this.hitSfxName) {
+			this.playSfx(this.hitSfxName, this.hitSfxOptions || undefined);
+		}
+	}
+	validateHit(t) {
+		return t.pos.distanceTo(this.player.pos) < 5;
+	}
+	ownedPlayerAttacked(t) {}
+	getDamageMultiplier() {
+		return 0;
+	}
+	getStunData() {
+		return {
+			amount: 0.2,
+			duration: 300,
+			fadeDuration: 500,
+		};
+	}
+	getRangeMultiplier() {
+		return 1;
+	}
+	getAttackSpeedStat() {
+		return this.player.getStatClassValue("meleeAttackSpeed");
+	}
+	updateMeleeAsset(skinAssetName) {
+		this.#a = skinAssetName;
+		this.meleeAssetLoader.setConfig({
+			skinAssetName,
+			teamId: this.player.teamId,
+		});
+	}
+}
+class ci {
+	configs;
+	currentConfig;
+	constructor(t) {
+		if (t.length == 0) {
+			throw new Error("zero configs provided");
+		}
+		this.configs = t;
+		this.currentConfig = null;
+		this.randomize();
+	}
+	randomize() {
+		this.currentConfig = randomChoice(this.configs);
+	}
+	getCurrentConfig() {
+		if (!this.currentConfig) {
+			throw new Error("no active config");
+		}
+		return this.currentConfig;
+	}
+}
+class ui {
+	weapon;
+	prepareDurationMsLowAttackSpeed;
+	prepareDurationMsHighAttackSpeed;
+	cooldownDurationMsLowAttackSpeed;
+	cooldownDurationMsHighAttackSpeed;
+	actionIsDown = false;
+	attackTime = 0;
+	isPreparingAttack = false;
+	cooldownIsActive = false;
+	constructor({
+		weapon,
+		prepareDurationMsLowAttackSpeed,
+		prepareDurationMsHighAttackSpeed,
+		cooldownDurationMsLowAttackSpeed,
+		cooldownDurationMsHighAttackSpeed,
+	}) {
+		this.weapon = weapon;
+		this.prepareDurationMsLowAttackSpeed = prepareDurationMsLowAttackSpeed;
+		this.prepareDurationMsHighAttackSpeed = prepareDurationMsHighAttackSpeed;
+		this.cooldownDurationMsLowAttackSpeed = cooldownDurationMsLowAttackSpeed;
+		this.cooldownDurationMsHighAttackSpeed = cooldownDurationMsHighAttackSpeed;
+	}
+	onActionDown() {
+		this.actionIsDown = true;
+	}
+	onActionUp() {
+		this.actionIsDown = false;
+		if (this.isPreparingAttack) {
+			this.attackTime = Math.max(this.attackTime, getMain().now);
+		}
+	}
+	get timeSinceAttack() {
+		const t = getMain().now - this.attackTime;
+		if (this.actionIsDown) {
+			return Math.min(-0.000001, t);
+		}
+		return t;
+	}
+	loop(t, i, s) {
+		if (this.actionIsDown && !this.cooldownIsActive && !this.isPreparingAttack) {
+			this.isPreparingAttack = true;
+			const t = l_1(this.prepareDurationMsLowAttackSpeed, this.prepareDurationMsHighAttackSpeed, s);
+			this.attackTime = getMain().now + t;
+		}
+		if (this.isPreparingAttack) {
+			if (t > this.attackTime && !this.actionIsDown) {
+				this.isPreparingAttack = false;
+				this.cooldownIsActive = true;
+			}
+		} else if (this.cooldownIsActive) {
+			const i = l_1(
+				this.cooldownDurationMsLowAttackSpeed,
+				this.cooldownDurationMsHighAttackSpeed,
+				s,
+			);
+			if (t > this.attackTime + i) {
+				this.cooldownIsActive = false;
+			}
+		}
+		return {
+			preparing: this.isPreparingAttack,
+			cooldownActive: this.cooldownIsActive,
+		};
+	}
+}
+const pi = {
+	smallBow: class extends ri {
+		shootingActivity = new ti();
+		shootingMultipleActivity = new ti();
+		fireAmount01 = 0;
+		arrowCount = 1;
+		nextArrowTimer = 0;
+		lastFireUp = 0;
+		prevArrowReady = false;
+		isShootingMultiple = false;
+		shootingMultipleVisualLoadState = false;
+		shootingMultipleVisualFireAmount = 0;
+		pullSfx;
+		constructor(...t) {
+			super(...t, "smallBow", {
+				thirdPersonParentName: "bowHoldingPos",
+				secondaryThirdPersonParentName: "bowSecondaryPos",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(-0.3, -0.1, -1.1),
+						rotOffset: new Vector3(-0.6, 0, -1.3),
+						posFovMultiplierX: 0.65,
+						posFovMultiplierY: 1,
+						minFov: 0,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0, -1.1),
+						rotOffset: new Vector3(0, 0, -0.2),
+						posFovMultiplierX: 0.65,
+						valuesSmoothing: 0.4,
+						minFov: 0,
+						maxFov: 90,
+					},
+				},
+			});
+			this.pullSfx = new ni("weapon/bow/pull", {
+				player: this.player,
+				sfxOptions: {
+					minPitch: 1.3,
+					maxPitch: 1.5,
+				},
+			});
+			this.updateBowAsset();
+		}
+		getAccuracyOffset() {
+			return l_1(40, 20, this.fireAmount01);
+		}
+		adjustFov(t) {
+			const i = this.player.getStatClassValue("shootingFocus");
+			return l_1(t, t - l_1(10, 30, i), this.fireAmount01);
+		}
+		getWalkSpeedMultiplier() {
+			if (this.getIsPullingBow()) {
+				return 0.5;
+			}
+			return 1;
+		}
+		getToggleCooldownValue() {
+			return 100;
+		}
+		getArrowOpts(t) {
+			const e = new Vector3();
+			e.set(1, 1, 1);
+			if (this.bowAssetLoader.assetLoaded) {
+				e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+			}
+			return {
+				visualOffset: new Vector3(0, 0, 0.25),
+				damageMultiplier: 0.5,
+				travelDistanceMultiplier: 0.4,
+				scale: e,
+			};
+		}
+		onActionUp() {
+			if (!this.getFireUpCooldownActive()) {
+				this.shootMultiple(this.arrowCount, this.fireAmount01);
+				this.arrowCount = 1;
+				this.fireAmount01 = 0;
+				this.lastFireUp = getMain().now;
+			}
+		}
+		async shootMultiple(t, e) {
+			this.isShootingMultiple = true;
+			for (let i = 0; i < t; i++) {
+				this.shootArrow(e);
+				getMain().sfx.playSound("weapon/bow/shoot", {
+					pos: this.player.getSfxPos(),
+					minPitch: 1,
+					maxPitch: 1.1,
+				});
+				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * e));
+				if (i < t - 1) {
+					await Te.promise(50);
+					this.shootingMultipleVisualLoadState = true;
+					await Te.promise(50);
+					this.shootingMultipleVisualLoadState = false;
+				}
+			}
+			this.isShootingMultiple = false;
+		}
+		getFireUpCooldownActive() {
+			if (this.isShootingMultiple) {
+				return true;
+			}
+			const t = this.getLoadSpeed(350, 250);
+			return getMain().now - this.lastFireUp < t;
+		}
+		getIsPullingBow() {
+			return this.actionIsDown && !this.getFireUpCooldownActive();
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const s = this.getIsPullingBow();
+			this.pullSfx.setPlayingState(s);
+			if (s) {
+				const t = this.getLoadSpeed(0.002, 0.0035);
+				this.fireAmount01 += e * t;
+				this.fireAmount01 = clampTo01(this.fireAmount01);
+			}
+			if (this.fireAmount01 >= 1 && this.arrowCount < 3) {
+				const t = this.getLoadSpeed(0.006, 0.012);
+				this.nextArrowTimer += e * t;
+				if (this.nextArrowTimer > 1) {
+					this.nextArrowTimer = 0;
+					this.arrowCount++;
+					this.playArrowReadySfx();
+				}
+			} else {
+				this.nextArrowTimer = 0;
+			}
+			const n = !this.getFireUpCooldownActive();
+			if (n != this.prevArrowReady) {
+				if (n) {
+					this.playArrowReadySfx();
+				}
+				this.prevArrowReady = n;
+			}
+			this.shootingMultipleActivity.loop(this.shootingMultipleVisualLoadState, e);
+			const o = n && this.isPrimaryWeapon;
+			this.bowAssetLoader.updateFireAmount(this.getVisualFireAmount(), o ? this.arrowCount : 0);
+			this.holdingHandlerManager.loop(s, this.player);
+			this.shootingActivity.loop(s || this.isShootingMultiple, e);
+		}
+		verifyArrowFrequency(t) {
+			return t < 0.006;
+		}
+		getAutoShootActionUp() {
+			return this.arrowCount >= 3;
+		}
+		playArrowReadySfx() {
+			getMain().sfx.playSound("weapon/bow/arrowReady", {
+				pos: this.player.getSfxPos(),
+				minPitch: 0.95,
+				maxPitch: 1.05,
+			});
+		}
+		getVisualFireAmount() {
+			if (this.isShootingMultiple) {
+				return this.shootingMultipleActivity.weight;
+			}
+			return this.fireAmount01;
+		}
+		getThirdPersonSkeletonLayers() {
+			return ii("smallBow", this.shootingActivity, this.getVisualFireAmount());
+		}
+		getThirdPersonSkeletonMultipliers() {
+			return ei(this.shootingActivity.weight, 0.6, 0.3);
+		}
+		playerSkinUpdated() {
+			this.updateBowAsset();
+		}
+		updateBowAsset() {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				"smallBow",
+				this.player.equippedSkinData,
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: "smallBow",
+				teamId: this.player.teamId,
+				skins,
+				arrowSkin,
+				arrowCount: 3,
+			});
+		}
+	},
+	mediumBow: class extends ri {
+		shootingActivity = new ti();
+		fireAmount01 = 0;
+		lastFireUp = 0;
+		prevArrowReady = false;
+		pullSfx;
+		constructor(...t) {
+			super(...t, "mediumBow", {
+				thirdPersonParentName: "bowHoldingPos",
+				secondaryThirdPersonParentName: "bowSecondaryPos",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(-0.3, -0.1, -1.1),
+						rotOffset: new Vector3(-0.6, 0, -1.3),
+						posFovMultiplierX: 0.55,
+						posFovMultiplierY: 1,
+						minFov: 0,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0, -1.1),
+						rotOffset: new Vector3(0, 0, -0.2),
+						posFovMultiplierX: 0.55,
+						valuesSmoothing: 0.4,
+						minFov: 0,
+						maxFov: 90,
+					},
+				},
+			});
+			this.pullSfx = new ni("weapon/bow/pull", {
+				player: this.player,
+				sfxOptions: {
+					minPitch: 0.7,
+					maxPitch: 1,
+				},
+			});
+			this.updateBowAsset();
+		}
+		getAccuracyOffset() {
+			return l_1(30, 0, this.fireAmount01);
+		}
+		adjustFov(t) {
+			const i = this.player.getStatClassValue("shootingFocus");
+			return l_1(t, t - l_1(10, 30, i), this.fireAmount01);
+		}
+		getWalkSpeedMultiplier() {
+			if (this.getIsPullingBow()) {
+				return 0.3;
+			}
+			return 1;
+		}
+		getJumpForceMultiplier() {
+			if (this.getIsPullingBow()) {
+				return 0.8;
+			}
+			return 1;
+		}
+		getArrowOpts(t) {
+			const e = new Vector3();
+			e.set(1, 1, 1);
+			if (this.bowAssetLoader.assetLoaded) {
+				e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+			}
+			return {
+				visualOffset: new Vector3(0, 0, 0.25),
+				damageMultiplier: 1,
+				scale: e,
+			};
+		}
+		onActionUp() {
+			if (!this.getFireUpCooldownActive()) {
+				this.shootArrow(this.fireAmount01);
+				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * this.fireAmount01));
+				getMain().sfx.playSound("weapon/bow/shoot", {
+					pos: this.player.getSfxPos(),
+					minPitch: 0.9,
+					maxPitch: 1,
+				});
+				this.fireAmount01 = 0;
+				this.lastFireUp = getMain().now;
+			}
+		}
+		getFireUpCooldownActive() {
+			const t = this.getLoadSpeed(500, 320);
+			return getMain().now - this.lastFireUp < t;
+		}
+		getIsPullingBow() {
+			return this.actionIsDown && !this.getFireUpCooldownActive();
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const s = this.getIsPullingBow();
+			this.pullSfx.setPlayingState(s);
+			if (s) {
+				const t = this.getLoadSpeed(0.0015, 0.0025);
+				this.fireAmount01 += e * t;
+				this.fireAmount01 = clampTo01(this.fireAmount01);
+			}
+			const n = !this.getFireUpCooldownActive();
+			if (n != this.prevArrowReady) {
+				if (n) {
+					getMain().sfx.playSound("weapon/bow/arrowReady", {
+						pos: this.player.getSfxPos(),
+						minPitch: 0.95,
+						maxPitch: 1.05,
+					});
+				}
+				this.prevArrowReady = n;
+			}
+			const o = n && this.isPrimaryWeapon;
+			this.bowAssetLoader.updateFireAmount(this.fireAmount01, o ? 1 : 0);
+			this.holdingHandlerManager.loop(s, this.player);
+			this.shootingActivity.loop(s, e);
+		}
+		verifyArrowFrequency(t) {
+			return t < 0.004;
+		}
+		getAutoShootActionUp() {
+			return this.fireAmount01 >= 1;
+		}
+		getThirdPersonSkeletonLayers() {
+			return ii("mediumBow", this.shootingActivity, this.fireAmount01);
+		}
+		getThirdPersonSkeletonMultipliers(t) {
+			if (t == "female") {
+				return ei(this.shootingActivity.weight, 0.4, -0.2);
+			}
+			if (t == "male") {
+				return ei(this.shootingActivity.weight, 0.4, 0);
+			}
+			throw new Error("Invalid gender");
+		}
+		playerSkinUpdated() {
+			this.updateBowAsset();
+		}
+		updateBowAsset() {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				"mediumBow",
+				this.player.equippedSkinData,
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: "mediumBow",
+				teamId: this.player.teamId,
+				skins,
+				arrowSkin,
+			});
+		}
+	},
+	largeBow: class extends ri {
+		shootingActivity = new ti();
+		fireAmount01 = 0;
+		lastFireDown = 0;
+		lastFireUp = 0;
+		prevCooldownActive = false;
+		isPullingBow = false;
+		pullSfx;
+		constructor(...t) {
+			super(...t, "largeBow", {
+				thirdPersonParentName: "bowHoldingPos",
+				secondaryThirdPersonParentName: "bowSecondaryPos",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(-0.3, -0.1, -1.1),
+						rotOffset: new Vector3(-0.6, 0, -1.3),
+						walkBobMultiplier: 0.3,
+						valuesSmoothing: 0.1,
+						posFovMultiplierX: 0.55,
+						posFovMultiplierY: 1,
+						minFov: 20,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0, -1.1),
+						rotOffset: new Vector3(0, 0, -0.2),
+						walkBobMultiplier: 0.3,
+						valuesSmoothing: 0.1,
+						posFovMultiplierX: 0.55,
+						minFov: 20,
+						maxFov: 90,
+					},
+					minDownVelocity: 5,
+				},
+			});
+			this.pullSfx = new ni("weapon/bow/pullHeavy", {
+				player: this.player,
+				sfxOptions: {
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+			});
+			this.updateBowAsset();
+		}
+		getAccuracyOffset() {
+			return l_1(30, 0, this.fireAmount01);
+		}
+		adjustFov(t) {
+			const i = this.player.getStatClassValue("shootingFocus");
+			const s = l_1(40, 10, i);
+			return l_1(t, s, this.fireAmount01);
+		}
+		getWalkSpeedMultiplier() {
+			if (this.getIsPullingBow()) {
+				return 0.1;
+			}
+			return 0.8;
+		}
+		getJumpForceMultiplier() {
+			if (this.getIsPullingBow()) {
+				return 0.8;
+			}
+			return 1;
+		}
+		getToggleCooldownValue() {
+			return 500;
+		}
+		getArrowOpts(t) {
+			const e = new Vector3();
+			e.set(1, 1, 1);
+			if (this.bowAssetLoader.assetLoaded) {
+				e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+			}
+			return {
+				visualOffset: new Vector3(0, 0, 0.25),
+				damageMultiplier: 2,
+				travelDistanceMultiplier: 3,
+				scale: e,
+				trailThicknessMultiplier: 3,
+				trailDurationMultiplier: 5,
+			};
+		}
+		onActionUp() {
+			if (!this.getFireCooldownActive()) {
+				this.shootArrow(this.fireAmount01);
+				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.01 * this.fireAmount01));
+				getMain().sfx.playSound("weapon/largeBow/shoot", {
+					pos: this.player.getSfxPos(),
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				});
+				this.fireAmount01 = 0;
+				this.lastFireUp = getMain().now;
+				this.isPullingBow = false;
+			}
+		}
+		getFireCooldownActive() {
+			const now = getMain().now;
+			if (!this.isPullingBow) {
+				const e = this.getLoadSpeed(1300, 1000);
+				if (now - this.lastFireDown < e) {
+					return true;
+				}
+			}
+			const e = this.getLoadSpeed(500, 300);
+			return now - this.lastFireUp < e;
+		}
+		getIsPullingBow() {
+			return this.actionIsDown && !this.getFireCooldownActive();
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const s = this.getIsPullingBow();
+			if (s != this.isPullingBow) {
+				if (s) {
+					this.lastFireDown = t;
+				}
+				this.isPullingBow = s;
+			}
+			this.pullSfx.setPlayingState(s);
+			if (s) {
+				const t = this.getLoadSpeed(0.0007, 0.001);
+				this.fireAmount01 += e * t;
+				this.fireAmount01 = clampTo01(this.fireAmount01);
+			}
+			const n = this.getFireCooldownActive();
+			if (n != this.prevCooldownActive) {
+				if (!n) {
+					getMain().sfx.playSound("weapon/bow/arrowReady", {
+						pos: this.player.getSfxPos(),
+						minPitch: 0.95,
+						maxPitch: 1.05,
+					});
+				}
+				this.prevCooldownActive = n;
+			}
+			const o = !n && this.isPrimaryWeapon;
+			this.bowAssetLoader.updateFireAmount(this.fireAmount01, o ? 1 : 0);
+			this.holdingHandlerManager.loop(s, this.player);
+			this.shootingActivity.loop(s, e);
+		}
+		verifyArrowFrequency(t) {
+			return t < 0.003;
+		}
+		getAutoShootActionUp() {
+			return this.fireAmount01 >= 1;
+		}
+		getThirdPersonSkeletonLayers() {
+			return ii("largeBow", this.shootingActivity, this.fireAmount01);
+		}
+		getThirdPersonSkeletonMultipliers() {
+			return ei(this.shootingActivity.weight, 0.4, -0.2);
+		}
+		playerSkinUpdated() {
+			this.updateBowAsset();
+		}
+		updateBowAsset() {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				"largeBow",
+				this.player.equippedSkinData,
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: "largeBow",
+				teamId: this.player.teamId,
+				skins,
+				arrowSkin,
+			});
+		}
+	},
+	smallCrossbow: li,
+	repeatingCrossbow: class extends ri {
+		loadingOrShootingState = false;
+		loadedArrowCount = 10;
+		shootOrLoadTimer = 0;
+		hasReleasedAction = true;
+		isLoading = false;
+		loadingActivity = new ti();
+		loadingEndActivity = new ti();
+		shootingActivity = new ti();
+		currentHandleObject = null;
+		currentArrowBoxObject = null;
+		emptyFirstPersonConfig;
+		loadingFirstPersonConfig;
+		constructor(...t) {
+			super(...t, "repeatingCrossbow", {
+				thirdPersonParentName: "bowHoldingPos",
+				secondaryThirdPersonParentName: "crossbowSecondaryPos",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(0, 0.2, -0.7),
+						rotOffset: new Vector3(-0.5, 0.4, 0),
+						valuesSmoothing: 0.25,
+						pitchHeightMultiplier: 0.1,
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 1,
+						minFov: 60,
+						maxFov: 110,
+					},
+					upConfig: {
+						posOffset: new Vector3(0.2, -0.1, -0.3),
+						rotOffset: new Vector3(0, 0, 0),
+						walkBobMultiplier: 0.1,
+						valuesSmoothing: 0.25,
+						pitchHeightMultiplier: 0.02,
+						posFovMultiplierX: 0.1,
+						posFovMultiplierY: 0.2,
+						minFov: 70,
+						maxFov: 90,
+					},
+					minDownVelocity: 6,
+				},
+			});
+			this.bowAssetLoader.onAssetChange((t) => {
+				this.currentHandleObject = t.getObjectByName("handleRotation");
+				this.currentArrowBoxObject = t.getObjectByName("arrowBoxRotation");
+			});
+			this.emptyFirstPersonConfig = {
+				posOffset: new Vector3(0.1, -0.5, -0.2),
+				rotOffset: new Vector3(0.8, 1.2, 0),
+				valuesSmoothing: 0.25,
+				pitchHeightMultiplier: 0.2,
+				posFovMultiplierX: -0.1,
+			};
+			this.loadingFirstPersonConfig = {
+				posOffset: new Vector3(0.1, -0.3, -0.2),
+				rotOffset: new Vector3(0.3, 1.1, 0.5),
+				valuesSmoothing: 0.25,
+				pitchHeightMultiplier: 0,
+				walkBobMultiplier: 0,
+			};
+			this.updateBowAsset();
+		}
+		getAccuracyOffset() {
+			if (this.actionIsDown) {
+				const t = this.player.rigidBody.velocity.clone();
+				t.y = 0;
+				if (t.length() > 1) {
+					return 25;
+				}
+			}
+			return 10;
+		}
+		adjustFov(t) {
+			if (this.isFiringArrows()) {
+				const i = this.player.getStatClassValue("shootingFocus");
+				return t - l_1(10, 30, i);
+			}
+			return t;
+		}
+		getWalkSpeedMultiplier() {
+			if (this.isFiringArrows()) {
+				return 0.2;
+			}
+			return 0.8;
+		}
+		getArrowOpts(t) {
+			const e = new Vector3();
+			e.set(1, 1, 1);
+			if (this.bowAssetLoader.assetLoaded) {
+				e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+			}
+			return {
+				visualOffset: new Vector3(0, -0.2, 0.2),
+				damageMultiplier: 0.4,
+				scale: e,
+			};
+		}
+		onActionDown() {
+			if (this.player.lookRot.y < -1.5 && this.loadedArrowCount < 10) {
+				this.loadingOrShootingState = true;
+			}
+		}
+		onActionUp() {
+			this.hasReleasedAction = true;
+		}
+		onPlayerRespawned() {
+			this.loadingOrShootingState = false;
+			this.loadedArrowCount = 10;
+			this.shootOrLoadTimer = 0;
+		}
+		isFiringArrows() {
+			return this.actionIsDown && !this.loadingOrShootingState;
+		}
+		getShootArrowInterval() {
+			return this.getLoadSpeed(300, 200);
+		}
+		getFireAmount() {
+			if (this.isFiringArrows()) {
+				return this.shootOrLoadTimer / this.getShootArrowInterval();
+			}
+			return 0;
+		}
+		loop(t, i) {
+			super.loop(t, i);
+			if (this.loadingOrShootingState) {
+				if (!this.isPrimaryWeapon) {
+					this.isLoading = false;
+				}
+				if ((this.hasReleasedAction && this.actionIsDown) || this.isLoading) {
+					this.isLoading = true;
+					this.shootOrLoadTimer += i;
+					const t = this.getLoadSpeed(140, 70);
+					if (this.shootOrLoadTimer > t) {
+						this.shootOrLoadTimer = 0;
+						getMain().sfx.playSound("weapon/bow/arrowReady", {
+							pos: this.player.getSfxPos(),
+							minPitch: 0.95,
+							maxPitch: 1.05,
+						});
+						this.loadedArrowCount++;
+						if (this.loadedArrowCount >= 10) {
+							this.loadingOrShootingState = false;
+							this.hasReleasedAction = false;
+							this.isLoading = false;
+						}
+					}
+				}
+			} else {
+				this.shootOrLoadTimer += i;
+				if (this.shootOrLoadTimer > this.getShootArrowInterval() && this.actionIsDown) {
+					this.shootOrLoadTimer = 0;
+					this.shootArrow(1);
+					this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, -0.002));
+					getMain().sfx.playSound("weapon/bow/shoot", {
+						pos: this.player.getSfxPos(),
+						minPitch: 0.9,
+						maxPitch: 1.1,
+					});
+					this.loadedArrowCount--;
+					if (this.loadedArrowCount <= 0) {
+						this.loadingOrShootingState = true;
+						this.hasReleasedAction = false;
+					}
+				}
+			}
+			const s = this.getFireAmount();
+			this.bowAssetLoader.updateFireAmount(s, this.isPrimaryWeapon ? this.loadedArrowCount : 0);
+			let n = null;
+			if (this.isLoading) {
+				n = this.loadingFirstPersonConfig;
+			} else if (this.loadingOrShootingState) {
+				n = this.emptyFirstPersonConfig;
+			}
+			this.holdingHandlerManager.loop(this.isFiringArrows(), this.player, {
+				forceConfig: n,
+			});
+			this.loadingActivity.loop(this.isLoading, i);
+			this.loadingEndActivity.loop(this.shootOrLoadTimer < this.getShootArrowInterval() / 2, i);
+			this.shootingActivity.loop(this.isFiringArrows(), i);
+			const o = 1 - s;
+			if (this.currentHandleObject) {
+				this.currentHandleObject.rotation.x = l_1(0, 1, o);
+			}
+			if (this.currentArrowBoxObject) {
+				this.currentArrowBoxObject.rotation.x = l_1(0, 0.2, o * (1 - this.loadingActivity.weight));
+			}
+		}
+		verifyArrowFrequency(t) {
+			return t < 0.007;
+		}
+		getAutoShootActionUp() {
+			return !this.hasReleasedAction;
+		}
+		getThirdPersonSkeletonLayers() {
+			const weight = this.shootingActivity.weight;
+			const weight_1 = this.loadingActivity.weight;
+			return [
+				{
+					name: "bows/repeatingCrossbow/running",
+					weight: 1,
+				},
+				{
+					name: "bows/repeatingCrossbow/loadingStart",
+					weight: weight_1,
+				},
+				{
+					name: "bows/repeatingCrossbow/loadingEnd",
+					weight: weight_1 * this.loadingEndActivity.weight,
+				},
+				{
+					name: "bows/repeatingCrossbow/shootStart",
+					weight,
+				},
+				{
+					name: "bows/repeatingCrossbow/shootEnd",
+					weight: weight * (1 - this.getFireAmount()),
+				},
+			];
+		}
+		getThirdPersonSkeletonMultipliers() {
+			return ei(this.shootingActivity.weight, 0.4, 0.2);
+		}
+		playerSkinUpdated() {
+			this.updateBowAsset();
+		}
+		updateBowAsset() {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				"repeatingCrossbow",
+				this.player.equippedSkinData,
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: "repeatingCrossbow",
+				teamId: this.player.teamId,
+				skins,
+				arrowSkin,
+				separateObjectNames: ["handleRotation", "arrowBoxRotation"],
+				arrowCount: 10,
+				arrowPositions: "stacked",
+			});
+		}
+	},
+	largeCrossbow: class extends ri {
+		loadAmount01 = 1;
+		lastShootTime = 0;
+		prevArrowReady = false;
+		loadWeightStart = new ti();
+		shootingWeight = new ti();
+		pullSfx;
+		loadingFirstPersonConfig = {
+			posOffset: new Vector3(0, 0.3, -1),
+			rotOffset: new Vector3(-0.5, 0.5, 0.3),
+			valuesSmoothing: 0.25,
+			pitchHeightMultiplier: 0.1,
+			posFovMultiplierX: 0.1,
+			posFovMultiplierY: 1,
+			minFov: 60,
+			maxFov: 110,
+		};
+		constructor(...t) {
+			super(...t, "largeCrossbow", {
+				thirdPersonParentName: "bowHoldingPos",
+				secondaryThirdPersonParentName: "crossbowSecondaryPos",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(0, 0.2, -0.7),
+						rotOffset: new Vector3(-0.5, 0.4, 0),
+						valuesSmoothing: 0.25,
+						pitchHeightMultiplier: 0.1,
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 1,
+						minFov: 60,
+						maxFov: 110,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, -0.1, -0.5),
+						rotOffset: new Vector3(0, 0, 0),
+						walkBobMultiplier: 0.1,
+						valuesSmoothing: 0.25,
+						pitchHeightMultiplier: 0.02,
+						posFovMultiplierX: 0.1,
+						posFovMultiplierY: 0.2,
+						minFov: 70,
+						maxFov: 90,
+					},
+					minDownVelocity: 6,
+				},
+			});
+			this.pullSfx = new ni("weapon/bow/pullHeavy", {
+				player: this.player,
+				sfxOptions: {
+					minPitch: 1.3,
+					maxPitch: 1.5,
+				},
+			});
+			this.updateBowAsset();
+		}
+		adjustFov(t) {
+			if (this.weaponIsLoaded()) {
+				const i = this.player.getStatClassValue("shootingFocus");
+				return t - l_1(10, 30, i);
+			}
+			return t;
+		}
+		getWalkSpeedMultiplier() {
+			if (this.isLoadingWeapon()) {
+				return 0.05;
+			}
+			return 0.8;
+		}
+		getJumpForceMultiplier() {
+			if (this.isLoadingWeapon()) {
+				return 0;
+			}
+			return 1;
+		}
+		getArrowOpts(t) {
+			const e = new Vector3();
+			e.set(1, 1, 1);
+			if (this.bowAssetLoader.assetLoaded) {
+				e.copy(this.bowAssetLoader.getLoadedArrowPointScale());
+			}
+			return {
+				visualOffset: new Vector3(0, -0.12, 0.05),
+				damageMultiplier: 2,
+				scale: e,
+			};
+		}
+		onActionDown() {
+			if (this.weaponIsLoaded()) {
+				this.shootArrow(1);
+				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005));
+				getMain().sfx.playSound("weapon/largeCrossbow/shoot", {
+					pos: this.player.getSfxPos(),
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				});
+				this.loadAmount01 = 0;
+				this.lastShootTime = getMain().now;
+			}
+		}
+		onPlayerRespawned() {
+			this.loadAmount01 = 1;
+		}
+		getFireUpCooldownActive() {
+			const t = this.getLoadSpeed(500, 300);
+			return getMain().now - this.lastShootTime < t;
+		}
+		weaponIsLoaded() {
+			return this.loadAmount01 >= 1;
+		}
+		isLoadingWeapon() {
+			return (
+				!this.getFireUpCooldownActive() &&
+				!this.weaponIsLoaded() &&
+				(this.actionIsDown || this.loadAmount01 > 0.4)
+			);
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const s = this.isLoadingWeapon();
+			this.pullSfx.setPlayingState(s);
+			if (s) {
+				const t = this.getLoadSpeed(0.0012, 0.002);
+				this.loadAmount01 += e * t;
+				this.loadAmount01 = clampTo01(this.loadAmount01);
+			} else {
+				if (!this.weaponIsLoaded()) {
+					this.loadAmount01 = 0;
+				}
+			}
+			const n = !this.getFireUpCooldownActive();
+			if (n != this.prevArrowReady) {
+				if (n) {
+					getMain().sfx.playSound("weapon/bow/arrowReady", {
+						pos: this.player.getSfxPos(),
+						minPitch: 0.95,
+						maxPitch: 1.05,
+					});
+				}
+				this.prevArrowReady = n;
+			}
+			const o = n && this.isPrimaryWeapon;
+			this.bowAssetLoader.updateFireAmount(this.loadAmount01, o ? 1 : 0);
+			const forceConfig = s ? this.loadingFirstPersonConfig : null;
+			this.holdingHandlerManager.loop(s, this.player, {
+				forceConfig,
+			});
+			this.loadWeightStart.loop(s, e);
+			this.shootingWeight.loop(this.weaponIsLoaded(), e);
+		}
+		verifyArrowFrequency(t) {
+			return t < 0.003;
+		}
+		getAutoShootActionUp() {
+			return !this.isLoadingWeapon();
+		}
+		getThirdPersonSkeletonLayers() {
+			return [
+				{
+					name: "bows/largeCrossbow/running",
+					weight: 1,
+				},
+				{
+					name: "bows/largeCrossbow/loadingStart",
+					weight: this.loadWeightStart.weight,
+				},
+				{
+					name: "bows/largeCrossbow/loadingEnd",
+					weight: this.loadAmount01,
+				},
+				{
+					name: "bows/largeCrossbow/shooting",
+					weight: this.shootingWeight.weight,
+				},
+			];
+		}
+		getThirdPersonSkeletonMultipliers(t) {
+			const weight = this.shootingWeight.weight;
+			if (t == "female") {
+				return ei(weight, 0.5, 0.5);
+			}
+			if (t == "male") {
+				return ei(weight, 0.5, 1);
+			}
+			throw new Error("Invalid gender");
+		}
+		playerSkinUpdated() {
+			this.updateBowAsset();
+		}
+		updateBowAsset() {
+			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
+				"largeCrossbow",
+				this.player.equippedSkinData,
+			);
+			this.bowAssetLoader.setConfig({
+				bowId: "largeCrossbow",
+				teamId: this.player.teamId,
+				skins,
+				arrowSkin,
+			});
+		}
+	},
+};
+const gi = {
+	bladedLight: class extends di {
+		hitSfxName = "weapon/melee/bladedHit";
+		attackT = 0;
+		stamina = 1;
+		isAttacking = false;
+		longAttackHelper;
+		attackStartPos = new Vector3();
+		attackEndPos = new Vector3();
+		attackStartConfig;
+		attackEndConfig;
+		attackStartActivity = new ti();
+		attackEndActivity = new ti();
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosLight",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(0, 0, -0.6),
+						rotOffset: new Vector3(-1.9, 0, 0),
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 0.7,
+						valuesSmoothing: 0.4,
+						minFov: 60,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0.2, -0.6),
+						rotOffset: new Vector3(-0.4, 0.6, 0),
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 0.7,
+						valuesSmoothing: 0.4,
+						minFov: 60,
+						maxFov: 90,
+					},
+				},
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackStartConfig = {
+				posOffset: this.attackStartPos,
+				rotOffset: new Vector3(-1.9, 0, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.3,
+				minFov: 60,
+				maxFov: 90,
+			};
+			this.attackEndConfig = {
+				posOffset: this.attackEndPos,
+				rotOffset: new Vector3(-1.5, 0.3, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.6,
+				minFov: 60,
+				maxFov: 90,
+			};
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.playSfx("weapon/melee/bladedSwing", {
+						minPitch: 1.1,
+						maxPitch: 1.3,
+						volume: 0.02,
+					});
+					this.longAttackHelper.startAttacking();
+				} else {
+					this.attackStartPos.set(arbitraryRandom(-0.1, 0.1), 0, arbitraryRandom(-0.7, -0.5));
+					this.attackEndPos.set(arbitraryRandom(-0.4, -0.2), 0, arbitraryRandom(-1.1, -0.8));
+					this.longAttackHelper.stopAttacking();
+				}
+			});
+		}
+		getWalkSpeedMultiplier() {
+			if (this.isAttacking) {
+				return l_1(0.7, 1.1, this.stamina);
+			}
+			return 1.1;
+		}
+		getDamageMultiplier() {
+			return 0.2;
+		}
+		getToggleCooldownValue() {
+			return 100;
+		}
+		loop(t, s) {
+			super.loop(t, s);
+			let n = null;
+			let o = false;
+			let a = false;
+			if (this.actionIsDown) {
+				this.isAttacking = true;
+			}
+			if (this.isAttacking) {
+				this.attackT += s * l_1(0.5, 1, this.stamina);
+				const t = this.attackT * l_1(0.8, 1.4, this.getAttackSpeedStat());
+				const i = posMod(t, 200);
+				if (i < 100 && !this.actionIsDown && !this.attackEndActivity.active) {
+					this.isAttacking = false;
+				} else if (i < 100) {
+					n = {
+						...this.attackEndConfig,
+					};
+					o = true;
+					a = true;
+				} else {
+					n = {
+						...this.attackStartConfig,
+					};
+					o = true;
+				}
+				this.stamina -= 0.0003 * s;
+			} else {
+				this.stamina += 0.0003 * s;
+			}
+			this.stamina = clampTo01(this.stamina);
+			this.holdingHandlerManager.loop(this.isAttacking, this.player, {
+				forceConfig: n,
+			});
+			this.attackStartActivity.loop(o, s);
+			this.attackEndActivity.loop(a, s);
+			this.longAttackHelper.loop();
+		}
+		onActionDown() {
+			if (!this.isAttacking) {
+				this.attackT = 0;
+			}
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("bladedLight", this.attackStartActivity, this.attackEndActivity);
+		}
+	},
+	bladedHeavy: class extends di {
+		hitSfxName = "weapon/melee/bladedHit";
+		holdAttack;
+		longAttackHelper;
+		attackStartActivity = new ti();
+		attackEndActivity = new ti();
+		randomizer;
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosBladedHeavy",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(-0.5, -0.1, -1.1),
+						rotOffset: new Vector3(0.3, 0, -1.2),
+						posFovMultiplierX: 0.55,
+						posFovMultiplierY: 1,
+						valuesSmoothing: 0.4,
+						minFov: 0,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, -0.5, -0.7),
+						rotOffset: new Vector3(0, 0, -0.4),
+						posFovMultiplierX: 0.3,
+						minFov: 60,
+						maxFov: 90,
+						valuesSmoothing: 0.2,
+					},
+				},
+			});
+			this.holdAttack = new ui({
+				weapon: this,
+				prepareDurationMsLowAttackSpeed: 300,
+				prepareDurationMsHighAttackSpeed: 150,
+				cooldownDurationMsLowAttackSpeed: 400,
+				cooldownDurationMsHighAttackSpeed: 200,
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.longAttackHelper.startAttacking();
+					this.playSfx("weapon/melee/bladedSwing", {
+						minPitch: 0.9,
+						maxPitch: 1.1,
+					});
+				} else {
+					this.randomizer.randomize();
+				}
+			});
+			this.randomizer = new ci([
+				{
+					start: {
+						posOffset: new Vector3(0, -0.3, -0.8),
+						rotOffset: new Vector3(0.3, 0, -0.4),
+						posFovMultiplierX: 0.3,
+						minFov: 60,
+						maxFov: 90,
+						valuesSmoothing: 0.1,
+					},
+					end: {
+						posOffset: new Vector3(-0.5, -0.5, -0.8),
+						rotOffset: new Vector3(-0.7, 1.9, -1.5),
+						posFovMultiplierX: 0.3,
+						minFov: 60,
+						maxFov: 90,
+						valuesSmoothing: 0.7,
+					},
+				},
+				{
+					start: {
+						posOffset: new Vector3(0, -0.3, -0.8),
+						rotOffset: new Vector3(0.3, 0, 0.4),
+						posFovMultiplierX: -0.3,
+						minFov: 60,
+						maxFov: 90,
+						valuesSmoothing: 0.2,
+					},
+					end: {
+						posOffset: new Vector3(0.5, -0.5, -0.8),
+						rotOffset: new Vector3(-2.4, 1.4, -1.5),
+						posFovMultiplierX: -0.3,
+						minFov: 60,
+						maxFov: 90,
+						valuesSmoothing: 0.7,
+					},
+				},
+			]);
+		}
+		getDamageMultiplier() {
+			return 0.6;
+		}
+		onActionUp() {
+			this.holdAttack.onActionUp();
+		}
+		onActionDown() {
+			this.holdAttack.onActionDown();
+		}
+		getRequiredVerticalAngleMultiplier() {
+			return 0.7;
+		}
+		getRequiredHorizontalAngleMultiplier() {
+			return 2;
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const { preparing, cooldownActive } = this.holdAttack.loop(t, e, this.getAttackSpeedStat());
+			let n = null;
+			let o = false;
+			let a = false;
+			if (preparing) {
+				n = this.randomizer.getCurrentConfig().start;
+				o = true;
+			} else if (cooldownActive) {
+				n = this.randomizer.getCurrentConfig().end;
+				o = true;
+				a = true;
+			}
+			if (this.longAttackHelper.isAttacking && this.holdAttack.timeSinceAttack > 200) {
+				this.longAttackHelper.stopAttacking();
+			}
+			this.holdingHandlerManager.loop(this.actionIsDown, this.player, {
+				forceConfig: n,
+			});
+			this.attackStartActivity.loop(o, e);
+			this.attackEndActivity.loop(a, e);
+			this.longAttackHelper.loop();
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("bladedHeavy", this.attackStartActivity, this.attackEndActivity);
+		}
+	},
+	bluntLight: class extends di {
+		hitSfxName = "weapon/melee/bluntHit";
+		hitSfxOptions = {
+			minPitch: 1.3,
+			maxPitch: 1.4,
+		};
+		longAttackHelper;
+		lastActionDownTime = 0;
+		didHit = false;
+		lastHitTime = 0;
+		attackStartConfig = {
+			posOffset: new Vector3(-0.2, -0.3, -0.8),
+			rotOffset: new Vector3(0.5, 0, -0.2),
+			posFovMultiplierX: 0.5,
+			posFovMultiplierY: 0,
+			valuesSmoothing: 0.3,
+			maxFov: 80,
+		};
+		attackBounceConfig = {
+			posOffset: new Vector3(0.1, -0.1, -0.4),
+			rotOffset: new Vector3(-0.5, 0, 0),
+			posFovMultiplierX: 0,
+			posFovMultiplierY: 0,
+			valuesSmoothing: 0.3,
+			maxFov: 80,
+		};
+		attackSwingConfig = {
+			posOffset: new Vector3(-0.1, -0.4, -0.8),
+			rotOffset: new Vector3(-1.5, 0, 0.4),
+			posFovMultiplierX: 0,
+			posFovMultiplierY: 0,
+			valuesSmoothing: 0.3,
+			maxFov: 80,
+		};
+		attackStartActivity = new ti();
+		attackEndActivity = new ti();
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosLight",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(0.2, 0.1, -0.5),
+						rotOffset: new Vector3(-1.3, 0.1, 1),
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 0.9,
+						valuesSmoothing: 0.2,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(-0.2, -0.5, -0.8),
+						rotOffset: new Vector3(0, 0, -0.2),
+						posFovMultiplierX: 0.7,
+						posFovMultiplierY: 0,
+						valuesSmoothing: 0.1,
+						maxFov: 80,
+					},
+				},
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.playSfx("weapon/melee/bluntSwing", {
+						minPitch: 1.4,
+						maxPitch: 1.6,
+						volume: 0.03,
+					});
+					this.longAttackHelper.startAttacking();
+				}
+			});
+		}
+		getDamageMultiplier() {
+			return 0.6;
+		}
+		getStunData() {
+			return {
+				amount: 0.5,
+				duration: 200,
+				fadeDuration: 1100,
+			};
+		}
+		getWalkSpeedMultiplier() {
+			if (this.attackEndActivity.active && !this.didHit) {
+				return 0.8;
+			}
+			return 1;
+		}
+		getCooldownIsActive() {
+			const t = this.didHit ? 200 : 600;
+			return getMain().now - this.lastActionDownTime < t * this.getAnimationDurationMultiplier();
+		}
+		getAnimationDurationMultiplier() {
+			return l_1(1.5, 0.8, this.getAttackSpeedStat());
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			let i = null;
+			let s = false;
+			let n = false;
+			const o = t - this.lastActionDownTime;
+			const a = t - this.lastHitTime;
+			const r = 100 * this.getAnimationDurationMultiplier();
+			const l = (this.didHit ? 150 : 500) * this.getAnimationDurationMultiplier();
+			if (o < r) {
+				i = this.attackStartConfig;
+				s = true;
+				this.didHit = false;
+			} else if (this.didHit) {
+				if (a < 100) {
+					i = this.attackBounceConfig;
+					n = true;
+				}
+			} else if (o < l) {
+				i = this.attackSwingConfig;
+				n = true;
+			}
+			this.holdingHandlerManager.loop(o < 1000, this.player, {
+				forceConfig: i,
+			});
+			if (this.longAttackHelper.isAttacking && o > 300) {
+				this.longAttackHelper.stopAttacking();
+			}
+			this.attackStartActivity.loop(s, e);
+			this.attackEndActivity.loop(n, e);
+			if (this.longAttackHelper.loop()) {
+				this.didHit = true;
+				this.lastHitTime = t;
+			}
+		}
+		onActionDown() {
+			if (!this.getCooldownIsActive()) {
+				this.lastActionDownTime = getMain().now;
+			}
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("bluntLight", this.attackStartActivity, this.attackEndActivity);
+		}
+	},
+	bluntHeavy: class extends di {
+		hitSfxName = "weapon/melee/bluntHit";
+		holdAttack;
+		longAttackHelper;
+		attackStartTime = 0;
+		attackStartActivity = new ti({
+			speed: 0.003,
+		});
+		attackEndActivity;
+		attackStartConfig;
+		attackEndConfig;
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosBluntHeavy",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(-0.5, -0.7, -0.6),
+						rotOffset: new Vector3(0, 0, -1),
+						posFovMultiplierX: 0.55,
+						valuesSmoothing: 0.1,
+						minFov: 0,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(-0.4, -0.5, -0.6),
+						rotOffset: new Vector3(0, 0, -0.6),
+						posFovMultiplierX: 0.55,
+						valuesSmoothing: 0.1,
+						walkBobMultiplier: 0.5,
+						maxFov: 70,
+					},
+				},
+			});
+			this.holdAttack = new ui({
+				weapon: this,
+				prepareDurationMsLowAttackSpeed: 500,
+				prepareDurationMsHighAttackSpeed: 200,
+				cooldownDurationMsLowAttackSpeed: 700,
+				cooldownDurationMsHighAttackSpeed: 200,
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackStartActivity.onActiveChange((t) => {
+				if (t) {
+					this.attackStartTime = getMain().now;
+				}
+			});
+			this.attackEndActivity = new ti();
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.longAttackHelper.startAttacking();
+					this.playSfx("weapon/melee/bluntSwing", {
+						minPitch: 0.9,
+						maxPitch: 1.1,
+					});
+				}
+			});
+			this.attackStartConfig = {
+				posOffset: new Vector3(-0.1, -0.3, -0.8),
+				rotOffset: new Vector3(0.7, 0, 0),
+				posFovMultiplierX: 0.4,
+				valuesSmoothing: 0.1,
+				walkBobMultiplier: 0,
+				maxFov: 90,
+			};
+			this.attackEndConfig = {
+				posOffset: new Vector3(0, -0.3, -0.4),
+				rotOffset: new Vector3(-2, 0, 0.6),
+				posFovMultiplierX: 0.4,
+				valuesSmoothing: 0.5,
+				walkBobMultiplier: 0,
+				maxFov: 90,
+			};
+		}
+		getWalkSpeedMultiplier() {
+			if (this.attackStartActivity.active) {
+				const t = getMain().now - this.attackStartTime;
+				const i = l_1(800, 500, this.getAttackSpeedStat());
+				return q(300, i, 0.3, 0.9, t, true);
+			}
+			if (this.attackEndActivity.active) {
+				return 0.7;
+			}
+			return 0.9;
+		}
+		getDamageMultiplier() {
+			return 1;
+		}
+		getStunData() {
+			return {
+				amount: 0.7,
+				duration: 700,
+				fadeDuration: 500,
+			};
+		}
+		getToggleCooldownValue() {
+			return 600;
+		}
+		onActionDown() {
+			this.holdAttack.onActionDown();
+		}
+		onActionUp() {
+			this.holdAttack.onActionUp();
+		}
+		getRequiredVerticalAngleMultiplier() {
+			return 2;
+		}
+		getRequiredHorizontalAngleMultiplier() {
+			return 0.7;
+		}
+		loop(t, e) {
+			super.loop(t, e);
+			const { cooldownActive, preparing } = this.holdAttack.loop(t, e, this.getAttackSpeedStat());
+			let n = null;
+			let o = false;
+			let a = false;
+			if (preparing) {
+				n = this.attackStartConfig;
+				o = true;
+			} else if (cooldownActive) {
+				n = this.attackEndConfig;
+				a = true;
+			}
+			this.holdingHandlerManager.loop(this.actionIsDown, this.player, {
+				forceConfig: n,
+			});
+			if (this.longAttackHelper.isAttacking && this.holdAttack.timeSinceAttack > 400) {
+				this.longAttackHelper.stopAttacking();
+			}
+			this.attackStartActivity.loop(o, e);
+			this.attackEndActivity.loop(a, e);
+			this.longAttackHelper.loop();
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("bluntHeavy", this.attackStartActivity, this.attackEndActivity);
+		}
+		ownedPlayerAttacked(t) {
+			t.ownedPlayerDidBluntHeavyHit();
+		}
+	},
+	pokeLight: class extends di {
+		#r = null;
+		hitSfxName = "weapon/melee/pokeHit";
+		lastActionDownTime = 0;
+		stamina = 1;
+		isAttacking = false;
+		attackEndActiveCountSinceStaminaReset = 0;
+		longAttackHelper;
+		attackStartPos = new Vector3();
+		attackEndPos = new Vector3();
+		attackStartConfig;
+		attackEndConfig;
+		attackStartActivity = new ti();
+		attackEndActivity = new ti();
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosPoke",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(0.8, -0.2, -0.6),
+						rotOffset: new Vector3(-1.7, 0, 1.2),
+						posFovMultiplierX: -0.3,
+						posFovMultiplierY: 0.5,
+						valuesSmoothing: 0.2,
+						pitchHeightMultiplier: 0.1,
+						minFov: 60,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0, -0.5),
+						rotOffset: new Vector3(-1.9, 0, 0.2),
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 0.5,
+						valuesSmoothing: 0.2,
+						minFov: 60,
+						maxFov: 90,
+					},
+				},
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackStartConfig = {
+				posOffset: this.attackStartPos,
+				rotOffset: new Vector3(-1.9, 0, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.1,
+				minFov: 60,
+				maxFov: 90,
+			};
+			this.attackEndConfig = {
+				posOffset: this.attackEndPos,
+				rotOffset: new Vector3(-1.6, 0, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.8,
+				minFov: 60,
+				maxFov: 90,
+			};
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.playSfx("weapon/melee/pokeSwing", {
+						minPitch: 1.2,
+						maxPitch: 1.3,
+						volume: 0.03,
+					});
+					this.longAttackHelper.startAttacking();
+					this.#r = null;
+					this.attackEndActiveCountSinceStaminaReset++;
+				} else {
+					this.attackStartPos.set(arbitraryRandom(-0.1, 0.1), 0, arbitraryRandom(0.1, 0.3));
+					this.attackEndPos.set(arbitraryRandom(-0.2, 0.1), -0.1, arbitraryRandom(-1.1, -0.9));
+					this.longAttackHelper.stopAttacking();
+				}
+			});
+		}
+		getDamageMultiplier() {
+			return 0.4;
+		}
+		getAdditionalWalkAcceleration() {
+			let t = 0;
+			if (this.isAttacking && this.attackEndActiveCountSinceStaminaReset < 3) {
+				t = this.attackEndActivity.active ? 3.5 : -1.5;
+				if (this.attackEndActiveCountSinceStaminaReset == 2) {
+					t *= 0.5;
+				}
+			}
+			return new Vector2(0, -t);
+		}
+		getAdditionalWalkAcceleration3d() {
+			let t = 0;
+			if (this.isAttacking && this.attackEndActiveCountSinceStaminaReset < 3) {
+				t = this.attackEndActivity.active ? 3.5 : -1.5;
+				if (this.attackEndActiveCountSinceStaminaReset == 2) {
+					t *= 0.5;
+				}
+				if (!this.#r) {
+					this.#r = this.player.getLookDirection();
+				}
+				return this.#r.clone().multiplyScalar(-t);
+			}
+			this.#r = null;
+			return null;
+		}
+		getAdditionalWalkAccelerationClampLength() {
+			return 3.5;
+		}
+		getWalkSpeedMultiplier() {
+			if (this.actionIsDown) {
+				return l_1(0.5, 1, this.stamina);
+			}
+			return 1;
+		}
+		getLookInputMultiplier() {
+			if (this.isAttacking) {
+				return 0.8;
+			}
+			return 1;
+		}
+		getRangeMultiplier() {
+			return 1.3;
+		}
+		getToggleCooldownValue() {
+			return 200;
+		}
+		loop(t, s) {
+			super.loop(t, s);
+			let n = null;
+			let o = false;
+			let a = false;
+			if (this.actionIsDown) {
+				this.isAttacking = true;
+			}
+			if (this.isAttacking) {
+				const i = (t - this.lastActionDownTime) * l_1(0.8, 1.4, this.getAttackSpeedStat());
+				const r = posMod(i, 350);
+				if (r < 100 && !this.actionIsDown && !this.attackEndActivity.active) {
+					this.isAttacking = false;
+				} else if (r < 100) {
+					n = {
+						...this.attackEndConfig,
+					};
+					o = true;
+					a = true;
+				} else {
+					n = {
+						...this.attackStartConfig,
+					};
+					o = true;
+				}
+				this.stamina -= 0.0005 * s;
+			} else {
+				this.stamina += 0.0005 * s;
+			}
+			this.stamina = clampTo01(this.stamina);
+			if (this.stamina >= 1) {
+				this.attackEndActiveCountSinceStaminaReset = 0;
+			}
+			this.holdingHandlerManager.loop(this.isAttacking, this.player, {
+				forceConfig: n,
+			});
+			this.attackStartActivity.loop(o, s);
+			this.attackEndActivity.loop(a, s);
+			this.longAttackHelper.loop();
+		}
+		onActionDown() {
+			if (!this.isAttacking) {
+				this.lastActionDownTime = getMain().now;
+			}
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("pokeLight", this.attackStartActivity, this.attackEndActivity);
+		}
+	},
+	pokeHeavy: class extends di {
+		hitSfxName = "weapon/melee/pokeHit";
+		chargeDuration = 0;
+		lastChargeDuration = 0;
+		lastActionUpTime = 0;
+		longAttackHelper;
+		attackStartActivity = new ti();
+		attackEndActivity = new ti();
+		didHitCurrentAttack;
+		attackStartConfig;
+		attackEndConfig;
+		constructor(...t) {
+			super(...t, {
+				thirdPersonParentName: "meleeHoldingPos",
+				secondaryThirdPersonParentName: "meleeSecondaryPosPoke",
+				holdingHandlerManagerOptions: {
+					downConfig: {
+						posOffset: new Vector3(1.3, 0.1, -0.2),
+						rotOffset: new Vector3(-1.9, 0, 1.2),
+						posFovMultiplierX: -0.3,
+						posFovMultiplierY: 0.5,
+						valuesSmoothing: 0.2,
+						pitchHeightMultiplier: 0.1,
+						minFov: 60,
+						maxFov: 90,
+					},
+					upConfig: {
+						posOffset: new Vector3(0, 0, -0.5),
+						rotOffset: new Vector3(-1.9, 0, 0.2),
+						posFovMultiplierX: 0.4,
+						posFovMultiplierY: 0.5,
+						valuesSmoothing: 0.2,
+						minFov: 60,
+						maxFov: 90,
+					},
+				},
+			});
+			this.longAttackHelper = new hi(this);
+			this.attackEndActivity.onActiveChange((t) => {
+				if (t) {
+					this.playSfx("weapon/melee/pokeSwing", {
+						minPitch: 0.9,
+						maxPitch: 1.1,
+					});
+					this.longAttackHelper.startAttacking();
+				} else {
+					this.didHitCurrentAttack = false;
+					this.longAttackHelper.stopAttacking();
+				}
+			});
+			this.didHitCurrentAttack = false;
+			this.attackStartConfig = {
+				posOffset: new Vector3(0, 0, 0.2),
+				rotOffset: new Vector3(-1.9, 0, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.1,
+				minFov: 60,
+				maxFov: 90,
+			};
+			this.attackEndConfig = {
+				posOffset: new Vector3(-0.1, 0.2, -1),
+				rotOffset: new Vector3(-1.6, 0, 0),
+				posFovMultiplierX: 0.4,
+				posFovMultiplierY: 0.5,
+				valuesSmoothing: 0.6,
+				minFov: 60,
+				maxFov: 90,
+				walkBobMultiplier: 0.5,
+			};
+		}
+		getDamageMultiplier() {
+			return 0.5;
+		}
+		getWalkSpeedMultiplier() {
+			if (this.attackStartActivity.active) {
+				return 0.4;
+			}
+			return 1;
+		}
+		getJumpForceMultiplier() {
+			if (this.attackStartActivity.active || this.attackEndActivity.active) {
+				return 0.7;
+			}
+			return 1;
+		}
+		getCooldownDuration() {
+			return l_1(700, 400, this.getAttackSpeedStat());
+		}
+		getAdditionalWalkAcceleration() {
+			let t = 0;
+			if (getMain().now - this.lastActionUpTime < 200) {
+				t = 3;
+			}
+			t *= q(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
+			return new Vector2(0, -t);
+		}
+		getAdditionalWalkAcceleration3d() {
+			let t = 0;
+			if (getMain().now - this.lastActionUpTime < 200) {
+				t = 3;
+			}
+			t *= q(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
+			const e = this.player.getLookDirection();
+			e.multiplyScalar(-t);
+			return e;
+		}
+		getAdditionalWalkAccelerationClampLength() {
+			return 3;
+		}
+		getLookInputMultiplier() {
+			return q(200, 500, 0, 1, getMain().now - this.lastActionUpTime, true);
+		}
+		getAttackCooldownActive() {
+			return getMain().now - this.lastActionUpTime < this.getCooldownDuration();
+		}
+		onActionUp() {
+			if (!this.getAttackCooldownActive()) {
+				this.lastActionUpTime = getMain().now;
+				this.lastChargeDuration = this.chargeDuration;
+				this.chargeDuration = 0;
+			}
+		}
+		getRequiredVerticalAngleMultiplier() {
+			return 0.4;
+		}
+		getRequiredHorizontalAngleMultiplier() {
+			return 0.4;
+		}
+		getIsCharging() {
+			return this.actionIsDown && !this.getAttackCooldownActive();
+		}
+		loop(t, i) {
+			super.loop(t, i);
+			let s = null;
+			let n = false;
+			let o = false;
+			if (this.getIsCharging()) {
+				this.chargeDuration += i;
+				s = this.attackStartConfig;
+				n = true;
+			} else {
+				const i = l_1(400, 200, this.getAttackSpeedStat());
+				if (t - this.lastActionUpTime < i) {
+					s = this.attackEndConfig;
+					o = true;
+				}
+			}
+			this.holdingHandlerManager.loop(this.actionIsDown, this.player, {
+				forceConfig: s,
+			});
+			this.attackStartActivity.loop(n, i);
+			this.attackEndActivity.loop(o, i);
+			this.longAttackHelper.loop();
+		}
+		onActionDown() {
+			this.lastActionDownTime = getMain().now;
+		}
+		getThirdPersonSkeletonLayers() {
+			return si("pokeHeavy", this.attackStartActivity, this.attackEndActivity);
+		}
+	},
+};
+class mi {
+	keyNumber;
+	el = document.createElement("div");
+	classSelectionImage;
+	_selected;
+	keyEl;
+	onClickCbs;
+	constructor({ classId, keyNumber }) {
+		this.keyNumber = keyNumber;
+		this.el.classList.add("weaponSelectionItem");
+		this.classSelectionImage = new ye(classId, {
+			extraClasses: ["in-game"],
+		});
+		this.el.appendChild(this.classSelectionImage.el);
+		this.el.addEventListener("click", () => {
+			for (const t of this.onClickCbs) {
+				t();
+			}
+		});
+		this._selected = false;
+		this.keyEl = document.createElement("div");
+		this.keyEl.classList.add("weaponSelectionItemKeyNumber", "blueNight");
+		this.keyEl.textContent = String(keyNumber);
+		this.el.appendChild(this.keyEl);
+		this.onClickCbs = new Set();
+	}
+	get selected() {
+		return this._selected;
+	}
+	set selected(t) {
+		this._selected = t;
+		this.el.classList.toggle("selected", t);
+	}
+	set needsAvatarUpdates(t) {
+		this.classSelectionImage.needsUpdates = t;
+	}
+	onClick(t) {
+		this.onClickCbs.add(t);
+	}
+	setCssColor(t, e) {
+		this.classSelectionImage.setCssColor(t, e);
+	}
+}
+let fi = false;
+const wi = new Set();
+function bi(t) {
+	wi.add(t);
+}
+function yi() {
+	return fi;
+}
+let Si = 1;
+const vi = new Set();
+function Ci(t) {
+	vi.add(t);
+}
+function ki(t) {
+	vi.delete(t);
+}
+function Pi() {
+	vi.forEach((t) => t(Si));
+}
+let xi = false;
+function Mi(t) {
+	let e = Number(t);
+	if (isNaN(e)) {
+		e = 1;
+	}
+	e = posMod(e, allWeapons.length);
+	return e;
+}
+class WeaponSelectionDialog extends Dialog {
+	playerVisibility = true;
+	selectionItemsContainer = document.createElement("div");
+	weaponSelectionItems;
+	boundPrevPress;
+	boundNextPress;
+	prevKey;
+	nextKey;
+	boundKeyDown;
+	boundUpdateSelectedUi;
+	boundUpdateVisible;
+	constructor(t) {
+		super(t, {
+			allowCurtainClose: false,
+			needsCurtain: false,
+			needsUnlockedPointer: false,
+			startVisible: false,
+			extraClasses: ["weapon-selection-dialog"],
+		});
+		this.selectionItemsContainer.classList.add("weapon-selection-container");
+		this.el.appendChild(this.selectionItemsContainer);
+		this.weaponSelectionItems = [];
+		for (const [t, e] of allWeapons.entries()) {
+			const classId = e.id;
+			const s = new mi({
+				classId,
+				keyNumber: t + 1,
+			});
+			s.onClick(() => {
+				this.selectWeapon(t);
+			});
+			this.weaponSelectionItems.push(s);
+			this.selectionItemsContainer.appendChild(s.el);
+		}
+		this.updateSelectedUi();
+		this.boundPrevPress = () => this.deltaSelectWeapon(-1);
+		this.boundNextPress = () => this.deltaSelectWeapon(1);
+		this.prevKey = getMain().input.getKey("prevWeapon");
+		this.prevKey.onPressedDown(this.boundPrevPress);
+		this.nextKey = getMain().input.getKey("nextWeapon");
+		this.nextKey.onPressedDown(this.boundNextPress);
+		this.boundKeyDown = this.onKeyDown.bind(this);
+		window.addEventListener("keydown", this.boundKeyDown);
+		this.addOnVisibilityChangeCb(() => {
+			this.updateNeedsAvatarUpdates();
+		});
+		this.addOnInertChangeCb(() => {
+			this.updateNeedsAvatarUpdates();
+		});
+		this.boundUpdateSelectedUi = () => {
+			this.updateSelectedUi();
+		};
+		Ci(this.boundUpdateSelectedUi);
+		(async () => {
+			if (xi) {
+				return;
+			}
+			xi = true;
+			let t = await getMain().indexedDb.get("selectedWeaponId");
+			t = Mi(t);
+			if (!(isNaN(t) || t == Si)) {
+				Si = t;
+				Pi();
+			}
+		})();
+		this.boundUpdateVisible = this.updateVisible.bind(this);
+		getMain().mainMenu.onVisibilityChange(this.boundUpdateVisible);
+		bi(this.boundUpdateVisible);
+		window.addEventListener("resize", this.boundUpdateVisible);
+		getMain();
+		(async () => {
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				const e = () => {
+					this.el.classList.toggle("adless", t.entitlements.has("removeAds"));
+				};
+				t.entitlements.onChange(() => {
+					e();
+				});
+				e();
+			}
+		})();
+	}
+	destructor() {
+		super.destructor();
+		this.prevKey.removeCb(this.boundPrevPress);
+		this.nextKey.removeCb(this.boundNextPress);
+		window.removeEventListener("keydown", this.boundKeyDown);
+		ki(this.boundUpdateSelectedUi);
+		let t;
+		getMain().mainMenu.removeOnVisibilityChange(this.boundUpdateVisible);
+		t = this.boundUpdateVisible;
+		wi.delete(t);
+		window.removeEventListener("resize", this.boundUpdateVisible);
+	}
+	updateSelectedUi() {
+		for (const [t, e] of this.weaponSelectionItems.entries()) {
+			e.selected = t == Si;
+		}
+	}
+	updateNeedsAvatarUpdates() {
+		const t = this.visible && !this.inert;
+		for (const e of this.weaponSelectionItems) {
+			e.needsAvatarUpdates = t;
+		}
+	}
+	setCssColor(t, e) {
+		for (const i of this.weaponSelectionItems) {
+			i.setCssColor(t, e);
+		}
+	}
+	onKeyDown(t) {
+		if (!getMain().input.inputHasFocus()) {
+			for (const [e, i] of this.weaponSelectionItems.entries()) {
+				if (t.code == `Digit${i.keyNumber}`) {
+					this.selectWeapon(e);
+				}
+			}
+		}
+	}
+	selectWeapon(t) {
+		return (
+			!!this.visible && ((Si = Mi(t)), getMain().indexedDb.set("selectedWeaponId", Si), Pi(), true)
+		);
+	}
+	deltaSelectWeapon(t) {
+		return this.selectWeapon(Si + t);
+	}
+	setPlayerVisibility(t) {
+		this.playerVisibility = t;
+		this.updateVisible();
+	}
+	setMainMenuVisibility(t) {
+		this.mainMenuVisibility = t;
+		this.updateVisible();
+	}
+	updateVisible() {
+		let t = true;
+		if (this.playerVisibility) {
+			if (
+				(getMain().mainMenu.visible && (window.innerWidth < 800 || window.innerHeight < 460)) ||
+				yi()
+			) {
+				t = false;
+			}
+		} else {
+			t = false;
+		}
+		this.visible = t;
+	}
+}
+new Uint32Array([-1])[0];
+export interface PlayerParams {
+	teamId: number;
+	needsPlayerModel: boolean;
+	needsSkeleton: boolean;
+	isDummyPlayer: boolean;
+}
+class Player {
+	#l = null;
+	#h = -Infinity;
+	#d = -Infinity;
+	game;
+	id;
+	hasOwnership = false;
+	creationTime = performance.now();
+	teamId;
+	isDummyPlayer;
+	equippedSkinData = {};
+	isSameSquadPlayer = false;
+	isSquadLeader = false;
+	iconOwnershipVisibility = false;
+	squadPlayerId = 0;
+	gender = "male";
+	walkSpeed = 60;
+	recentStunEvents = new Set();
+	airWalkSpeedMultiplier = 0.4;
+	flagWalkSpeed = 45;
+	jumpForce = 8.6;
+	ladderClimbSpeed = 1;
+	ladderTangentWalkSpeed = 0.5;
+	playerHasInteracted = false;
+	onPlayerHasInteractedChangeCbs = new Set();
+	lastHitTime = 0;
+	damageReceivedHistory = [];
+	currentHealthRegenSfx = null;
+	nonActiveWeaponsEffect = 0.4;
+	old2dWalkAccelerationEffect = 0.5;
+	playerName = "";
+	playerNameVerified = false;
+	scoreFlags = 0;
+	scoreKills = 0;
+	scoreDeaths = 0;
+	scoreTotal = 0;
+	elo = 0;
+	serverPos = new Vector3();
+	hasValidPosition = false;
+	recentForcedServerPositions = new Set();
+	lastReceivedServerPosTime = 0;
+	maxPredictedServerPosDistance = 3;
+	predictedServerPos = new Vector3();
+	lastPredictedServerVelocity = new Vector3();
+	predictedServerVelocity = new Vector3();
+	predictedServerAcceleration = new Vector3();
+	serverPosSmooth = new Vector3();
+	velocity = new Vector3();
+	networkPosIsMovingUp = false;
+	antiFlyAccumulator = 0;
+	antiFlyInAirTimeRaw = 0;
+	antiFlyInAirTimeAccumulator = 0;
+	lastAntiFlyRaycastTime = 0;
+	lastAntiFlyRaycastDist = 0;
+	lastReceivedActionTime = 0;
+	pos = new Vector3();
+	negativeHealthStartTime = 0;
+	prevHealthIsNegative = false;
+	negativeHealthCounter = 0;
+	cachedCamPos = new Vector3();
+	cachedCamPosDirty = true;
+	cachedCamRot = new Quaternion();
+	cachedCamRotDirty = true;
+	lookRot = new Vector2();
+	deadLookRot = new Vector2();
+	frontThirdPersonLookRot = new Vector2();
+	smoothLookRotTarget = new Vector2();
+	noSentDataChangeUpdateCount = 0;
+	lastSentPos = new Vector3();
+	lastSentRot = new Vector2();
+	lastPosSentTime = 0;
+	prevPos = new Vector3();
+	smoothMovementSpeed = 0;
+	ping = 0;
+	positionHistory = [];
+	rigidBody;
+	boundOnJumpPress;
+	boundOnFireDown;
+	boundOnFireUp;
+	boundToggleActiveWeapon;
+	boundOnThirdPersonChange;
+	boundUpdateToggleWeaponTouchButtonVisibility;
+	boundSetHasSmoothCam;
+	boundUpdateSmoothCam;
+	boundUpdateActiveWeapon;
+	boundUpdateFly;
+	boundOnWheel;
+	lastAirJumpPressTime;
+	prevWasOnFloor;
+	hasTouchedFloorEver;
+	lastJumpTime;
+	lastJumpLandTime;
+	lastJumpLandAmount;
+	highestInAirPoint;
+	currentFallingSfx;
+	hasKeyEvents;
+	useFirstPersonHoldingHandlers;
+	noclip;
+	serverFlyEnabled;
+	flySpeed;
+	movementAccuracyOffset;
+	holdingFlag;
+	sentChangeFlagMessages;
+	statClassValues;
+	holdingHandlers;
+	needsPlayerModel;
+	loadingModel;
+	activeModel;
+	skeleton;
+	mostRecentWeaponSkeletonLayers;
+	weaponActionIsDown;
+	bowWeapon;
+	meleeWeapon;
+	meleeWeaponId;
+	hasActiveMeleeWeapon;
+	lastActiveWeaponToggleTime;
+	didUpdateActiveWeaponAfterToggle;
+	recentlyDestroyedWeapons;
+	lastSentArrowId;
+	weaponAccuracyOffset;
+	gungameWeaponIndex;
+	allowedWeaponsConfig;
+	lastWeaponLayersKey;
+	weaponLayers;
+	recentInvalidArrowTimes;
+	recentArrowCreationTimes;
+	dead;
+	currentSpawnId;
+	dieTime;
+	deadAnimationWeight;
+	deadFallForward;
+	deadFromFall;
+	sphereDeathTimer;
+	sphereDeathScreenFlash;
+	hasWalkedAwayFromSpawn;
+	lastRespawnPosition;
+	onWeaponSelectionChangeFromDialog;
+	onSkinConfigChange;
+	skinLegMoveAmount;
+	smoothCamSetting;
+	smoothCamDebug;
+	smoothCam;
+	nextHitFlashIndex;
+	obj;
+	legsMoveT;
+	legsMoveAmount;
+	walkHeadBobAmount;
+	legsMoveSpeed;
+	lastSfxStep;
+	icon;
+	destructed;
+	constructor(
+		public game,
+		public inputManager: InputManager,
+		public sfxManager: SoundFX,
+		public physicsManager: PhysicsManager,
+		public settingsManager: SettingsManager,
+		public hudIconsManager: HudIcons,
+		public id: number,
+		{ teamId = 0, needsPlayerModel = true, needsSkeleton = true, isDummyPlayer = false } = {},
+	) {
+		this.teamId = teamId;
+		this.isDummyPlayer = isDummyPlayer;
+		this.rigidBody = new RigidBody(this.game.physics, this);
+		this.physicsManager.registerRigidBody(this.rigidBody);
+		this.boundOnJumpPress = this.onJumpPress.bind(this);
+		this.boundOnFireDown = this.onFireDown.bind(this);
+		this.boundOnFireUp = this.onFireUp.bind(this);
+		this.boundToggleActiveWeapon = this.toggleActiveWeapon.bind(this);
+		this.boundOnThirdPersonChange = this.onThirdPersonChange.bind(this);
+		this.boundUpdateToggleWeaponTouchButtonVisibility =
+			this.updateToggleWeaponTouchButtonVisibility.bind(this);
+		this.boundSetHasSmoothCam = this.setHasSmoothCam.bind(this);
+		this.boundUpdateSmoothCam = this.updateSmoothCam.bind(this);
+		this.boundUpdateActiveWeapon = this.updateActiveWeapon.bind(this);
+		this.boundUpdateFly = this.updateFly.bind(this);
+		this.boundOnWheel = this.onWheel.bind(this);
+		this.lastAirJumpPressTime = -1;
+		this.prevWasOnFloor = false;
+		this.hasTouchedFloorEver = false;
+		this.lastJumpTime = 0;
+		this.lastJumpLandTime = 0;
+		this.lastJumpLandAmount = 0;
+		this.highestInAirPoint = 0;
+		this.currentFallingSfx = null;
+		this.hasKeyEvents = false;
+		this.useFirstPersonHoldingHandlers = false;
+		this.noclip = false;
+		this.serverFlyEnabled = false;
+		this.flySpeed = 0;
+		this.movementAccuracyOffset = null;
+		this.holdingFlag = null;
+		this.sentChangeFlagMessages = [];
+		this.statClassValues = null;
+		this.holdingHandlers = new Set();
+		this.needsPlayerModel = needsPlayerModel;
+		this.loadingModel = null;
+		this.activeModel = null;
+		this.skeleton = null;
+		if (needsSkeleton) {
+			this.skeleton = new PlayerSkeleton({
+				player: this,
+			});
+		}
+		this.mostRecentWeaponSkeletonLayers = [];
+		this.weaponActionIsDown = false;
+		this.bowWeapon = null;
+		this.meleeWeapon = null;
+		this.meleeWeaponId = null;
+		this.hasActiveMeleeWeapon = false;
+		this.lastActiveWeaponToggleTime = 0;
+		this.didUpdateActiveWeaponAfterToggle = false;
+		this.recentlyDestroyedWeapons = new Map();
+		this.lastSentArrowId = 0;
+		this.weaponAccuracyOffset = null;
+		this.gungameWeaponIndex = 0;
+		this.allowedWeaponsConfig = {
+			allowMelee: true,
+			availableBowIds: [0, 1, 2, 3, 4, 5],
+		};
+		this.updateAllowedWeaponsConfig();
+		if (this.allowedWeaponsConfig.availableBowIds.length <= 0) {
+			this.hasActiveMeleeWeapon = true;
+		}
+		this.lastWeaponLayersKey = "";
+		this.weaponLayers = [];
+		this.recentInvalidArrowTimes = [];
+		this.recentArrowCreationTimes = [];
+		this.dead = false;
+		this.currentSpawnId = 0;
+		this.dieTime = 0;
+		this.deadAnimationWeight = 0;
+		this.deadFallForward = false;
+		this.deadFromFall = false;
+		this.sphereDeathTimer = 0;
+		this.sphereDeathScreenFlash = null;
+		this.hasWalkedAwayFromSpawn = false;
+		this.lastRespawnPosition = new Vector3();
+		this.onWeaponSelectionChangeFromDialog = () => {
+			this.updateMySelectedWeapon();
+		};
+		this.onSkinConfigChange = () => {
+			if (this.hasOwnership) {
+				this.sendMyEquippedSkinData();
+			}
+		};
+		this.skinLegMoveAmount = 1;
+		getMain().skins.onSkinConfigChange(this.onSkinConfigChange);
+		this.smoothCamSetting = false;
+		this.smoothCamDebug = false;
+		this.smoothCam = false;
+		this.nextHitFlashIndex = 0;
+		this.obj = null;
+		this.legsMoveT = 0;
+		this.legsMoveAmount = 0;
+		this.walkHeadBobAmount = 0;
+		this.legsMoveSpeed = 2;
+		this.lastSfxStep = 0;
+		this.updateUseFirstPersonHoldingHandlers();
+		this.updateFly();
+		this.icon = this.hudIconsManager.createIcon({
+			url: "static/img/hudIcons/playerIcon.svg",
+			size: 0.03,
+		});
+		this.destructed = false;
+	}
+	init() {
+		if (this.skeleton) {
+			this.skeleton.init();
+			this.skeleton.addPoseLayer("baseRig");
+			this.equippingWeaponLayer = this.skeleton.addPoseLayer("equippingWeapon");
+			this.deadForwardLayer = this.skeleton.addPoseLayer("deadForward");
+			this.deadBackwardLayer = this.skeleton.addPoseLayer("deadBackward");
+			this.waitForSkeletonLoad();
+		}
+		this.resetDeadPoseWeights();
+		this.setPlayerEquippedSkinData(this.equippedSkinData);
+		this.updateIconOwnershipVisibility();
+	}
+	#c = 0;
+	#u = 0;
+	#p = 1;
+	set health(t) {
+		this.#p = t;
+		if (this.#p >= 1) {
+			this.#c = 0;
+			this.#g = false;
+			this.#u = 0;
+		}
+	}
+	get health() {
+		return this.#p;
+	}
+	#g = false;
+	ownedPlayerDidBluntHeavyHit() {
+		this.#g = true;
+	}
+	async waitForSkeletonLoad() {
+		if (!this.skeleton) {
+			throw new Error("Player was created without a skeleton");
+		}
+		await this.skeleton.waitForLoad();
+		if (!this.destructed) {
+			this.updateModelVisibility();
+		}
+	}
+	destructor() {
+		if (this.destructed) {
+			return;
+		}
+		this.destructed = true;
+		const t = getMain();
+		if (this.obj) {
+			t.scene.remove(this.obj);
+		}
+		if (this.activeModel) {
+			this.activeModel.destructor();
+		}
+		if (this.loadingModel) {
+			this.loadingModel.destructor();
+		}
+		this.physicsManager.removeRigidBody(this.rigidBody);
+		t.skins.removeOnSkinConfigChange(this.onSkinConfigChange);
+		t.hudIcons.removeIcon(this.icon);
+		this.setHasEvents(false);
+		this.stopFallSound();
+		this.stopHealthRegenSound();
+		this.removeActiveBowWeapon();
+		this.removeActiveMeleeWeapon();
+	}
+	get sameSquadOrOwned() {
+		return this.isSameSquadPlayer || this.hasOwnership;
+	}
+	removeActiveBowWeapon() {
+		if (this.bowWeapon) {
+			this.recentlyDestroyedWeapons.set(this.bowWeapon.bowWeaponId, performance.now());
+			this.bowWeapon.destructor();
+		}
+		this.bowWeapon = null;
+		this.updateSkinStats();
+	}
+	removeActiveMeleeWeapon() {
+		if (this.meleeWeapon) {
+			this.meleeWeapon.destructor();
+		}
+		this.meleeWeapon = null;
+		this.updateToggleWeaponTouchButtonVisibility();
+		if (this.hasActiveMeleeWeapon) {
+			this.toggleActiveWeapon();
+		}
+	}
+	setActiveBowWeapon(t, e = false) {
+		if (this.bowWeapon && t == this.bowWeapon.bowWeaponId && !e) {
+			return;
+		}
+		this.removeActiveBowWeapon();
+		if (t < 0 || t >= allWeapons.length) {
+			return;
+		}
+		getMain().renderer.renderWorthyEventHappened();
+		const i = allWeapons[t];
+		const s = new (0, pi[i.bowId])(this, t);
+		this.bowWeapon = s;
+		this.updateActiveWeapon();
+		this.updateSkinStats();
+		if (this.hasOwnership) {
+			getMain().network.sendChangeSelectedClass(this.id, t);
+		}
+	}
+	updateActiveMeleeWeapon() {
+		const t = getMain().skins.skinNetworkDataToMeleeSkinConfig(this.equippedSkinData);
+		if (t) {
+			this.setActiveMeleeWeapon(t.meleeId);
+			if (this.meleeWeapon) {
+				this.meleeWeapon.updateMeleeAsset(t.skin);
+			}
+		} else {
+			this.setActiveMeleeWeapon(null);
+		}
+	}
+	setActiveMeleeWeapon(t) {
+		if (t != this.meleeWeaponId) {
+			this.removeActiveMeleeWeapon();
+			this.meleeWeaponId = t;
+			if (t) {
+				const e = gi[t];
+				if (e) {
+					const t = new e(this);
+					this.meleeWeapon = t;
+					this.updateToggleWeaponTouchButtonVisibility();
+				}
+			}
+			getMain().renderer.renderWorthyEventHappened();
+			this.updateActiveWeapon();
+		}
+	}
+	updateToggleWeaponTouchButtonVisibility() {
+		if (!this.hasOwnership) {
+			return;
+		}
+		const t = Boolean(this.meleeWeapon);
+		const touch = getMain().input.touch;
+		if (touch.toggleWeaponButton) {
+			touch.toggleWeaponButton.setVisibility(t);
+		}
+	}
+	get currentToggleWeaponCooldown() {
+		let t = 0;
+		for (const e of this.getEquippedWeapons()) {
+			t = Math.max(t, e.getToggleCooldownValue());
+		}
+		return t;
+	}
+	get activeWeaponToggleCooldownActive() {
+		return getMain().now - this.lastActiveWeaponToggleTime < this.currentToggleWeaponCooldown;
+	}
+	get activeWeapon() {
+		if (this.activeWeaponToggleCooldownActive) {
+			return null;
+		}
+		if (this.hasActiveMeleeWeapon) {
+			return this.meleeWeapon;
+		}
+		return this.bowWeapon;
+	}
+	*getEquippedWeapons() {
+		if (this.meleeWeapon) {
+			yield this.meleeWeapon;
+		}
+		if (this.bowWeapon) {
+			yield this.bowWeapon;
+		}
+	}
+	getSelectedWeapon() {
+		const t = Si;
+		if (
+			this.allowedWeaponsConfig.availableBowIds.length > 0 &&
+			!this.allowedWeaponsConfig.availableBowIds.includes(t)
+		) {
+			return this.allowedWeaponsConfig.availableBowIds[0];
+		}
+		return t;
+	}
+	updateMySelectedWeapon(t = false) {
+		if (this.hasOwnership) {
+			this.setActiveBowWeapon(this.getSelectedWeapon(), t);
+			if (!this.dead) {
+				this.sendMyEquippedSkinData();
+			}
+		}
+	}
+	sendMyEquippedSkinData() {
+		const t = getMain();
+		const e = allWeapons[this.getSelectedWeapon()];
+		const i = t.skins.getClassSkinDataWithAppliedPreset(e.id);
+		t.network.sendMySkinData(i);
+	}
+	getSendArrowId() {
+		this.lastSentArrowId++;
+		if (this.lastSentArrowId >= 65536) {
+			this.lastSentArrowId = 0;
+		}
+		return this.lastSentArrowId;
+	}
+	getClonedArrowObject(t) {
+		if (this.bowWeapon) {
+			return this.bowWeapon.getClonedArrowObject(t);
+		}
+		return null;
+	}
+	loop(s, n) {
+		const o = this.prevPos.clone().sub(this.pos);
+		this.prevPos = this.pos.clone();
+		const a = getMain();
+		this.velocity = o.clone().multiplyScalar(1000 / -n);
+		const r = this.game instanceof OnlineGame ? this.game : null;
+		if (!(this.didUpdateActiveWeaponAfterToggle || this.activeWeaponToggleCooldownActive)) {
+			this.didUpdateActiveWeaponAfterToggle = true;
+			this.updateActiveWeapon();
+		}
+		if (this.bowWeapon) {
+			this.bowWeapon.loop(s, n);
+			if (this.weaponAccuracyOffset) {
+				this.weaponAccuracyOffset.offset = this.bowWeapon.getAccuracyOffset();
+			}
+		}
+		if (this.meleeWeapon) {
+			this.meleeWeapon.loop(s, n);
+		}
+		if (this.hasOwnership) {
+			if (!this.deadFromFall) {
+				let e = this.lookRot;
+				let i = 0.5 * Math.PI;
+				if (a.cam.thirdPersonMode == "front") {
+					e = this.frontThirdPersonLookRot;
+					i = 1;
+				}
+				const s = this.inputManager.lookInput.clone();
+				if (this.activeWeapon) {
+					s.multiplyScalar(this.activeWeapon.getLookInputMultiplier());
+				}
+				if (this.smoothCam) {
+					if ((r && r.gameEndStepsReachedStatScreens) || a.dialogManager.needsUnlockedPointer) {
+						s.multiplyScalar(0.1);
+					}
+					if (s.length() > 0.1) {
+						a.renderer.renderWorthyEventHappened(10000);
+					}
+					this.smoothLookRotTarget.addScaledVector(s, -0.002);
+					e.lerp(this.smoothLookRotTarget, 0.1);
+				} else {
+					if (s.length() > 0.1) {
+						a.renderer.renderWorthyEventHappened();
+					}
+					const t = a.cam.fovOffset;
+					const i = q(0, 180, 1, 0.1, t, true);
+					e.addScaledVector(s, -0.002 * i);
+				}
+				e.y = clamp(e.y, 0.5 * -Math.PI, i);
+				this.cachedCamRotDirty = true;
+			}
+			let l = new Vector2();
+			if (!(a.mainMenu.visible || a.dialogManager.needsUnlockedPointer)) {
+				l = this.inputManager.walkInput;
+			}
+			if (l.length() > 0.01) {
+				a.renderer.renderWorthyEventHappened();
+				a.gameManager.joinIfNotJoined();
+			}
+			const h = new Vector3(l.x, 0, l.y);
+			h.applyQuaternion(this.getCamXRotQuaternion());
+			h.clampLength(0, 1);
+			const d = new Vector3();
+			let c = Infinity;
+			for (const t of this.getEquippedWeapons()) {
+				const e = t.getAdditionalWalkAcceleration();
+				if (e) {
+					const i = new Vector3(e.x, 0, e.y);
+					i.applyQuaternion(this.getCamXRotQuaternion());
+					if (t != this.activeWeapon) {
+						i.multiplyScalar(1 - this.nonActiveWeaponsEffect);
+					}
+					d.addScaledVector(i, this.old2dWalkAccelerationEffect);
+					c = Math.min(c, t.getAdditionalWalkAccelerationClampLength());
+				}
+				const i = t.getAdditionalWalkAcceleration3d();
+				if (i && t == this.activeWeapon) {
+					d.addScaledVector(i, 1 - this.old2dWalkAccelerationEffect);
+					c = Math.min(c, t.getAdditionalWalkAccelerationClampLength());
+				}
+			}
+			if (this.rigidBody.climbingLadder) {
+				d.multiplyScalar(this.nonActiveWeaponsEffect);
+			}
+			h.add(d);
+			h.clampLength(0, c);
+			const g = h.length();
+			if (!this.rigidBody.fly) {
+				h.y = 0;
+			}
+			if (g > 0.1) {
+				this.setPlayerHasInteracted();
+			}
+			h.setLength(g);
+			let m = this.holdingFlag ? this.flagWalkSpeed : this.walkSpeed;
+			if (this.rigidBody.isOnUnwalkableCollider) {
+				m = 0;
+			} else if (this.rigidBody.isOnSlipperyCollider) {
+				m *= 0.15;
+			} else if (this.rigidBody.climbingLadder) {
+				m *= this.ladderClimbSpeed;
+			} else if (!this.rigidBody.isOnFloor) {
+				m *= this.airWalkSpeedMultiplier;
+			}
+			const f = 0.8;
+			m *= 1 / (this.rigidBody.slowDownColliderAmount * f + 1);
+			m *= l_1(0.9, 1.1, this.getStatClassValue("movementSpeed"));
+			if (this.activeWeapon) {
+				m *= this.activeWeapon.getWalkSpeedMultiplier();
+			}
+			for (const t of this.recentStunEvents) {
+				const e = s - t.time;
+				if (e < t.stun.duration + t.stun.fadeDuration) {
+					const i = t.stun.duration;
+					const s = i + t.stun.fadeDuration;
+					m *= 1 - q(i, s, t.stun.amount, 0, e, true);
+				} else {
+					this.recentStunEvents.delete(t);
+				}
+			}
+			if (this.rigidBody.climbingLadder && this.rigidBody.climbingLadderNormal) {
+				const t = h.dot(this.rigidBody.climbingLadderNormal);
+				const e = a.now - this.lastJumpTime > 500 && !this.rigidBody.isOnFloor;
+				let i = true;
+				if (t > 0 && !e) {
+					i = false;
+				}
+				if (i) {
+					const t = new Quaternion();
+					t.setFromUnitVectors(new Vector3(0, 1, 0), this.rigidBody.climbingLadderNormal);
+					h.applyQuaternion(t);
+				}
+				const s = this.rigidBody.climbingLadderNormal.clone().cross(new Vector3(0, 1, 0));
+				s.normalize();
+				const n = h.dot(s);
+				const o = s.clone().multiplyScalar(n * (1 - this.ladderTangentWalkSpeed));
+				h.sub(o);
+			}
+			this.rigidBody.fly &&
+				(this.inputManager.getKey("flyUp").pressed &&
+					((h.y += 1), a.renderer.renderWorthyEventHappened()),
+				this.inputManager.getKey("flyDown").pressed &&
+					((h.y -= 1), a.renderer.renderWorthyEventHappened()));
+			h.multiplyScalar(m);
+			if (this.rigidBody.fly) {
+				h.multiplyScalar(1.001 ** this.flySpeed);
+			}
+			if (!this.dead) {
+				this.rigidBody.applyForce(h);
+			}
+			let w = 0;
+			let b = 0;
+			const y = this.rigidBody.velocity;
+			const S = new Vector2(y.x, y.z);
+			b = Math.max(0, y.y);
+			w = S.length();
+			if (this.rigidBody.inAirTime < 200) {
+				this.legsMoveT += w * (n / 1000) * this.physicsManager.timeScale;
+			}
+			this.legsMoveAmount += 0.005 * n;
+			this.legsMoveAmount = Math.min(this.legsMoveAmount, 0.15 * w);
+			this.legsMoveAmount = clampTo01(this.legsMoveAmount);
+			this.walkHeadBobAmount += 0.0003 * n;
+			this.walkHeadBobAmount = Math.min(this.walkHeadBobAmount, w);
+			this.walkHeadBobAmount = clampTo01(this.walkHeadBobAmount);
+			let v = 2;
+			if (this.bowWeapon) {
+				v = this.bowWeapon.getWalkAccuracyMultiplier();
+			}
+			if (this.movementAccuracyOffset) {
+				this.movementAccuracyOffset.offset = 10 * b + w * v;
+			}
+			if (!this.dead && r) {
+				const t = 1.5;
+				if (this.holdingFlag || this.teamId == noAttackTeam) {
+					if (this.holdingFlag) {
+						for (const e of r.getMyFlags(this.teamId)) {
+							if (e.defaultPosition.distanceTo(this.pos) < t) {
+								this.sendChangeFlag(this.holdingFlag.id, 1);
+							}
+						}
+					}
+				} else {
+					for (const e of r.getEnemyFlags(this.teamId)) {
+						if (e.currentHoldingPlayer) {
+							continue;
+						}
+						if (e.position.distanceTo(this.pos) < t) {
+							this.sendChangeFlag(e.id, 0);
+						}
+					}
+				}
+				let e = Infinity;
+				let i = null;
+				for (const s of r.getMyFlags(this.teamId)) {
+					if (!s.isNearDefaultPos && !s.currentHoldingPlayer) {
+						const n = s.position.distanceTo(this.pos);
+						if (n < t && n < e) {
+							e = n;
+							i = s;
+						}
+					}
+				}
+				if (i) {
+					const t = r.gameTime / 1000;
+					const e = 1 / q(5, 60, 300, 10000, t / 60, true);
+					i.addReturnProgress(n * e);
+					r.crosshair.setFlagReturnProgress(i.returnProgress);
+					if (i.returnProgress > 1) {
+						this.sendChangeFlag(i.id, 3);
+					}
+				}
+				r.crosshair.setFlagReturnProgressVisibility(i != null);
+			}
+			const C = o.length() * n;
+			this.smoothMovementSpeed = l_1(this.smoothMovementSpeed, C, 0.1);
+			const k = Math.round(n / a.smoothDt);
+			for (let t = 0; t < k; t++) {
+				this.positionHistory.unshift(this.pos.clone());
+			}
+			const x = Math.round(2000 / a.smoothDt);
+			if (this.positionHistory.length > x) {
+				this.positionHistory.splice(x);
+			}
+			const M = a.mapLoader.mapVariablesManager.get("floorDeathHeight");
+			if (typeof M === "number" && this.pos.y < M) {
+				this.dieFromFall();
+			}
+			const A = a.mapLoader.mapVariablesManager.get("sphereDeathRadius");
+			if (typeof A === "number" && A > 0 && this.pos.length() > A) {
+				this.sphereDeathTimer += n;
+				if (!this.sphereDeathScreenFlash) {
+					this.sphereDeathScreenFlash = getMain().screenFlash.flash({
+						color: new Vector3(1, 0.9, 0.6),
+						autoFade: false,
+						hasDirection: false,
+					});
+				}
+				if (this.sphereDeathTimer > 5000) {
+					this.die(true);
+					this.sphereDeathTimer = 0;
+				}
+			} else if (this.sphereDeathTimer > 0) {
+				this.sphereDeathTimer -= n;
+				this.sphereDeathTimer = Math.max(0, this.sphereDeathTimer);
+				if (this.sphereDeathScreenFlash && this.sphereDeathTimer <= 0) {
+					this.sphereDeathScreenFlash.shouldBeDestroyed = true;
+					this.sphereDeathScreenFlash = null;
+				}
+			}
+			if (this.sphereDeathScreenFlash) {
+				const t = this.sphereDeathTimer / 5000;
+				this.sphereDeathScreenFlash.opacity = q(0, 0.5, 0, 2, t, true);
+				this.sphereDeathScreenFlash.baseOpacity = q(0.5, 1, 0, 1, t, true);
+			}
+			for (const t of this.recentForcedServerPositions) {
+				if (s > t.time + 10000 || t.pos.distanceTo(this.pos) > 10) {
+					this.recentForcedServerPositions.delete(t);
+				}
+			}
+		} else {
+			const t = a.now - this.lastReceivedServerPosTime;
+			const e = q(0, 800, 1, 0, t, true);
+			this.predictedServerPos.addScaledVector(this.predictedServerVelocity, n * e);
+			const o = this.predictedServerPos.clone().sub(this.serverPos);
+			o.clampLength(0, this.maxPredictedServerPosDistance - 0.01);
+			this.predictedServerPos.copy(this.serverPos).add(o);
+			if (t < 100) {
+				this.predictedServerVelocity.addScaledVector(this.predictedServerAcceleration, n);
+			}
+			const r = 0.02;
+			this.predictedServerVelocity.multiplyScalar((1 - r) ** n);
+			const l = this.serverPosSmooth.clone();
+			this.serverPosSmooth.lerp(this.predictedServerPos, 1 - 0.8 ** (n / 16.66));
+			const h = this.serverPosSmooth.clone().sub(l);
+			const d = new Vector2(h.x, h.z).length();
+			if (this.rigidBody.inAirTime < 200) {
+				this.legsMoveT += d;
+			}
+			this.legsMoveAmount += 0.005 * n;
+			this.legsMoveAmount = Math.min(this.legsMoveAmount, (1000 * d) / n);
+			this.legsMoveAmount = clampTo01(this.legsMoveAmount);
+			if (this.pos.distanceTo(this.serverPos) > this.maxPredictedServerPosDistance) {
+				this.rigidBody.pos.copy(this.serverPos);
+				this.serverPosSmooth.copy(this.serverPos);
+				this.rigidBody.velocity.set(0, 0, 0);
+			} else {
+				this.rigidBody.pos.copy(this.serverPosSmooth);
+			}
+			const c = Math.max(this.lastReceivedServerPosTime, this.lastReceivedActionTime);
+			if (
+				this.rigidBody.inAirTime > 200 &&
+				!this.rigidBody.climbingLadder &&
+				this.rigidBody.airFrictionModifier <= 0
+			) {
+				if (s - c < 200) {
+					const t = h.clone();
+					const e = t.angleTo(new Vector3(0, 1, 0));
+					t.multiplyScalar(q(0, Math.PI, 1, 0, e, true));
+					this.antiFlyAccumulator += t.length();
+					this.antiFlyInAirTimeRaw += n;
+					this.antiFlyInAirTimeAccumulator +=
+						n * q(2, 10, 0, 10, this.lastAntiFlyRaycastDist, true);
+				}
+			} else {
+				this.antiFlyAccumulator = 0;
+				this.antiFlyInAirTimeRaw = 0;
+				this.antiFlyInAirTimeAccumulator = 0;
+			}
+			if (!this.dead && !this.rigidBody.fly && this.hasTouchedFloorEver) {
+				const t = q(17, 30, 0, 1, this.antiFlyAccumulator, true);
+				let e = 0;
+				if (s - c < 200) {
+					e = q(0, 10000, 0, 1, this.antiFlyInAirTimeAccumulator, true);
+				}
+				if (this.antiFlyInAirTimeRaw > 5000) {
+					if (s > this.lastAntiFlyRaycastTime + 1000) {
+						this.lastAntiFlyRaycastTime = s;
+						let t = Infinity;
+						const e = this.pos;
+						const i = this.pos.clone();
+						i.y -= 10;
+						const n = this.physicsManager.getRayCastCache(e, i);
+						if (n) {
+							const e = this.physicsManager.rayCastMapColliders(
+								n,
+								(t) => !t.collider.ignoreArrows && !(t.collider.slowDownPlayerAmount > 0),
+							);
+							if (e && e.dist < 5) {
+								t = e.dist;
+							}
+						}
+						this.lastAntiFlyRaycastDist = t;
+					}
+				} else {
+					this.lastAntiFlyRaycastDist = 0;
+				}
+				const i = Math.max(t, e);
+				this.report(Je, i);
+			}
+		}
+		if (this.dead) {
+			const t = 0.004 * (s - this.dieTime);
+			this.deadAnimationWeight = 1 - 2 ** -t;
+			this.legsMoveAmount = Math.min(this.legsMoveAmount, 1 - this.deadAnimationWeight);
+			const e = 1 + 2 ** (0.05 * -this.rigidBody.onFloorTime);
+			const i = Math.min(e, 2 * this.deadAnimationWeight);
+			this.deadFallForward
+				? this.deadForwardLayer && (this.deadForwardLayer.weight = i)
+				: this.deadBackwardLayer && (this.deadBackwardLayer.weight = i);
+		}
+		if (this.health < 1 && !this.dead) {
+			const t = (s - this.lastHitTime) / 1000;
+			const o = l_1(8, 2, this.getStatClassValue("healthRegenSpeed"));
+			const a = clampTo01((0.3 * (t - o)) ** 5);
+			this.hasOwnership && (a > 0.1 ? this.startHealthRegenSound() : this.stopHealthRegenSound());
+			this.health += 0.0005 * n * a;
+			this.health = Math.min(1, this.health);
+			if (this.hasOwnership) {
+				this.updateHealthUi();
+			}
+		}
+		const l = this.health < 0;
+		if (l != this.prevHealthIsNegative) {
+			this.prevHealthIsNegative = l;
+			if (l) {
+				this.negativeHealthStartTime = s;
+			}
+		}
+		if (l && !this.dead) {
+			if (s - this.negativeHealthStartTime > 1000) {
+				this.health = 1;
+				if (this.hasOwnership) {
+					this.updateHealthUi();
+				}
+				this.negativeHealthCounter++;
+				if (this.negativeHealthCounter >= 2) {
+					this.report(Ke, 1);
+					this.negativeHealthCounter = 0;
+				}
+			}
+		}
+		const h = Math.floor((this.legsMoveTForCos + Math.PI / 2) / Math.PI);
+		if (h > this.lastSfxStep) {
+			this.lastSfxStep = h;
+			const t = h % 2 == 0 ? "L" : "R";
+			let minPitch = 0.9;
+			let maxPitch = 1.1;
+			if (this.gender == "female") {
+				minPitch = 1.4;
+				maxPitch = 1.8;
+			}
+			this.sfxManager.playSound(`player/walk${t}`, {
+				pos: this.getSfxPos(),
+				minPitch,
+				maxPitch,
+			});
+		}
+		if (this.activeModel) {
+			this.activeModel.setHitFlashMaterialsTime(s);
+		}
+		if (this.loadingModel) {
+			this.loadingModel.setHitFlashMaterialsTime(s);
+		}
+	}
+	get legsMoveTForCos() {
+		return this.legsMoveT * this.legsMoveSpeed;
+	}
+	afterPhysicsLoop(t, i) {
+		if (this.prevWasOnFloor != this.rigidBody.isOnFloor) {
+			this.prevWasOnFloor = this.rigidBody.isOnFloor;
+			if (this.rigidBody.isOnFloor && this.rigidBody.prevInAirTime > 300) {
+				if (
+					t - this.lastAirJumpPressTime < 300 &&
+					this.lastAirJumpPressTime >= 0 &&
+					this.rigidBody.getAllowJump()
+				) {
+					this.lastAirJumpPressTime = -1;
+					this.jump();
+				}
+				const e = this.highestInAirPoint - this.pos.y;
+				if (e > 0) {
+					const i = this.sfxManager.cachedSfx["player/land"];
+					const volume = q(0.5, 20, 0, i.opts.volume || 0, e, true);
+					if (volume > 0) {
+						this.sfxManager.playSound("player/land", {
+							volume,
+							pos: this.getSfxPos(),
+							minPitch: this.gender == "female" ? 1.1 : 0.9,
+							maxPitch: this.gender == "female" ? 1.2 : 1,
+						});
+						this.lastJumpLandTime = t;
+						this.lastJumpLandAmount = volume;
+					}
+					this.hasTouchedFloorEver = true;
+				}
+			}
+			this.highestInAirPoint = this.pos.y;
+		}
+		if (!this.rigidBody.isOnFloor) {
+			this.highestInAirPoint = Math.max(this.highestInAirPoint, this.pos.y);
+		}
+		if (
+			this.hasOwnership &&
+			(this.rigidBody.inAirTime > 50 && this.rigidBody.velocity.y < -3 && !this.rigidBody.fly
+				? this.startFallSound()
+				: this.stopFallSound(),
+			!this.hasWalkedAwayFromSpawn && this.game.gameStarted)
+		) {
+			if (this.pos.distanceTo(this.lastRespawnPosition) > 5) {
+				this.hasWalkedAwayFromSpawn = true;
+				this.setWeaponSelectionDialogVisibility(false);
+				getMain().adBanners.setPageVisibility("respawn", false);
+			}
+		}
+		if (this.holdingFlag) {
+			this.holdingFlag.updateRenderPosition();
+		}
+		if (!this.deadFromFall) {
+			this.pos.copy(this.rigidBody.pos);
+		}
+		this.cachedCamPosDirty = true;
+		if (this.activeModel && this.activeModel.isInit && this.obj) {
+			this.obj.position.copy(this.pos);
+			let i = this.lookRot;
+			if (this.dead) {
+				i = this.deadLookRot;
+			}
+			this.obj.rotation.y = i.x + Math.PI;
+			this.obj.updateWorldMatrix(false, true);
+			if (this.skeleton && this.skeleton.isInit) {
+				if (this.activeWeapon) {
+					this.mostRecentWeaponSkeletonLayers = this.activeWeapon.getThirdPersonSkeletonLayers();
+				}
+				const i = this.mostRecentWeaponSkeletonLayers;
+				let s = t - this.lastActiveWeaponToggleTime;
+				s -= this.currentToggleWeaponCooldown;
+				s /= 150;
+				if (this.equippingWeaponLayer) {
+					this.equippingWeaponLayer.weight = Math.max(0, 1 - Math.abs(s));
+				}
+				const n = i.map((t) => t.name.replaceAll(",", "\\,")).join(",");
+				if (n != this.lastWeaponLayersKey) {
+					const t = [...this.weaponLayers];
+					for (const e of t) {
+						this.skeleton.removePoseLayer(e);
+					}
+					this.weaponLayers = [];
+					for (const [t, e] of i.entries()) {
+						this.weaponLayers[t] = this.skeleton.insertPoseLayer(t + 1, e.name);
+					}
+					this.lastWeaponLayersKey = n;
+				}
+				for (const [t, e] of i.entries()) {
+					this.weaponLayers[t].weight = e.weight;
+				}
+				this.skeleton.applyLayers();
+				let o = {};
+				if (this.activeWeapon) {
+					o = this.activeWeapon.getThirdPersonSkeletonMultipliers(this.gender);
+				}
+				let a = this.lookRot;
+				if (this.dead) {
+					a = this.deadLookRot.clone();
+					a.y = l_1(this.deadLookRot.y, 0, this.deadAnimationWeight);
+				}
+				this.skeleton.setLookRotY(-a.y, o);
+				this.animateLeg(this.skeleton.legObjectsL, this.legsMoveTForCos, -1, 1.8, 0.7);
+				this.animateLeg(this.skeleton.legObjectsR, this.legsMoveTForCos + Math.PI, -0.4, 0.7, 0.7);
+				this.skeleton.updateMatrices();
+				this.activeModel.applySkeleton(this.skeleton);
+			}
+		}
+		const s = this.pos.clone();
+		s.y += 2.2;
+		this.icon.setPos(s);
+		for (const e of this.holdingHandlers) {
+			e.loop(t, i);
+		}
+		this.hasOwnership &&
+			t - this.lastPosSentTime > 50 &&
+			(this.pos.distanceTo(this.lastSentPos) < 0.01 &&
+			this.lookRot.distanceTo(this.lastSentRot) < 0.01
+				? (this.noSentDataChangeUpdateCount++,
+					this.noSentDataChangeUpdateCount < 3 && this.sendPlayerDataToServer())
+				: ((this.noSentDataChangeUpdateCount = 0), this.sendPlayerDataToServer()));
+	}
+	animateLeg(t, i, s, n, o) {
+		if (!t) {
+			return;
+		}
+		t.upper.rotation.x = 0.5 * Math.cos(i) * this.legsMoveAmount;
+		t.lower.rotation.x = 0.3 * (1 + Math.cos(i)) * this.legsMoveAmount;
+		t.foot.rotation.x = 0.5 * Math.cos(i) * this.legsMoveAmount;
+		const a = q(0, 800, 0, 1, this.rigidBody.inAirTime, true);
+		t.upper.rotation.x = l_1(t.upper.rotation.x, s, a);
+		t.lower.rotation.x = l_1(t.lower.rotation.x, n, a);
+		t.foot.rotation.x = l_1(t.foot.rotation.x, o, a);
+		t.upper.rotation.x *= this.skinLegMoveAmount;
+		t.lower.rotation.x *= this.skinLegMoveAmount;
+		t.foot.rotation.x *= this.skinLegMoveAmount;
+	}
+	createHoldingHandler(t) {
+		const e = new Fe(this, t);
+		this.holdingHandlers.add(e);
+		return e;
+	}
+	removeHoldingHandler(t) {
+		this.holdingHandlers.delete(t);
+	}
+	getSfxPos() {
+		if (this.hasOwnership) {
+			return null;
+		}
+		return this.serverPos.clone();
+	}
+	async startFallSound() {
+		if (this.currentFallingSfx) {
+			return;
+		}
+		if (this.physicsManager.timeScale < 0.8) {
+			return;
+		}
+		const t = await this.sfxManager.playSound("player/fall");
+		if (this.currentFallingSfx) {
+			if (t) {
+				t.stop();
+			}
+		} else {
+			this.currentFallingSfx = t;
+		}
+	}
+	stopFallSound() {
+		if (this.currentFallingSfx) {
+			this.currentFallingSfx.stop();
+			this.currentFallingSfx = null;
+		}
+	}
+	async startHealthRegenSound() {
+		if (this.currentHealthRegenSfx) {
+			return;
+		}
+		const t = await this.sfxManager.playSound("feedback/healthRegen");
+		if (this.currentHealthRegenSfx) {
+			if (t) {
+				t.stop();
+			}
+		} else {
+			this.currentHealthRegenSfx = t;
+		}
+	}
+	stopHealthRegenSound() {
+		if (this.currentHealthRegenSfx) {
+			this.currentHealthRegenSfx.stop();
+			this.currentHealthRegenSfx = null;
+		}
+	}
+	sendPlayerDataToServer() {
+		if (!this.noclip) {
+			getMain().network.sendPlayerData(this.game, this.id, {
+				posX: this.pos.x,
+				posY: this.pos.y,
+				posZ: this.pos.z,
+				rotX: this.lookRot.x,
+				rotY: this.lookRot.y,
+			});
+			this.lastPosSentTime = getMain().now;
+			this.lastSentPos.copy(this.pos);
+			this.lastSentRot.copy(this.lookRot);
+			if (this.holdingFlag) {
+				this.holdingFlag.sendFlagReturnProgressToServer(this.pos);
+			}
+		}
+	}
+	static get PlayerAction() {
+		return {
+			JUMP: 0,
+			FIRE_DOWN: 1,
+			FIRE_UP: 2,
+			SPAWN: 3,
+			DIE: 4,
+		};
+	}
+	sendPerformAction(t) {
+		if (this.hasOwnership) {
+			getMain().network.sendPlayerPerformAction(this.id, t);
+		}
+	}
+	receivedPerformAction(t) {
+		if (!this.hasOwnership) {
+			this.lastReceivedActionTime = getMain().now;
+			if (t == Player.PlayerAction.JUMP) {
+				this.onJumpPress();
+			} else if (t == Player.PlayerAction.FIRE_DOWN) {
+				this.onFireDown();
+			} else if (t == Player.PlayerAction.FIRE_UP) {
+				this.onFireUp();
+			} else if (t == Player.PlayerAction.DIE) {
+				this.die();
+			}
+		}
+	}
+	receiveChangeClassFromServer(t) {
+		if (!this.hasOwnership) {
+			this.setActiveBowWeapon(t);
+		}
+	}
+	setHasOwnership(t) {
+		if (t != this.hasOwnership) {
+			this.hasOwnership = t;
+			if (t) {
+				this.weaponAccuracyOffset = this.game.crosshair.createAccuracyOffset();
+				getMain().playerAvatarManager.setAvatar(this.getSmallAvatar());
+			} else if (this.weaponAccuracyOffset) {
+				this.game.crosshair.deleteAccuracyOffset(this.weaponAccuracyOffset);
+				this.weaponAccuracyOffset = null;
+			}
+			this.setHasEvents(t);
+			this.setHasMovementAccuracyOffset(t);
+			this.updateModelVisibility();
+			this.updateUseFirstPersonHoldingHandlers();
+			this.updateToggleWeaponTouchButtonVisibility();
+			this.updateFly();
+		}
+	}
+	setPlayerName(t) {
+		this.playerName = t;
+	}
+	setNamePlayerVerified() {
+		this.playerNameVerified = true;
+	}
+	setTeamId(t) {
+		if (this.teamId != t) {
+			this.teamId = t;
+			this.updateMySelectedWeapon(true);
+			this.reloadPlayerModel();
+			this.updateFly();
+			if (this.hasOwnership) {
+				if (!(this.game instanceof OnlineGame)) {
+					throw new Error("Setting team id is not supported for offline games");
+				}
+				this.game.updateMyTeamColor();
+				this.game.updatePlayerIconVisibilities();
+			} else {
+				this.updateIconOwnershipVisibility();
+			}
+		}
+	}
+	setIsSameSquadPlayer(t, e, i) {
+		this.isSameSquadPlayer = t;
+		this.squadPlayerId = e;
+		this.isSquadLeader = i;
+	}
+	setScores({ scores, elo }) {
+		const { flags, kills, deaths, total } = scores;
+		this.scoreFlags = flags;
+		this.scoreKills = kills;
+		this.scoreDeaths = deaths;
+		this.scoreTotal = total;
+		this.elo = elo;
+	}
+	setHasEvents(t) {
+		if (t == this.hasKeyEvents) {
+			return;
+		}
+		const e = getMain();
+		this.hasKeyEvents = t;
+		const i = this.inputManager.getKey("jump");
+		const s = this.inputManager.getKey("fire");
+		const n = this.inputManager.getKey("toggleWeapon");
+		if (t) {
+			i.onPressedDown(this.boundOnJumpPress);
+			s.onPressedDown(this.boundOnFireDown);
+			s.onPressedUp(this.boundOnFireUp);
+			n.onPressedDown(this.boundToggleActiveWeapon);
+			e.dialogManager.onNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
+			e.cam.onThirdPersonChange(this.boundOnThirdPersonChange);
+			e.input.touch.onTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
+			Ci(this.onWeaponSelectionChangeFromDialog);
+			e.settingsManager.onValueChange("smoothCam", this.boundSetHasSmoothCam);
+			e.settingsManager.onValueChange("showFirstPersonWeapon", this.boundUpdateActiveWeapon);
+			e.settingsManager.onValueChange("flyInSpectateTeam", this.boundUpdateFly);
+			document.body.addEventListener("wheel", this.boundOnWheel);
+			this.smoothCamSetting = e.settingsManager.getValue("smoothCam");
+			this.updateSmoothCam();
+		} else {
+			i.removeCb(this.boundOnJumpPress);
+			s.removeCb(this.boundOnFireDown);
+			s.removeCb(this.boundOnFireUp);
+			e.dialogManager.removeOnNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
+			e.cam.removeOnThirdPersonChange(this.boundOnThirdPersonChange);
+			e.input.touch.removeOnTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
+			ki(this.onWeaponSelectionChangeFromDialog);
+			e.settingsManager.removeOnValueChange("smoothCam", this.boundSetHasSmoothCam);
+			e.settingsManager.removeOnValueChange("showFirstPersonWeapon", this.boundUpdateActiveWeapon);
+			e.settingsManager.removeOnValueChange("flyInSpectateTeam", this.boundUpdateFly);
+			document.body.removeEventListener("wheel", this.boundOnWheel);
+		}
+	}
+	setHasSmoothCam(t) {
+		this.smoothCamSetting = t;
+		this.updateSmoothCam();
+	}
+	updateSmoothCam() {
+		const t =
+			this.smoothCamSetting ||
+			this.smoothCamDebug ||
+			(this.game instanceof OnlineGame && this.game.gameEndStepsReachedStatScreens) ||
+			getMain().dialogManager.needsUnlockedPointer;
+		if (this.smoothCam != t) {
+			this.smoothCam = t;
+			if (this.smoothCam) {
+				this.resetSmoothLookRot();
+			}
+		}
+	}
+	resetSmoothLookRot() {
+		this.smoothLookRotTarget.copy(this.lookRot);
+	}
+	setHasMovementAccuracyOffset(t) {
+		t
+			? this.movementAccuracyOffset ||
+				(this.movementAccuracyOffset = this.game.crosshair.createAccuracyOffset())
+			: this.movementAccuracyOffset &&
+				(this.game.crosshair.deleteAccuracyOffset(this.movementAccuracyOffset),
+				(this.movementAccuracyOffset = null));
+	}
+	getStatClassValue(t) {
+		const e = ue.get(t);
+		if (!e) {
+			throw new Error(`No stat class config for '${t}'`);
+		}
+		if (!this.statClassValues || !this.statClassValues.has(t)) {
+			return e.defaultValue;
+		}
+		let s = this.statClassValues.get(t) || 0;
+		s += e.defaultValue;
+		return clampTo01(inverseLerp(e.min, e.max, s));
+	}
+	reloadPlayerModel() {
+		this.setPlayerEquippedSkinData(this.equippedSkinData);
+	}
+	updateSkinStats() {
+		let t = null;
+		if (this.bowWeapon) {
+			t = this.bowWeapon.bowWeaponTypeId;
+		}
+		const { statClassValues, legMoveAmount } = getMain().skins.getStatClassValuesFromShopSkinIds(
+			this.equippedSkinData.equippedSkinIds || [],
+			t,
+		);
+		this.statClassValues = statClassValues;
+		this.skinLegMoveAmount = legMoveAmount;
+	}
+	setPlayerEquippedSkinData(t) {
+		this.equippedSkinData = t;
+		this.updateSkinStats();
+		if (this.bowWeapon) {
+			this.bowWeapon.playerSkinUpdated();
+		}
+		if (this.meleeWeapon) {
+			this.meleeWeapon.playerSkinUpdated();
+		}
+		this.updateActiveMeleeWeapon();
+		if (this.hasOwnership) {
+			getMain().playerAvatarManager.setAvatar(this.getSmallAvatar());
+		}
+		if (this.needsPlayerModel) {
+			if (this.loadingModel) {
+				this.loadingModel.destructor();
+			}
+			this.loadingModel = null;
+			this.loadingModel = new re({
+				skinObjectOpts: {
+					teamId: this.teamId,
+					skin: t,
+				},
+			});
+			this.gender = t.gender || "male";
+			if (this.skeleton) {
+				this.skeleton.setGender(this.gender);
+			}
+			this.replaceLoadingModel();
+		}
+	}
+	async replaceLoadingModel() {
+		if (!this.loadingModel) {
+			return;
+		}
+		await this.loadingModel.waitForInit();
+		if (!this.loadingModel) {
+			return;
+		}
+		if (!this.loadingModel.obj) {
+			return;
+		}
+		if (this.activeModel) {
+			this.activeModel.destructor();
+		}
+		this.activeModel = this.loadingModel;
+		this.loadingModel = null;
+		if (this.obj) {
+			getMain().scene.remove(this.obj);
+		}
+		const obj = this.activeModel.obj;
+		this.obj = obj;
+		if (obj) {
+			obj.name = "player";
+			getMain().scene.add(obj);
+		}
+		for (const t of this.holdingHandlers) {
+			t.playerObjectChanged();
+		}
+		this.updateModelVisibility();
+		getMain().renderer.renderWorthyEventHappened();
+	}
+	setWeaponSelectionDialogVisibility(t) {
+		if (this.game instanceof OnlineGame) {
+			this.game.weaponSelectionDialog.setPlayerVisibility(t);
+		}
+	}
+	updateModelVisibility() {
+		if (!this.obj) {
+			return;
+		}
+		const t = getMain();
+		this.obj.visible =
+			this.hasValidPosition &&
+			!!this.skeleton &&
+			this.skeleton.isInit &&
+			(!this.hasOwnership || t.cam.thirdPerson);
+	}
+	updateUseFirstPersonHoldingHandlers() {
+		const t = getMain();
+		const e = this.hasOwnership && !t.cam.thirdPerson;
+		if (e != this.useFirstPersonHoldingHandlers) {
+			this.useFirstPersonHoldingHandlers = e;
+			for (const t of this.holdingHandlers) {
+				t.useFirstPersonUpdated();
+			}
+		}
+	}
+	onJumpPress() {
+		if (this.rigidBody.fly) {
+			return;
+		}
+		const t = getMain();
+		if (!(this.hasOwnership && (t.mainMenu.visible || t.dialogManager.needsUnlockedPointer))) {
+			t.gameManager.joinIfNotJoined();
+			if (this.rigidBody.getAllowJump()) {
+				this.jump();
+			} else {
+				this.lastAirJumpPressTime = t.now;
+			}
+		}
+	}
+	jump() {
+		if (this.dead) {
+			return;
+		}
+		let t = 1;
+		if (this.activeWeapon) {
+			t = this.activeWeapon.getJumpForceMultiplier();
+		}
+		const e = this.jumpForce * t;
+		if (e > 0) {
+			this.lastJumpTime = getMain().now;
+			this.sendPerformAction(Player.PlayerAction.JUMP);
+			this.sfxManager.playSound(`player/jump/${this.gender}/${intRandom(1, 4)}`, {
+				pos: this.getSfxPos(),
+			});
+			this.rigidBody.jump(e);
+		}
+	}
+	onFireDown(t) {
+		if (!this.dead) {
+			if (this.hasOwnership) {
+				this.setPlayerHasInteracted();
+				if (getMain().mainMenu.visible) {
+					return;
+				}
+				getMain().gameManager.joinIfNotJoined();
+			}
+			this.weaponActionIsDown = true;
+			this.sendPerformAction(Player.PlayerAction.FIRE_DOWN);
+			getMain().renderer.renderWorthyEventHappened();
+			if (this.activeWeapon) {
+				this.activeWeapon.actionDown(t);
+			}
+		}
+	}
+	onFireUp(t) {
+		this.weaponActionIsDown = false;
+		if (!this.dead) {
+			this.hasOwnership;
+			this.sendPerformAction(Player.PlayerAction.FIRE_UP);
+			getMain().renderer.renderWorthyEventHappened();
+			if (this.activeWeapon) {
+				this.activeWeapon.actionUp(t);
+			}
+		}
+	}
+	startToggleActiveWeaponCooldown() {
+		this.lastActiveWeaponToggleTime = getMain().now;
+		this.didUpdateActiveWeaponAfterToggle = false;
+	}
+	updateAllowedWeaponsConfig() {
+		if (this.game instanceof OnlineGame) {
+			this.allowedWeaponsConfig = (({ gamemode, gungameWeaponIndex }) => {
+				if (gamemode == G) {
+					return {
+						availableBowIds: [],
+						allowMelee: true,
+					};
+				}
+				if (u(gamemode)) {
+					return {
+						availableBowIds: [0, 1, 2, 3, 4, 5],
+						allowMelee: false,
+					};
+				}
+				if (gamemode == v) {
+					if (gungameWeaponIndex == 12 || gungameWeaponIndex == 13) {
+						return {
+							availableBowIds: [],
+							allowMelee: true,
+						};
+					}
+					const t =
+						gungameWeaponIndex == 0 || gungameWeaponIndex == 1
+							? 1
+							: gungameWeaponIndex == 2 || gungameWeaponIndex == 3
+								? 0
+								: gungameWeaponIndex == 4 || gungameWeaponIndex == 5
+									? 4
+									: gungameWeaponIndex == 6 || gungameWeaponIndex == 7
+										? 5
+										: gungameWeaponIndex == 8 || gungameWeaponIndex == 9
+											? 2
+											: gungameWeaponIndex == 10 || gungameWeaponIndex == 11
+												? 3
+												: 1;
+					return {
+						availableBowIds: [t],
+						allowMelee: false,
+					};
+				}
+				return {
+					availableBowIds: [0, 1, 2, 3, 4, 5],
+					allowMelee: true,
+				};
+			})({
+				gamemode: this.game.activeGamemode,
+				gungameWeaponIndex: this.gungameWeaponIndex,
+			});
+			this.updateMySelectedWeapon();
+		}
+	}
+	setGungameWeaponIndex(t) {
+		this.gungameWeaponIndex = t;
+		this.updateAllowedWeaponsConfig();
+	}
+	toggleActiveWeapon() {
+		if (!this.hasOwnership) {
+			return;
+		}
+		if (!this.meleeWeapon && !this.hasActiveMeleeWeapon) {
+			return;
+		}
+		const t = !this.hasActiveMeleeWeapon;
+		if (t) {
+			if (!this.allowedWeaponsConfig.allowMelee) {
+				return;
+			}
+		} else if (this.allowedWeaponsConfig.availableBowIds.length <= 0) {
+			return;
+		}
+		this.hasActiveMeleeWeapon = t;
+		this.hasOwnership;
+		this.startToggleActiveWeaponCooldown();
+		this.updateActiveWeapon();
+		getMain().renderer.renderWorthyEventHappened();
+		if (this.hasOwnership) {
+			getMain().network.sendChangeActiveWeaponType(this.id, this.hasActiveMeleeWeapon);
+		}
+	}
+	receiveChangeWeaponTypeFromServer(t) {
+		if (t != this.hasActiveMeleeWeapon) {
+			this.hasActiveMeleeWeapon = t;
+			this.startToggleActiveWeaponCooldown();
+			this.updateActiveWeapon();
+			getMain().renderer.renderWorthyEventHappened();
+		}
+	}
+	updateActiveWeapon() {
+		const t = getMain().settingsManager.getValue("showFirstPersonWeapon") && !this.noclip;
+		if (this.bowWeapon) {
+			this.bowWeapon.setIsPrimaryWeapon(
+				!this.hasActiveMeleeWeapon && !this.activeWeaponToggleCooldownActive,
+			);
+			this.bowWeapon.setFirstPersonVisibility(
+				!this.hasActiveMeleeWeapon && !this.activeWeaponToggleCooldownActive && t,
+			);
+		}
+		if (this.meleeWeapon) {
+			this.meleeWeapon.setIsPrimaryWeapon(
+				this.hasActiveMeleeWeapon && !this.activeWeaponToggleCooldownActive,
+			);
+			this.meleeWeapon.setFirstPersonVisibility(
+				this.hasActiveMeleeWeapon && !this.activeWeaponToggleCooldownActive && t,
+			);
+		}
+		if (this.activeWeapon && this.weaponActionIsDown && !this.activeWeapon.actionIsDown) {
+			this.activeWeapon.actionDown();
+		}
+	}
+	setServerFlyEnabled(t) {
+		this.serverFlyEnabled = t;
+		this.updateFly();
+	}
+	updateFly() {
+		const t = this.hasOwnership
+			? getMain().settingsManager.getValue("flyInSpectateTeam")
+			: this.serverFlyEnabled;
+		const e = this.teamId == noAttackTeam;
+		const gameStarted = this.game.gameStarted;
+		this.rigidBody.fly = (t && e && gameStarted) || this.noclip;
+	}
+	onWheel(e) {
+		if (this.rigidBody.fly) {
+			this.flySpeed = clamp(this.flySpeed - e.deltaY, -3000, 3000);
+		}
+	}
+	onThirdPersonChange() {
+		if (getMain().cam.thirdPersonMode == "front") {
+			this.frontThirdPersonLookRot.copy(this.lookRot);
+			this.frontThirdPersonLookRot.x += Math.PI;
+		}
+		this.updateModelVisibility();
+		this.updateUseFirstPersonHoldingHandlers();
+	}
+	addHitFlash(t) {
+		const e = new Vector3();
+		if (t == 0) {
+			e.y = 0.2;
+		} else if (t == 1) {
+			e.y = 0.9;
+		} else if (t == 2) {
+			e.y = 1.9;
+		}
+		const now = getMain().now;
+		if (this.activeModel) {
+			this.activeModel.setHitFlashMaterialsValue(this.nextHitFlashIndex, now, e);
+		}
+		if (this.loadingModel) {
+			this.loadingModel.setHitFlashMaterialsValue(this.nextHitFlashIndex, now, e);
+		}
+		this.nextHitFlashIndex++;
+		if (this.nextHitFlashIndex >= 5) {
+			this.nextHitFlashIndex = 0;
+		}
+	}
+	addMeleeHitFlash() {
+		this.addHitFlash(1);
+	}
+	playerClaimedHitByArrow(t, e, i) {
+		const s = this.rigidBody.colliders[i];
+		if (s) {
+			const i = this.game.arrowManager.getArrowById(t.id, e);
+			if (!i) {
+				return;
+			}
+			let n = true;
+			if (i.consumed) {
+				n = false;
+			} else if (!s_1(t.teamId, this.teamId)) {
+				n = false;
+			}
+			const o = 3;
+			let a = false;
+			[].push([s.center.clone(), s.center.clone().add(new Vector3(0, 5, 0)), 16777215]);
+			if (n) {
+				if (i.prevPos) {
+					let t = Infinity;
+					for (let e = 0; e < i.travelledPositions.length - 1; e++) {
+						const n = i.travelledPositions[e];
+						const o = i.travelledPositions[e + 1];
+						const a = new Line3(n, o);
+						const r = new Vector3();
+						a.closestPointToPoint(s.center, true, r);
+						const l = r.distanceTo(s.center);
+						t = Math.min(t, l);
+					}
+					if (t < o) {
+						a = true;
+					}
+				}
+				if (a) {
+					this.markValidArrowHit(t, i, s);
+				} else {
+					let e = false;
+					let n = i.travelledPositions[i.travelledPositions.length - 1];
+					i.onTravel((a) => {
+						if (e || i.consumed) {
+							return;
+						}
+						const r = n;
+						n = a;
+						if (!r) {
+							return;
+						}
+						const l = new Line3(r, a);
+						const h = new Vector3();
+						l.closestPointToPoint(s.center, true, h);
+						if (h.distanceTo(s.center) < o) {
+							e = true;
+							this.markValidArrowHit(t, i, s);
+						}
+					});
+					setTimeout(() => {
+						if (!e) {
+							const e = performance.now();
+							this.recentInvalidArrowTimes.push(e);
+							this.recentInvalidArrowTimes = this.recentInvalidArrowTimes.filter(
+								(t) => e - t < 3000,
+							);
+							if (this.recentInvalidArrowTimes.length >= 3) {
+								t.report(Ye, 1);
+								this.recentInvalidArrowTimes = [];
+							}
+						}
+					}, 1000);
+				}
+			} else {
+				t.report(Ye, 1);
+			}
+		}
+		if (!this.hasOwnership) {
+			if (!t.hasOwnership) {
+				this.addHitFlash(i);
+			}
+			this.sfxManager.playSound(`player/takeDamage/${this.gender}/${intRandom(1, 4)}`, {
+				pos: this.getSfxPos(),
+			});
+		}
+	}
+	markValidArrowHit(t, e, i) {
+		const network = getMain().network;
+		e.consume();
+		let i_arrowDamage = i.arrowDamage;
+		if (e) {
+			i_arrowDamage *= e.damageMultiplier;
+		}
+		let o = null;
+		if (e) {
+			o = e.lookDirection;
+		}
+		let a = "arrow";
+		t.hasOwnership &&
+			(i.bodyPart == "head" && (a = "headshotByOwnedPlayer"),
+			t.pos.distanceTo(this.pos) > 420 && (a = "ultraLongRangeOwner"),
+			this.#g && t.bowWeapon && t.bowWeapon instanceof li && (a = "smallCrossbowAfterBluntHeavy"));
+		if (this.applyDamage(i_arrowDamage, o, a)) {
+			this.hasOwnership &&
+				this.getStatClassValue("armorStrength") >= 1 &&
+				!this.dead &&
+				(this.#u++, this.#u >= 10 && activateSteamAchievement("absorbTenArrows"));
+			const i = e.getStunData();
+			this.applyStun(i);
+			network.sendValidArrowHit(t.id, e.arrowId, this.health);
+		}
+	}
+	serverArrowCreated() {
+		this.recentArrowCreationTimes.push(performance.now());
+		this.#d = performance.now();
+		let t = 0;
+		for (let e = 0; e < this.recentArrowCreationTimes.length; e++) {
+			const recentArrowCreationTime = this.recentArrowCreationTimes[e];
+			if (!(performance.now() - recentArrowCreationTime > 2000)) {
+				break;
+			}
+			t = e;
+		}
+		this.recentArrowCreationTimes.splice(0, t);
+	}
+	get avgArrowCreationFrequency() {
+		return this.recentArrowCreationTimes.length / 2000;
+	}
+	getMeleeDamage(t) {
+		if (!t.meleeWeapon) {
+			return 0;
+		}
+		return (
+			t.meleeWeapon.getDamageMultiplier() *
+			l_1(0.5, 1.5, t.getStatClassValue("meleeAttackStrength"))
+		);
+	}
+	hitByMeleeFromServer(t) {
+		if (!t.meleeWeapon) {
+			return;
+		}
+		if (!t.meleeWeapon.validateHit(this)) {
+			return;
+		}
+		const e = this.pos.clone().sub(t.pos);
+		const i = this.getMeleeDamage(t);
+		let s = "melee";
+		if (t.meleeWeapon.lastSkinAssetName == "bluntLightFryingPan") {
+			s = "fryingPan";
+		}
+		const n = 300000;
+		const o = performance.now() - t.creationTime;
+		const a = performance.now() - t.#d;
+		if (o > n && a > n) {
+			s = "meleeSpammer";
+		}
+		this.applyDamage(i, e, s);
+		if (!(this.hasOwnership || t.hasOwnership)) {
+			this.addMeleeHitFlash();
+			t.meleeWeapon.playHitSfx();
+		}
+		if (this.hasOwnership) {
+			const e = t.meleeWeapon.getStunData();
+			if (e) {
+				this.applyStun(e);
+			}
+		}
+	}
+	addOwnedPlayerForkDamage(t) {
+		this.#c += t;
+	}
+	hitByArrowFromServer(t) {}
+	verifiedKillByServer(t) {
+		const e = this.getStatClassValue("bloodlust");
+		if (e > 0) {
+			this.health += 0.1 * e;
+			this.health = Math.min(1, this.health);
+		}
+	}
+	applyStun(stun) {
+		if (!(stun.amount <= 0 || (stun.duration <= 0 && stun.fadeDuration <= 0))) {
+			this.recentStunEvents.add({
+				time: getMain().now,
+				stun,
+			});
+		}
+	}
+	getDamageAmountForCurrentArmor(t) {
+		const i = performance.now();
+		for (let t = this.damageReceivedHistory.length - 1; t >= 0; t--) {
+			if (!(i - this.damageReceivedHistory[t].time > 1000)) {
+				break;
+			}
+			this.damageReceivedHistory.splice(t, 1);
+		}
+		let damageWithoutArmorStrength = 1.1 * t;
+		let damageWithArmorStrength = t * l_1(1.1, 0.7, this.getStatClassValue("armorStrength"));
+		damageWithoutArmorStrength = this.computeDamageWithCooldown(damageWithoutArmorStrength);
+		damageWithArmorStrength = this.computeDamageWithCooldown(damageWithArmorStrength);
+		return {
+			damageWithoutArmorStrength,
+			damageWithArmorStrength,
+		};
+	}
+	applyDamage(t, e, i) {
+		this.#l = i;
+		const time = performance.now();
+		const { damageWithoutArmorStrength, damageWithArmorStrength } =
+			this.getDamageAmountForCurrentArmor(t);
+		const a = {
+			damage: damageWithArmorStrength,
+			time,
+			appliedDamage: 0,
+		};
+		this.damageReceivedHistory.unshift(a);
+		if (damageWithArmorStrength > 0.001) {
+			a.appliedDamage = damageWithArmorStrength;
+			const t = this.health - damageWithoutArmorStrength;
+			if (this.game.gameStarted) {
+				this.health -= damageWithArmorStrength;
+			}
+			this.setHealthFromHit(this.health, e, damageWithArmorStrength, t);
+			return true;
+		}
+		return false;
+	}
+	computeDamageWithCooldown(t) {
+		let e = 0;
+		for (const t of this.damageReceivedHistory) {
+			e += t.damage;
+		}
+		const i = t + e;
+		return (t -= i - Math.min(i, 0.9));
+	}
+	forceSetHealthFromServer(t) {
+		if (t < this.health) {
+			const e = this.health - t;
+			this.setHealthFromHit(t, null, e);
+		}
+	}
+	setHealthFromHit(t, arrowHitNormalWorld, i, s) {
+		this.health = t;
+		this.lastHitTime = getMain().now;
+		if (this.hasOwnership) {
+			getMain().screenFlash.flash({
+				arrowHitNormalWorld,
+				vignetteAmount: 1 - i,
+			});
+			this.sfxManager.playSound(`player/takeDamage/${this.gender}/${intRandom(1, 4)}`);
+			this.updateHealthUi(s);
+			if (this.health < 0.05) {
+				this.die(true);
+			}
+		}
+	}
+	getCamPos() {
+		if (this.cachedCamPosDirty) {
+			this.cachedCamPos.copy(this.pos);
+			this.cachedCamPos.y += 1.6;
+			const t = getMain();
+			if (this.hasOwnership && this.settingsManager.getValue("walkHeadBob") && !t.cam.thirdPerson) {
+				const t = this.getCamRot();
+				const e = new Vector3(0, 1, 0);
+				e.applyQuaternion(t);
+				e.multiplyScalar(0.1 * Math.sin(this.legsMoveTForCos - 0.9) * this.walkHeadBobAmount);
+				this.cachedCamPos.add(e);
+				const i = new Vector3(1, 0, 0);
+				i.applyQuaternion(t);
+				i.multiplyScalar(0.05 * Math.cos(this.legsMoveTForCos / 2) * this.walkHeadBobAmount);
+				this.cachedCamPos.add(i);
+			}
+			this.cachedCamPosDirty = false;
+		}
+		return this.cachedCamPos.clone();
+	}
+	getCamRot() {
+		if (this.cachedCamRotDirty) {
+			this.cachedCamRot.copy(this.computeCamRot(this.lookRot));
+			this.cachedCamRotDirty = false;
+		}
+		return this.cachedCamRot.clone();
+	}
+	getFrontThirdPersonCamRot() {
+		return this.computeCamRot(this.frontThirdPersonLookRot);
+	}
+	computeCamRot(t) {
+		const e = 0.01 * (this.lastJumpLandTime - getMain().now);
+		let i = 0;
+		if (
+			this.hasOwnership &&
+			this.settingsManager.getValue("landHeadBob") &&
+			this.lastJumpLandAmount > 0.005
+		) {
+			i = q(0.012, 0.1, 0.1, 0.3, this.lastJumpLandAmount);
+		}
+		const s = (e / (0.5 + e ** 2)) * i;
+		const n = new Euler(t.y + s, t.x, 0, "YXZ");
+		const o = new Quaternion();
+		o.setFromEuler(n);
+		return o;
+	}
+	getCamXRotQuaternion() {
+		const t =
+			getMain().cam.thirdPersonMode == "front" ? this.frontThirdPersonLookRot : this.lookRot;
+		const e = new Euler(0, t.x, 0, "YXZ");
+		const i = new Quaternion();
+		i.setFromEuler(e);
+		return i;
+	}
+	getFlatWalkDirection() {
+		const t = new Vector3(0, 0, -1);
+		t.applyQuaternion(this.getCamXRotQuaternion());
+		t.y = 0;
+		t.normalize();
+		console.log(t);
+		return t;
+	}
+	getShootDirection() {
+		const t = getMain();
+		if (t.cam.thirdPersonMode == "back") {
+			const e = t.cam.getRayCastCache(t.now, 100);
+			if (e) {
+				const t = this.physicsManager.rayCastMapColliders(e, () => true);
+				if (t) {
+					const e = new Vector3(0, 0, -1);
+					e.applyQuaternion(this.getCamRot());
+					const i = t.pos.sub(this.getCamPos());
+					const s = e.clone();
+					s.y = 0;
+					const n = i.clone();
+					n.y = 0;
+					let o = s.angleTo(n);
+					if (s.clone().cross(n).y < 0) {
+						o *= -1;
+					}
+					const a = new Quaternion();
+					a.setFromAxisAngle(new Vector3(0, 1, 0), o);
+					e.applyQuaternion(a);
+					return e;
+				}
+			}
+		}
+		const e = new Vector3(0, 0, -1);
+		e.applyQuaternion(this.getCamRot());
+		return e;
+	}
+	setServerData(t, e, i, s, n, o = false) {
+		const a = this.serverPos.clone();
+		this.serverPos.set(t, e, i);
+		if (!this.hasValidPosition) {
+			this.hasValidPosition = true;
+			if (!this.hasOwnership) {
+				this.sfxManager.playSound("player/spawn", {
+					pos: this.getSfxPos(),
+				});
+			}
+			this.updateModelVisibility();
+		}
+		this.predictedServerVelocity.copy(this.serverPos);
+		this.predictedServerVelocity.sub(a);
+		const r = getMain().now - this.lastReceivedServerPosTime;
+		this.lastReceivedServerPosTime = getMain().now;
+		if (r <= 0 || this.predictedServerVelocity.length() > 5) {
+			this.predictedServerVelocity.set(0, 0, 0);
+			this.predictedServerAcceleration.set(0, 0, 0);
+		} else {
+			this.predictedServerVelocity.divideScalar(r);
+			this.predictedServerAcceleration.copy(this.predictedServerVelocity);
+			this.predictedServerAcceleration.sub(this.lastPredictedServerVelocity);
+			this.predictedServerAcceleration.divideScalar(r);
+		}
+		if (this.hasOwnership && o) {
+			let t = false;
+			for (const e of this.recentForcedServerPositions) {
+				if (this.serverPos.distanceTo(e.pos) < 0.1) {
+					t = true;
+					break;
+				}
+			}
+			if (!t) {
+				this.recentForcedServerPositions.add({
+					pos: this.serverPos.clone(),
+					time: getMain().now,
+				});
+				this.setPosition(this.serverPos);
+			}
+		}
+		this.predictedServerPos.set(t, e, i);
+		this.lastPredictedServerVelocity.copy(this.predictedServerVelocity);
+		if (!this.hasOwnership) {
+			this.lookRot.set(s, n);
+			this.resetSmoothLookRot();
+			this.cachedCamRotDirty = true;
+		}
+		const l = e > a.y;
+		if (l != this.networkPosIsMovingUp) {
+			this.networkPosIsMovingUp = l;
+			if (l && this.rigidBody.isAboveJumpableCollider()) {
+				this.rigidBody.updateLastFloorTouchTime();
+			}
+		}
+	}
+	setPingData(t) {
+		this.ping = t;
+	}
+	getDeltaPositionMsAgo(e) {
+		if (this.positionHistory.length <= 0) {
+			return this.pos.clone();
+		}
+		const i = Math.round(e / getMain().smoothDt);
+		const s = clamp(i, 0, this.positionHistory.length - 1);
+		const n = this.positionHistory[s];
+		return this.pos.clone().sub(n);
+	}
+	updateIconOwnershipVisibility(t) {
+		let e = !this.hasOwnership;
+		if (this.game instanceof OnlineGame) {
+			if (t === undefined) {
+				t = this.game.getMyTeamId();
+			}
+			if (!x(this.game.activeGamemode, t, this.teamId)) {
+				e = false;
+			}
+		} else {
+			e = false;
+		}
+		this.icon.setVisibility(e);
+		const i = new Vector3(1, 1, 1);
+		if (t != this.teamId) {
+			i.set(1, 0, 0);
+		}
+		this.icon.setColor(i);
+		this.iconOwnershipVisibility = e;
+		this.updateIconVisibility();
+	}
+	updateIconVisibility() {
+		const t = this.iconOwnershipVisibility && !this.dead;
+		this.icon.setVisibility(t);
+	}
+	getSmallAvatar() {
+		const t = 40 * globalThis.devicePixelRatio;
+		return getMain().avatars.getAvatar({
+			backgroundColor: n_1[this.teamId].cssColor,
+			width: t,
+			height: t,
+			skinObjectOpts: {
+				teamId: this.teamId,
+				skin: this.equippedSkinData,
+			},
+		});
+	}
+	touchedDamageCollider(t) {
+		if (this.hasOwnership) {
+			this.applyDamage(t, null, "environment");
+		}
+	}
+	dieFromFall() {
+		if (
+			this.hasOwnership &&
+			!this.dead &&
+			((this.deadFromFall = true),
+			this.holdingFlag && this.sendChangeFlag(this.holdingFlag.id, 3, false),
+			this.die(true),
+			this.game instanceof OnlineGame)
+		) {
+			for (const t of this.game.players.values()) {
+				const e = 500;
+				if (performance.now() - t.#h < 7000 && t.#h > this.rigidBody.lastFloorTouchTime + e) {
+					activateSteamAchievement("headshotBeforeFallDeath");
+				}
+			}
+		}
+	}
+	die(t = false) {
+		if (this.dead) {
+			return;
+		}
+		this.sendPerformAction(Player.PlayerAction.DIE);
+		if (t && this.hasOwnership) {
+			getMain().network.sendRequestRespawn(this.id);
+		}
+		const e = this.game instanceof OnlineGame ? this.game : null;
+		if (this.hasOwnership) {
+			this.sfxManager.playSound("feedback/die");
+			if (e) {
+				e.showKilledNotification();
+			}
+			this.setWeaponSelectionDialogVisibility(true);
+			if (this.game.gameStarted) {
+				getMain().adBanners.setPageVisibility("respawn", true);
+			}
+			if (!this.deadFromFall) {
+				getMain().cam.setThirdPersonMode("dead");
+			}
+			this.game.crosshair.setDeadVisibility(false);
+			if (this.#l == "fryingPan") {
+				activateSteamAchievement("fryingPanDeath");
+			}
+			if (this.holdingFlag) {
+				this.holdingFlag.droppedByOwner();
+			}
+			if (this.#l == "meleeSpammer") {
+				activateSteamAchievement("killedByMeleeSpammer");
+			}
+			e?.ownedPlayerDied();
+		} else {
+			if (this.#l == "headshotByOwnedPlayer") {
+				this.#h = getMain().now;
+				if (e) {
+					e.reportOwnedPlayerHeadshotKill(this);
+				}
+			}
+			if (this.#c >= 0.9) {
+				activateSteamAchievement("killWithFork");
+			}
+			if (this.#l == "ultraLongRangeOwner") {
+				activateSteamAchievement("ultraLongRange");
+			}
+			if (this.#l == "smallCrossbowAfterBluntHeavy") {
+				activateSteamAchievement("stunAndSmallCrossbowKill");
+			}
+		}
+		this.#l = null;
+		this.dead = true;
+		this.updateIconVisibility();
+		this.updateEliminationScoreboard();
+		if (this.activeWeapon) {
+			this.activeWeapon.actionUp();
+		}
+		if (this.bowWeapon) {
+			this.bowWeapon.onPlayerDied();
+		}
+		if (this.meleeWeapon) {
+			this.meleeWeapon.onPlayerDied();
+		}
+		this.dieTime = getMain().now;
+		this.deadFallForward = this.computeDeadFallDirection();
+		this.deadLookRot.copy(this.lookRot);
+		this.updateMySelectedWeapon();
+		this.stopFallSound();
+		this.updateModelVisibility();
+	}
+	respawn(t) {
+		if (!this.hasOwnership) {
+			return;
+		}
+		let e = z;
+		if (this.game instanceof OnlineGame) {
+			e = y(this.teamId, this.game.activeGamemode);
+		}
+		const { pos, rot } = this.game.getSpawnPosition(e, t);
+		const n = new Vector3(0, 0, 1);
+		n.applyQuaternion(rot);
+		n.y = 0;
+		const o = new Vector3(0, 0, 1);
+		let a = n.angleTo(o);
+		if (o.cross(n).y < 0) {
+			a *= -1;
+		}
+		this.dead = false;
+		this.updateIconVisibility();
+		this.updateEliminationScoreboard();
+		this.deadFromFall = false;
+		getMain().renderer.renderWorthyEventHappened();
+		this.setPosition(pos);
+		this.resetDeadPoseWeights();
+		if (this.hasOwnership) {
+			getMain().cam.setThirdPersonMode("none");
+		}
+		this.hasWalkedAwayFromSpawn = false;
+		this.lastRespawnPosition.copy(pos);
+		this.setWeaponSelectionDialogVisibility(true);
+		if (this.game.gameStarted) {
+			getMain().adBanners.setPageVisibility("respawn", true);
+		}
+		this.updateMySelectedWeapon();
+		this.lookRot.set(a, 0);
+		this.resetSmoothLookRot();
+		this.updateModelVisibility();
+		getMain().cam.playerRespawned();
+		this.sfxManager.playSound("player/spawn");
+		this.health = 1;
+		if (this.bowWeapon) {
+			this.bowWeapon.onPlayerRespawned();
+		}
+		if (this.meleeWeapon) {
+			this.meleeWeapon.onPlayerRespawned();
+		}
+		this.game.crosshair.setDeadVisibility(true);
+		this.updateHealthUi();
+		this.sendPlayerDataToServer();
+		this.sendMyEquippedSkinData();
+	}
+	receivedSpawn(t, e) {
+		this.currentSpawnId = t;
+		this.dead = false;
+		this.updateIconVisibility();
+		this.updateEliminationScoreboard();
+		this.resetDeadPoseWeights();
+		this.health = 1;
+		this.hasValidPosition = false;
+		if (this.activeWeapon) {
+			this.activeWeapon.onPlayerRespawned();
+		}
+		this.updateModelVisibility();
+		if (this.hasOwnership) {
+			this.respawn(e);
+		}
+	}
+	resetDeadPoseWeights() {
+		if (this.deadForwardLayer) {
+			this.deadForwardLayer.weight = 0;
+		}
+		if (this.deadBackwardLayer) {
+			this.deadBackwardLayer.weight = 0;
+		}
+		this.deadAnimationWeight = 0;
+	}
+	onPlayerHasInteractedChange(t) {
+		this.onPlayerHasInteractedChangeCbs.add(t);
+	}
+	setPlayerHasInteracted() {
+		if (!this.playerHasInteracted) {
+			this.playerHasInteracted = true;
+			this.onPlayerHasInteractedChangeCbs.forEach((t) => t());
+		}
+	}
+	getLookDirection() {
+		const t = new Vector3(0, 0, 1);
+		t.applyQuaternion(this.getCamRot());
+		return t;
+	}
+	computeDeadFallDirection() {
+		if (this.lookRot.y < -1) {
+			return true;
+		}
+		if (this.lookRot.y > 1) {
+			return false;
+		}
+		if (this.velocity.length() > 5) {
+			const t = this.getLookDirection();
+			const e = this.velocity.dot(t);
+			if (e > 1) {
+				return false;
+			}
+			if (e < -1) {
+				return true;
+			}
+		}
+		return false;
+	}
+	updateHealthUi(t) {
+		if (this.game instanceof OnlineGame) {
+			this.game.healthUi.setHealth(this.health);
+			if (t !== undefined) {
+				this.game.healthUi.flashDamageProtection(t);
+			}
+		}
+	}
+	setPosition(t) {
+		this.pos.copy(t);
+		this.rigidBody.pos.copy(t);
+		this.rigidBody.velocity.set(0, 0, 0);
+		this.cachedCamPosDirty = true;
+	}
+	sendChangeFlag(flagId, changeOperation, i = true) {
+		if (!this.game.gameEnded && this.game.gameStarted) {
+			if (i) {
+				for (const [i, s] of this.sentChangeFlagMessages.entries()) {
+					if (getMain().now - s.sendTime > 3000) {
+						this.sentChangeFlagMessages.splice(i);
+						break;
+					}
+					if (s.flagId == flagId && s.changeOperation == changeOperation) {
+						return;
+					}
+				}
+				this.sentChangeFlagMessages.unshift({
+					flagId,
+					changeOperation,
+					sendTime: getMain().now,
+				});
+			}
+			getMain().network.sendChangeFlag(this.id, flagId, changeOperation);
+		}
+	}
+	changeFlagFromServer(t, e) {
+		if (e == 0) {
+			this.holdingFlag = t;
+			t.startHoldByPlayer(this);
+			this.sfxManager.playSound("flag/grab", {
+				pos: this.pos,
+			});
+		} else if (e == 1) {
+			this.holdingFlag = null;
+			const e = t.heldCountSinceLastReturn;
+			if (this.hasOwnership && e == 4) {
+				activateSteamAchievement("captureFlagAfterThree");
+			}
+			t.returnToDefaultPos();
+		} else {
+			if (e == 2) {
+				this.holdingFlag = null;
+				t.removeCurrentHoldingPlayer();
+				this.sfxManager.playSound("flag/drop", {
+					pos: this.pos,
+				});
+			} else if (e == 3) {
+				if (this.holdingFlag == t) {
+					this.holdingFlag = null;
+				}
+				t.returnToDefaultPos();
+			}
+		}
+		this.removeChangeFlagFromQueue(t.id, e);
+	}
+	stopHoldingFlag(t) {
+		if (this.holdingFlag == t) {
+			this.holdingFlag = null;
+		}
+	}
+	removeChangeFlagFromQueue(t, e) {
+		for (let i = this.sentChangeFlagMessages.length - 1; i >= 0; i--) {
+			const s = this.sentChangeFlagMessages[i];
+			if (s.flagId == t && s.changeOperation == e) {
+				return void this.sentChangeFlagMessages.splice(i, 1);
+			}
+		}
+	}
+	updateEliminationScoreboard() {
+		if (this.game instanceof OnlineGame) {
+			this.game.updateEliminationScoreboard(this.teamId);
+		}
+	}
+	report(t, e) {
+		if (!(this.game instanceof OnlineGame)) {
+			throw new Error("Reporting players is not supported in offline games");
+		}
+		if (
+			!(
+				e <= 0 ||
+				this.hasOwnership ||
+				this.game.gameEnded ||
+				performance.now() < this.creationTime + 15000
+			)
+		) {
+			this.game.antiCheat.reportPlayer(this.id, t, e);
+		}
+	}
+}
+const Li = new Vector3(0, -20, 0);
+class Ti extends Ge {
+	physicsManager;
+	flag;
+	pos = new Vector3();
+	velocity = new Vector3();
+	isOnFloor = false;
+	radius = 0.5;
+	aabb;
+	constructor(t, e) {
+		super();
+		this.physicsManager = t;
+		this.flag = e;
+		const i = this.radius;
+		this.aabb = new Box3(new Vector3(-i, -i, -i), new Vector3(i, i, i));
+	}
+	stepVelocity(t) {
+		this.velocity.addScaledVector(Li, t);
+		const e = this.isOnFloor ? 1 : 0.8;
+		const i = (1 - e) ** t;
+		this.velocity.multiplyScalar(i);
+		this.pos.addScaledVector(this.velocity, t);
+	}
+	resolveMapCollisionsOctree(t) {
+		this.isOnFloor = false;
+		const e = this.getManifolds();
+		for (const { manifold, mapCollider } of e) {
+			const e = this.velocity.dot(manifold.normal);
+			if (e < 0) {
+				if (mapCollider.isDeathTrigger) {
+					this.flag.returnToDefaultPosFromFall();
+				}
+				this.velocity.addScaledVector(manifold.normal, -e);
+				if (manifold.normal.dot(new Vector3(0, 1, 0)) > 0.7) {
+					this.isOnFloor = true;
+				}
+				const s = 0.8;
+				const n = 0.001;
+				const o = Math.max(manifold.penetration - n, 0) * s;
+				const a = manifold.normal.clone().multiplyScalar(o);
+				this.pos.add(a);
+			}
+		}
+	}
+	getColliderAabb() {
+		const t = this.aabb.clone();
+		t.translate(this.pos);
+		return t;
+	}
+	getManifolds() {
+		const t = [];
+		const e = this.getColliderAabb();
+		for (const i of this.physicsManager.getCollidersForAabbUsingOctree(e)) {
+			if (!i.aabb) {
+				continue;
+			}
+			if (!i.aabb.intersectsBox(e)) {
+				continue;
+			}
+			const s = i.getSphereManifold(this.pos, this.radius);
+			if (s.penetration > 0) {
+				t.push({
+					manifold: s,
+					mapCollider: i,
+				});
+			}
+		}
+		return t;
+	}
+}
+class Flag {
+	#m = 0;
+	id;
+	teamId;
+	defaultPosition;
+	defaultRotation;
+	position;
+	game;
+	physicsManager;
+	isOnDefaultPos = true;
+	rigidBody;
+	obj;
+	grabAnimationContainer;
+	grabStartTime;
+	returnProgress;
+	onNearDefaultPosChangeCbs;
+	isNearDefaultPos;
+	onCurrentHoldingPlayerChangeCbs;
+	currentHoldingPlayer;
+	prevIsBeingHeld;
+	holdingHandler;
+	icon;
+	destructed;
+	constructor(t, e, i, s, n, o) {
+		this.id = t;
+		this.teamId = e;
+		this.defaultPosition = i;
+		this.defaultRotation = s;
+		this.position = i.clone();
+		this.game = n;
+		this.physicsManager = o;
+		this.rigidBody = new Ti(this.game.physics, this);
+		this.rigidBody.enabled = false;
+		o.registerRigidBody(this.rigidBody);
+		this.obj = new Object3D();
+		this.obj.name = "flag";
+		this.obj.position.copy(i);
+		this.obj.quaternion.copy(s);
+		getMain().scene.add(this.obj);
+		this.grabAnimationContainer = new Object3D();
+		this.grabAnimationContainer.name = "flagGrabAnimationContainer";
+		this.obj.add(this.grabAnimationContainer);
+		this.obj.updateWorldMatrix(false, true);
+		this.grabStartTime = 0;
+		this.returnProgress = 0;
+		this.onNearDefaultPosChangeCbs = new Set();
+		this.isNearDefaultPos = true;
+		this.onCurrentHoldingPlayerChangeCbs = new Set();
+		this.currentHoldingPlayer = null;
+		this.prevIsBeingHeld = false;
+		this.holdingHandler = null;
+		this.icon = getMain().hudIcons.createIcon({
+			url: `static/img/hudIcons/flags/${n_1[e].id}.svg`,
+		});
+		this.initModel();
+		this.destructed = false;
+	}
+	destructor() {
+		this.destructed = true;
+		getMain().hudIcons.removeIcon(this.icon);
+		this.removeCurrentHoldingPlayer();
+		this.destroyHoldingHandler();
+		if (this.obj.parent == getMain().scene) {
+			getMain().scene.remove(this.obj);
+		}
+		this.physicsManager.removeRigidBody(this.rigidBody);
+	}
+	async initModel() {
+		const t = await getMain().assets.loadGlbViaWorker("flag.glb", {
+			teamId: this.teamId,
+		});
+		if (!this.destructed) {
+			if (t) {
+				this.grabAnimationContainer.add(t);
+			}
+			this.updateRenderState();
+		}
+	}
+	updateRenderState() {
+		const t = !!this.currentHoldingPlayer;
+		t
+			? (this.holdingHandler && this.holdingHandler.player == this.currentHoldingPlayer) ||
+				(this.destroyHoldingHandler(),
+				this.currentHoldingPlayer &&
+					(this.holdingHandler = this.currentHoldingPlayer.createHoldingHandler({
+						holdingObject: this.obj,
+						thirdPersonParentName: "flagHoldingPos",
+						firstPersonConfig: {
+							posOffset: new Vector3(0.4, -1.4, -1.03),
+							rotOffset: new Vector3(-0.2, -0.1, 0.4),
+							posBaseFovMultiplierX: -0.93,
+						},
+					})),
+				this.icon.setVisibility(
+					!this.currentHoldingPlayer || !this.currentHoldingPlayer.hasOwnership,
+				))
+			: t != this.prevIsBeingHeld && (this.destroyHoldingHandler(), this.icon.setVisibility(true));
+		this.prevIsBeingHeld = t;
+		this.updateRenderPosition();
+	}
+	updateRenderPosition() {
+		let t;
+		if (this.currentHoldingPlayer) {
+			t = this.currentHoldingPlayer.pos.clone();
+		} else {
+			this.obj.position.copy(this.position);
+			this.obj.quaternion.copy(this.defaultRotation);
+			t = this.position.clone();
+		}
+		t.y += 2.7;
+		this.icon.setPos(t);
+		this.obj.updateWorldMatrix(false, true);
+	}
+	loop(t, e) {
+		const i = (t - this.grabStartTime) / 1000;
+		const s = 2 * Math.PI * 2;
+		const n = q(0, 0.8, s, 0, i, true);
+		this.grabAnimationContainer.rotation.y = (1 / (10 * i + 1)) * n;
+		const o = 1 / (1 + Math.E ** (-50 * (i - 0.7)));
+		this.grabAnimationContainer.position.y = 0.3 * (1 - o);
+	}
+	afterPhysicsLoop(t, e) {
+		if (!this.currentHoldingPlayer && !this.isOnDefaultPos) {
+			this.position.copy(this.rigidBody.pos);
+			this.position.y -= this.rigidBody.radius;
+			this.updateRenderPosition();
+			this.updateIsNearDefaultPos();
+			const t = getMain().mapLoader.mapVariablesManager.get("floorDeathHeight");
+			if (typeof t === "number" && this.position.y < t) {
+				this.returnToDefaultPosFromFall();
+			}
+		}
+	}
+	startHoldByPlayer(t) {
+		if (t != this.currentHoldingPlayer) {
+			this.removeCurrentHoldingPlayer();
+			this.currentHoldingPlayer = t;
+			if (!this.#f.has(t)) {
+				this.#f.add(t);
+				this.#w++;
+			}
+			this.grabStartTime = getMain().now;
+			this.updateRenderState();
+			this.onCurrentHoldingPlayerChangeCbs.forEach((t) => t());
+		}
+	}
+	destroyHoldingHandler() {
+		if (this.holdingHandler) {
+			this.holdingHandler.destructor();
+			this.holdingHandler = null;
+			getMain().scene.add(this.obj);
+		}
+	}
+	returnToDefaultPos() {
+		this.isOnDefaultPos = true;
+		this.rigidBody.enabled = false;
+		this.#f = new WeakSet();
+		this.#w = 0;
+		this.removeCurrentHoldingPlayer();
+		this.position.copy(this.defaultPosition);
+		this.updateRenderState();
+		this.updateIsNearDefaultPos();
+	}
+	returnToDefaultPosFromFall() {
+		if (!(this.currentHoldingPlayer || this.isOnDefaultPos)) {
+			this.returnToDefaultPos();
+		}
+	}
+	#f = new WeakSet();
+	#w = 0;
+	get heldCountSinceLastReturn() {
+		return this.#w;
+	}
+	removeCurrentHoldingPlayer() {
+		if (this.currentHoldingPlayer) {
+			this.currentHoldingPlayer.stopHoldingFlag(this);
+		}
+		this.currentHoldingPlayer = null;
+		this.onCurrentHoldingPlayerChangeCbs.forEach((t) => t());
+	}
+	onCurrentHoldingPlayerChange(t) {
+		this.onCurrentHoldingPlayerChangeCbs.add(t);
+	}
+	setDroppedPosition(t, e, i, s, n, o) {
+		this.isOnDefaultPos = false;
+		this.position.set(t, e + this.rigidBody.radius, i);
+		this.updateIsNearDefaultPos();
+		if (!this.currentHoldingPlayer) {
+			this.rigidBody.pos.copy(this.position);
+			this.rigidBody.velocity.set(s, n, o);
+			this.rigidBody.enabled = true;
+			this.returnProgress = 0;
+			this.updateRenderState();
+		}
+	}
+	onNearDefaultPosChange(t) {
+		this.onNearDefaultPosChangeCbs.add(t);
+	}
+	updateIsNearDefaultPos() {
+		const t = this.position.distanceTo(this.defaultPosition) < 1;
+		if (t != this.isNearDefaultPos) {
+			this.isNearDefaultPos = t;
+			this.onNearDefaultPosChangeCbs.forEach((t) => t());
+		}
+	}
+	sendFlagReturnProgressToServer(t) {
+		let e = Infinity;
+		for (const i of this.game.getMyFlags()) {
+			const s = 1 - t.distanceTo(i.position) / i.defaultPosition.distanceTo(this.defaultPosition);
+			if (s < e) {
+				e = s;
+			}
+		}
+		getMain().network.sendFlagReturnProgress(this.id, e);
+	}
+	addReturnProgress(t) {
+		this.returnProgress += t;
+	}
+	droppedByOwner() {
+		this.#m++;
+		if (this.#m >= 20) {
+			activateSteamAchievement("dropFlagTwenty");
+		}
+	}
+}
+class Di {
+	physics;
+	hingeManager;
+	shotBy;
+	arrowId;
+	startPos;
+	consumed = false;
+	arrowManager;
+	scene;
+	networkOffsetPos;
+	networkStartPos;
+	dir;
+	arrowWeaponOpts = {
+		visualOffset: new Vector3(),
+		scale: new Vector3(1, 1, 1),
+		damageMultiplier: 1,
+		travelDistanceMultiplier: 1,
+		trailThicknessMultiplier: 1,
+		trailDurationMultiplier: 1,
+	};
+	playerDamageMultiplier;
+	strength;
+	existingTime;
+	parabolaXDist;
+	xSpeed;
+	visualStartPos;
+	obj;
+	prevPos;
+	prevRaycastPos;
+	cachedRays;
+	travelledPositions;
+	onTravelCbs;
+	lookDirection;
+	sphere;
+	trailObj;
+	trailGeo;
+	trailMat;
+	stuckInHingeId;
+	hingeImpactMatrix;
+	boundUpdateHingePosition;
+	didHitWorld;
+	didHitPlayer;
+	worldHitTime;
+	worldHitRot;
+	worldHitTangent;
+	worldHitLastRayDistance;
+	destructed;
+	constructor(
+		t,
+		i,
+		s,
+		{ arrowId, pos, networkOffsetPos, dir, fireAmount01 },
+		{ arrowManager, scene },
+	) {
+		this.physics = t;
+		this.hingeManager = i;
+		this.shotBy = s;
+		this.arrowId = arrowId;
+		this.startPos = pos;
+		this.arrowManager = arrowManager;
+		this.scene = scene;
+		this.networkOffsetPos = networkOffsetPos;
+		this.networkStartPos = pos.clone().add(networkOffsetPos);
+		this.dir = dir;
+		this.playerDamageMultiplier = l_1(0.8, 1.2, s.getStatClassValue("bowAttackStrength"));
+		if (s.bowWeapon) {
+			this.arrowWeaponOpts = {
+				...this.arrowWeaponOpts,
+				...s.bowWeapon.getArrowOpts(fireAmount01),
+			};
+		}
+		this.strength = l_1(10, 500 * this.arrowWeaponOpts.travelDistanceMultiplier, fireAmount01);
+		this.dir.setLength(this.strength);
+		this.existingTime = 0;
+		const p = this.getParabolaExtremePoint();
+		this.parabolaXDist = 2 * p.x;
+		const g = this.parabolaXDist + 2 * p.y;
+		this.xSpeed = g == 0 ? 1 : Math.abs(this.parabolaXDist / g);
+		this.xSpeed *= q(100, 500, 0.05, 0.15, this.strength);
+		this.xSpeed *= l_1(0.82, 1.05, s.getStatClassValue("arrowFlySpeed"));
+		this.visualStartPos = this.getParabolaPoint3d(0);
+		this.obj = new Object3D();
+		this.obj.name = `Arrow container ${this.arrowId}`;
+		this.obj.position.copy(this.networkStartPos);
+		this.obj.scale.copy(this.arrowWeaponOpts.scale);
+		this.scene.add(this.obj);
+		this.prevPos = null;
+		this.prevRaycastPos = null;
+		this.cachedRays = [];
+		this.travelledPositions = [];
+		this.onTravelCbs = new Set();
+		this.lookDirection = new Vector3();
+		this.sphere = null;
+		this.trailObj = null;
+		this.trailGeo = null;
+		this.trailMat = null;
+		this.stuckInHingeId = -1;
+		this.hingeImpactMatrix = null;
+		this.boundUpdateHingePosition = this.updateHingePosition.bind(this);
+		this.didHitWorld = false;
+		this.didHitPlayer = false;
+		this.worldHitTime = 0;
+		this.worldHitRot = null;
+		this.worldHitTangent = null;
+		this.worldHitLastRayDistance = 0;
+		this.destructed = false;
+		this.initModel();
+		this.initTrail();
+	}
+	destructor() {
+		this.destructed = true;
+		if (!this.didHitPlayer) {
+			this.#b();
+		}
+		this.scene.remove(this.obj);
+		if (this.trailObj) {
+			this.scene.remove(this.trailObj);
+		}
+		if (this.trailGeo) {
+			this.trailGeo.dispose();
+		}
+		if (this.trailMat) {
+			this.trailMat.dispose();
+		}
+		this.hingeManager.removeOnHingeMove(this.stuckInHingeId, this.boundUpdateHingePosition);
+	}
+	get damageMultiplier() {
+		return this.arrowWeaponOpts.damageMultiplier * this.playerDamageMultiplier;
+	}
+	getStunData() {
+		const t = this.shotBy.getStatClassValue("arrowEnemyStun");
+		return {
+			amount: l_1(0, 0.4, t),
+			duration: l_1(0, 400, t),
+			fadeDuration: 400,
+		};
+	}
+	initModel() {
+		const t = this.shotBy.getClonedArrowObject(() => {
+			if (t) {
+				this.obj.remove(t);
+			}
+		});
+		if (t) {
+			this.obj.add(t);
+		}
+		const e = this.arrowManager.getSphereGeo(this.shotBy.teamId);
+		this.sphere = new Mesh(e, getMain().materials.basicUnlitMat);
+		this.sphere.name = "Arrow sphere";
+		this.sphere.position.z = -1;
+		this.obj.add(this.sphere);
+	}
+	initTrail() {
+		const t = 0.005 * this.arrowWeaponOpts.trailThicknessMultiplier;
+		const e = 30;
+		const i = [];
+		for (let e = 0; e < 3; e++) {
+			const s = (e / 3) * Math.PI * 2;
+			const n = Math.cos(s) * t;
+			const o = Math.sin(s) * t;
+			i.push(new Vector3(n, o, 0));
+		}
+		const s = this.getMaxDistanceT();
+		const n = new Float32Array(270);
+		const l = new Float32Array(90);
+		const d = new Float32Array(270);
+		const c = [];
+		let g = 0;
+		let m = new Vector3();
+		for (let t = 0; t < e; t++) {
+			const o = (t / e) ** 2 * s;
+			const a = this.getParabolaPoint3d(o, true);
+			let r = null;
+			if (t > 0) {
+				r = m.sub(a);
+			} else {
+				r = this.getParabolaPoint3d(-0.0001, true).sub(a);
+			}
+			m = a;
+			const f = new Matrix4();
+			f.lookAt(new Vector3(), r, new Vector3(0, 1, 0));
+			const w = new Quaternion();
+			w.setFromRotationMatrix(f);
+			for (let t = 0; t < 3; t++) {
+				const e = i[t].clone();
+				e.applyQuaternion(w);
+				const s = e.clone();
+				n[3 * g + 0] = a.x;
+				n[3 * g + 1] = a.y;
+				n[3 * g + 2] = a.z;
+				d[3 * g + 0] = s.x;
+				d[3 * g + 1] = s.y;
+				d[3 * g + 2] = s.z;
+				l[g] = o;
+				g++;
+			}
+			if (t < 29) {
+				const e = 3 * t;
+				const i = e + 3;
+				for (let t = 0; t < 3; t++) {
+					const s = (t + 1) % 3;
+					c.push(e + t, e + s, i + t);
+					c.push(e + s, i + s, i + t);
+				}
+			}
+		}
+		const f = new BufferGeometry();
+		f.setAttribute("position", new BufferAttribute(n, 3));
+		f.setAttribute("arrowT", new BufferAttribute(l, 1));
+		f.setAttribute("normal", new BufferAttribute(d, 3));
+		f.setIndex(c);
+		this.trailGeo = f;
+		const arrowTrailMat = getMain().materials.arrowTrailMat;
+		if (!arrowTrailMat) {
+			throw new Error("Couldn't find arrow trail material.");
+		}
+		this.trailMat = arrowTrailMat.clone();
+		this.trailMat.uniforms.shootStartPos.value.copy(this.visualStartPos);
+		const b = 0.1 * this.strength;
+		const y =
+			Math.max(b, Math.abs(this.parabolaXDist)) * this.arrowWeaponOpts.trailDurationMultiplier;
+		this.trailMat.uniforms.estimatedXLength.value = y;
+		this.trailObj = new Mesh(f, this.trailMat);
+		this.trailObj.name = `Arrow trail ${this.arrowId}`;
+		this.scene.add(this.trailObj);
+	}
+	loop(createTime, e) {
+		if (!this.didHitWorld && !this.didHitPlayer) {
+			const e = this.existingTime * this.xSpeed;
+			const i = this.getParabolaPoint3d(e);
+			const s = this.getParabolaPoint3d(e, false, false);
+			if (!(this.prevRaycastPos && this.prevPos)) {
+				this.prevRaycastPos = this.getParabolaPoint3d(e - 0.001, false, false);
+				this.prevPos = this.getParabolaPoint3d(e - 0.001);
+			}
+			this.travelledPositions.push(s);
+			this.onTravelCbs.forEach((t) => t(s));
+			this.lookDirection.copy(i);
+			this.lookDirection.sub(this.prevPos);
+			this.lookDirection.setLength(1);
+			if (this.trailMat) {
+				this.trailMat.uniforms.arrowPosT.value = e;
+			}
+			if (this.lookDirection.length() == 0) {
+				this.lookDirection.set(0, 1, 0);
+			}
+			const n = this.getNearbyStartAmount(i);
+			const o = this.lookDirection.clone().multiplyScalar(n);
+			const a = i.clone().add(o);
+			const ray = this.physics.getRayCastCache(this.prevRaycastPos, s);
+			if (ray) {
+				this.cachedRays.push({
+					ray,
+					createTime,
+				});
+				const e = this.physics.rayCastMapColliders(
+					ray,
+					(t) => !t.collider.ignoreArrows && t.collider.excludeTeamId != this.shotBy.teamId,
+				);
+				if (e) {
+					if (-1 != e.collider.excludeTeamId) {
+						this.obj.visible = false;
+					}
+					this.didHitWorld = true;
+					this.worldHitTime = createTime;
+					this.worldHitLastRayDistance = e.dist;
+					this.obj.position.copy(e.pos);
+					this.obj.position.addScaledVector(this.lookDirection, 0.15);
+					this.worldHitRot = this.obj.quaternion.clone();
+					this.worldHitTangent = this.lookDirection.clone().cross(new Vector3(0, 1, 0));
+					this.worldHitTangent.normalize();
+					getMain().sfx.playSound(`weapon/bow/environmentImpact/${intRandom(1, 4)}`, {
+						pos: e.pos,
+					});
+					if (e.collider.shootSfx) {
+						getMain().sfx.playSound(e.collider.shootSfx, {
+							pos: e.pos,
+						});
+					}
+					const i = e.collider.triggerHingeId;
+					if (i >= 0) {
+						const t = this.hingeManager.shootHinge(i, e.pos, this.lookDirection);
+						if (t) {
+							this.stuckInHingeId = i;
+							this.obj.updateWorldMatrix(false, true);
+							this.hingeImpactMatrix = this.obj.matrixWorld.clone();
+							this.hingeImpactMatrix.premultiply(t.defaultWorldMatrix.clone().invert());
+							this.obj.matrixAutoUpdate = false;
+							this.hingeManager.onHingeMove(i, this.boundUpdateHingePosition);
+						}
+					}
+				}
+			}
+			this.prevPos.copy(i);
+			this.prevRaycastPos.copy(s);
+			this.obj.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), this.lookDirection);
+			if (!this.didHitWorld) {
+				this.obj.position.copy(a);
+			}
+		}
+		if (!this.didHitPlayer) {
+			let e = 0;
+			for (const [i, s] of this.cachedRays.entries()) {
+				if (createTime - s.createTime > 200) {
+					e = i + 1;
+				}
+			}
+			this.cachedRays.splice(0, e);
+			if (this.cachedRays.length <= 0 && this.didHitWorld) {
+				this.#b();
+			}
+			for (const [t, e] of this.cachedRays.entries()) {
+				const i = this.physics.rayCastPlayerColliders(
+					e.ray,
+					(t) =>
+						!t.collider.rigidBody.player.dead &&
+						this.shotBy != t.collider.rigidBody.player &&
+						s_1(this.shotBy.teamId, t.collider.rigidBody.player.teamId),
+				);
+				if (i) {
+					let e = false;
+					if (this.didHitWorld) {
+						if (t == this.cachedRays.length - 1 && i.dist > this.worldHitLastRayDistance) {
+							e = true;
+						}
+					}
+					if (!e) {
+						const t = i.collider.rigidBody.player;
+						this.didHitPlayer = true;
+						if (this.shotBy.hasOwnership) {
+							const e = i.collider.rigidBody.colliders.indexOf(i.collider);
+							t.addHitFlash(e);
+							getMain().sfx.playSound("feedback/hitPlayer");
+							if (i.collider.bodyPart == "head") {
+								getMain().sfx.playSound("feedback/headShot");
+							} else {
+								this.#b();
+							}
+							getMain().network.sendHitByArrow(
+								t.id,
+								t.currentSpawnId,
+								this.shotBy.id,
+								this.arrowId,
+								e,
+							);
+						}
+						this.obj.visible = false;
+					}
+				}
+			}
+		}
+		if (this.trailMat) {
+			this.trailMat.uniforms.arrowShootT.value = this.existingTime * this.xSpeed;
+		}
+		this.existingTime += this.physics.timeScale * e;
+		if (this.sphere) {
+			const e = getMain().cam.pos.distanceTo(this.obj.position);
+			let i = 1;
+			if (this.didHitWorld) {
+				const s = q(15, 30, 4, 2, e, true);
+				i *= q(0, 100, s, 1, createTime - this.worldHitTime, true);
+			}
+			this.sphere.scale.setScalar(0.002 * e * i);
+			this.sphere.updateWorldMatrix(false, true);
+		}
+		if (this.didHitWorld && -1 == this.stuckInHingeId) {
+			const e = this.getWorldHitRot(createTime);
+			if (e) {
+				this.obj.quaternion.copy(e);
+			}
+		}
+		if (!this.didHitPlayer) {
+			this.obj.updateWorldMatrix(false, true);
+		}
+	}
+	consume() {
+		if (this.consumed) {
+			throw new Error("Assertion failed, arrow is already consumed.");
+		}
+		this.consumed = true;
+	}
+	#y = false;
+	#b() {
+		if (!this.#y && ((this.#y = true), this.shotBy.hasOwnership)) {
+			const t = this.shotBy.game;
+			if (t instanceof OnlineGame) {
+				t.reportOwnedPlayerHeadshotMiss();
+			}
+		}
+	}
+	getWorldHitRot(t = getMain().now) {
+		if (!this.worldHitRot || !this.worldHitTangent) {
+			return null;
+		}
+		const e = new Quaternion();
+		e.setFromAxisAngle(this.worldHitTangent, this.getImpactShake(t));
+		const i = this.worldHitRot.clone();
+		i.premultiply(e);
+		return i;
+	}
+	getImpactShake(t) {
+		const e = t - this.worldHitTime;
+		return 0.03 * (Math.cos(0.08 * e) * (100 / (e + 100)));
+	}
+	updateHingePosition(t) {
+		if (!this.hingeImpactMatrix) {
+			return;
+		}
+		this.obj.matrix.identity();
+		const e = this.getImpactShake(getMain().now);
+		const i = new Quaternion();
+		i.setFromAxisAngle(new Vector3(1, 0, 0), e);
+		this.obj.matrix.makeRotationFromQuaternion(i);
+		this.obj.matrix.premultiply(this.hingeImpactMatrix);
+		this.obj.matrix.premultiply(t.object.matrixWorld);
+		this.obj.updateWorldMatrix(false, true);
+	}
+	onTravel(t) {
+		this.onTravelCbs.add(t);
+	}
+	getParabolaPoint3d(t, e = false, i = true) {
+		const { newDir, inverseSpaceRotation } = this.map3dDirTo2d(this.dir);
+		const o = this.getParabolaPoint2d(newDir.x, newDir.y, t);
+		if (e && newDir.x == 0) {
+			o.x = 0;
+		}
+		const a = new Vector3(o.x, o.y, 0);
+		a.applyQuaternion(inverseSpaceRotation);
+		a.add(this.startPos);
+		const r = this.getNearbyStartAmount(a);
+		if (i) {
+			const t = this.arrowWeaponOpts.visualOffset.clone();
+			t.multiplyScalar(r);
+			t.applyQuaternion(inverseSpaceRotation);
+			a.add(t);
+		}
+		const l = this.networkOffsetPos.clone().multiplyScalar(1 - r);
+		a.add(l);
+		return a;
+	}
+	getNearbyStartAmount(t) {
+		return 3 / (t.distanceTo(this.startPos) + 3);
+	}
+	map3dDirTo2d(t) {
+		let e = new Vector3(t.x, 0, t.z).angleTo(new Vector3(1, 0, 0));
+		if (t.z < 0) {
+			e = 2 * Math.PI - e;
+		}
+		const spaceRotation = new Quaternion();
+		spaceRotation.setFromAxisAngle(new Vector3(0, 1, 0), e);
+		const inverseSpaceRotation = spaceRotation.clone().invert();
+		return {
+			newDir: t.clone().applyQuaternion(spaceRotation),
+			spaceRotation,
+			inverseSpaceRotation,
+		};
+	}
+	getParabolaPoint2d(t, e, i) {
+		const s = this.sCurve(e / t);
+		let n = 0;
+		if (s == 0) {
+			n = -(i ** 2) * (1 / t);
+		} else if (t == 0) {
+			n = (1 - (2 * (i / s - 0.5)) ** 2) * e * 0.5;
+		} else {
+			n = (1 - ((i / s - t) / t) ** 2) * e * 0.5;
+			n *= s;
+		}
+		return new Vector2(i, n);
+	}
+	sCurve(t, e = Math.E) {
+		let i = 1 / (1 + e ** -t);
+		i -= 0.5;
+		i *= 2;
+		return i;
+	}
+	getParabolaExtremePoint() {
+		const { newDir } = this.map3dDirTo2d(this.dir);
+		const e = newDir.y / newDir.x;
+		let i = null;
+		i = newDir.x == 0 ? 0.5 : Math.cos(Math.atan(e)) * this.sCurve(e) * this.strength;
+		return this.getParabolaPoint2d(newDir.x, newDir.y, i);
+	}
+	getMaxDistanceT() {
+		let t = getMain().mapLoader.mapVariablesManager.get("floorDeathHeight");
+		if (this.physics.mapBounds) {
+			t = Math.max(this.physics.mapBounds.min.y, t);
+		}
+		const { newDir } = this.map3dDirTo2d(this.dir);
+		if (newDir.x == 0) {
+			return 1;
+		}
+		const i = t - this.networkStartPos.y;
+		const s = this.sCurve(newDir.y / newDir.x);
+		const { x, y } = newDir;
+		if (s == 0) {
+			return Math.sqrt(-i * x);
+		}
+		const a = x * y * s;
+		const r = x ** 2 * y * s * (y * s - 2 * i);
+		if (r < 0) {
+			return 0;
+		}
+		const l = Math.sqrt(r);
+		const h = (a - l) / y;
+		const d = (a + l) / y;
+		return Math.max(h, d);
+	}
+}
+class Oi {
+	static setCurrentScene(t) {
+		this.scene = t;
+		this.drawLinesNextFrame = [];
+		this.removeLinesNextFrame = [];
+		if (!this.material) {
+			this.material = new LineBasicMaterial({
+				color: 16777215,
+				vertexColors: true,
+			});
+		}
+	}
+	static loop() {
+		if (this.drawLinesNextFrame && this.removeLinesNextFrame) {
+			for (const t of this.removeLinesNextFrame) {
+				const e = t.line;
+				if (e) {
+					if (e.parent) {
+						e.parent.remove(e);
+					}
+					e.geometry.dispose();
+				}
+			}
+			this.removeLinesNextFrame = [];
+			for (const t of this.drawLinesNextFrame) {
+				const e = new BufferGeometry();
+				const i = new Float32Array([...t.from.toArray(), ...t.to.toArray()]);
+				e.setAttribute("position", new BufferAttribute(i, 3));
+				let s = this.material;
+				if (t.color) {
+					s = new LineBasicMaterial({
+						color: t.color,
+					});
+				}
+				const n = new Line(e, s);
+				t.line = n;
+				if (!this.scene) {
+					throw new Error("Unable to draw debug lines, no scene provided");
+				}
+				this.scene.add(n);
+				this.removeLinesNextFrame.push(t);
+			}
+			this.drawLinesNextFrame = [];
+		}
+	}
+	static drawLine(t, e, color) {
+		if (this.drawLinesNextFrame) {
+			this.drawLinesNextFrame.push({
+				from: t.clone(),
+				to: e.clone(),
+				color,
+				line: null,
+			});
+		}
+	}
+	static drawRay(t, e, i) {
+		const s = (t = t.clone()).clone();
+		s.add(e);
+		this.drawLine(t, s, i);
+	}
+}
+class ArrowManager {
+	physics;
+	hingeManager;
+	teamCount;
+	arrows = new Map();
+	oldPlayerArrows = new Set();
+	sphereGeos = [];
+	destructed;
+	constructor(t, e, i) {
+		this.physics = t;
+		this.hingeManager = e;
+		this.teamCount = i;
+		for (let t = 0; t < i; t++) {
+			const e = new IcosahedronGeometry();
+			const i = e.getAttribute("position");
+			const s = new Float32Array(3 * i.count);
+			let n = 1;
+			let o = 0;
+			let r = 0;
+			const l = n_1[t].colorTransform;
+			if (l) {
+				const [h_1, s_2, v] = N(n, o, r);
+				const s = {
+					h: h_1,
+					s: s_2,
+					v,
+				};
+				l(s);
+				[n, o, r] = K(s.h, s.s, s.v);
+			}
+			const h = [n, o, r];
+			for (let t = 0; t < s.byteLength; t += 3) {
+				for (let e = 0; e < h.length; e++) {
+					s[t + e] = 0.3 * h[e];
+				}
+			}
+			e.setAttribute("color", new BufferAttribute(s, 3));
+			this.sphereGeos.push(e);
+		}
+		getMain();
+		this.destructed = false;
+	}
+	destructor() {
+		this.destructed = true;
+		for (const t of this.arrows.values()) {
+			for (const e of t.values()) {
+				e.destructor();
+			}
+		}
+		this.arrows.clear();
+		for (const t of this.sphereGeos) {
+			t.dispose();
+		}
+		getMain();
+	}
+	getSphereGeo(t) {
+		return this.sphereGeos[t];
+	}
+	loop(t, e) {
+		for (const [i, s] of this.arrows) {
+			for (const [i, n] of s) {
+				n.loop(t, e);
+				if (n.existingTime > 5000) {
+					n.destructor();
+					s.delete(i);
+				}
+			}
+			if (s.size <= 0) {
+				this.arrows.delete(i);
+			}
+		}
+		for (const i of this.oldPlayerArrows) {
+			i.loop(t, e);
+			if (i.existingTime > 5000) {
+				i.destructor();
+				this.oldPlayerArrows.delete(i);
+			}
+		}
+	}
+	createArrow(t, e) {
+		const i = new Di(this.physics, this.hingeManager, t, e, {
+			arrowManager: this,
+			scene: getMain().scene,
+		});
+		const i_arrowId = i.arrowId;
+		const n = i.shotBy.id;
+		let o = this.arrows.get(n);
+		if (!o) {
+			o = new Map();
+			this.arrows.set(n, o);
+		}
+		const a = o.get(i_arrowId);
+		if (a) {
+			this.oldPlayerArrows.add(a);
+		}
+		o.set(i_arrowId, i);
+		getMain().renderer.renderWorthyEventHappened();
+	}
+	getArrowById(t, e) {
+		const i = this.arrows.get(t);
+		return (i && i.get(e)) || null;
+	}
+	receivedHitValidationData(t) {}
+}
+class Bi {
+	crosshair;
+	_offset = 0;
+	constructor(t) {
+		this.crosshair = t;
+	}
+	get offset() {
+		return this._offset;
+	}
+	set offset(t) {
+		this._offset = t;
+		this.crosshair.updateAccuracyOffset();
+	}
+}
+class Crosshair {
+	el = document.createElement("div");
+	lines;
+	flagReturnProgressSvg;
+	flagReturnProgressPath1;
+	flagReturnProgressPath2;
+	accuracyOffsets;
+	currentAccuracy;
+	smoothAccuracy;
+	gameUiVisibility;
+	thirdPersonVisibility;
+	deadVisibility;
+	mainInfoTextVisibility;
+	boundUpdateThirdPersonVisibility;
+	flagReturnAccuracyOffset;
+	boundRebuildLines;
+	boundSetLineColors;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("crosshair-container");
+		gameWrapper.appendChild(this.el);
+		this.lines = [];
+		const e = "http://www.w3.org/2000/svg";
+		this.flagReturnProgressSvg = document.createElementNS(e, "svg");
+		this.flagReturnProgressSvg.classList.add("flagReturnProgressContainer");
+		this.flagReturnProgressSvg.setAttribute("width", String(50));
+		this.flagReturnProgressSvg.setAttribute("height", String(50));
+		this.el.appendChild(this.flagReturnProgressSvg);
+		this.flagReturnProgressPath1 = document.createElementNS(e, "path");
+		this.flagReturnProgressPath2 = document.createElementNS(e, "path");
+		this.flagReturnProgressPath1.classList.add("flagReturnProgressPath");
+		this.flagReturnProgressPath2.classList.add("flagReturnProgressPath");
+		this.flagReturnProgressPath1.style.stroke = "black";
+		this.flagReturnProgressPath1.style.strokeWidth = "10px";
+		this.flagReturnProgressPath2.style.stroke = "white";
+		this.flagReturnProgressPath2.style.strokeWidth = "6px";
+		this.flagReturnProgressSvg.appendChild(this.flagReturnProgressPath1);
+		this.flagReturnProgressSvg.appendChild(this.flagReturnProgressPath2);
+		this.accuracyOffsets = new Set();
+		this.currentAccuracy = 0;
+		this.smoothAccuracy = 0;
+		this.gameUiVisibility = true;
+		this.thirdPersonVisibility = true;
+		this.deadVisibility = true;
+		this.mainInfoTextVisibility = true;
+		this.boundUpdateThirdPersonVisibility = this.updateThirdPersonVisibility.bind(this);
+		getMain().cam.onThirdPersonChange(this.boundUpdateThirdPersonVisibility);
+		this.flagReturnAccuracyOffset = this.createAccuracyOffset();
+		this.setFlagReturnProgressVisibility(false);
+		const i = getMain().settingsManager;
+		this.boundRebuildLines = this.rebuildLines.bind(this);
+		i.onValueChange("crosshairStyle", this.boundRebuildLines);
+		this.rebuildLines();
+		this.boundSetLineColors = this.setLineColors.bind(this);
+		i.onValueChange("crosshairColor", this.boundSetLineColors);
+		i.onValueChange("crosshairOutlineColor", this.boundSetLineColors);
+		this.setLineColors();
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+		getMain().cam.removeOnThirdPersonChange(this.boundUpdateThirdPersonVisibility);
+		getMain().settingsManager.removeOnValueChange("crosshairStyle", this.boundRebuildLines);
+	}
+	rebuildLines() {
+		for (const t of this.lines) {
+			this.el.removeChild(t.el);
+		}
+		this.lines = [];
+		const t = getMain().settingsManager.getValue("crosshairStyle");
+		let e = [];
+		if (t == "three") {
+			e = [30, 150, 270];
+		} else if (t == "three-low") {
+			e = [0, 90, 180];
+		} else if (t == "three-extra-low") {
+			e = [60, 90, 120];
+		} else if (t == "four") {
+			for (let t = 45; t < 360; t += 90) {
+				e.push(t);
+			}
+		} else if (t == "four-flat") {
+			e = [-30, 30, 150, 210];
+		} else if (t == "four-sharp") {
+			e = [-60, 60, 120, 240];
+		} else if (t == "six") {
+			for (let t = 30; t < 360; t += 60) {
+				e.push(t);
+			}
+		}
+		for (const rotation of e) {
+			const e = document.createElement("div");
+			e.classList.add("crosshair-line");
+			this.el.appendChild(e);
+			this.lines.push({
+				rotation,
+				el: e,
+			});
+		}
+	}
+	setLineColors() {
+		const settingsManager = getMain().settingsManager;
+		const e = settingsManager.getValue("crosshairColor");
+		this.el.style.setProperty("--line-color", e);
+		const i = settingsManager.getValue("crosshairOutlineColor");
+		this.el.style.setProperty("--outline-color", i);
+	}
+	loop(t, i) {
+		this.smoothAccuracy = l_1(this.smoothAccuracy, this.currentAccuracy, 0.5);
+		const s =
+			7 + this.smoothAccuracy * getMain().settingsManager.getValue("crosshairAccuracyOffset");
+		for (const t of this.lines) {
+			t.el.style.transform = `translateY(-3px) rotate(${t.rotation}deg) translateX(${s}px)`;
+		}
+	}
+	createAccuracyOffset() {
+		const t = new Bi(this);
+		this.accuracyOffsets.add(t);
+		return t;
+	}
+	deleteAccuracyOffset(t) {
+		this.accuracyOffsets.delete(t);
+		this.updateAccuracyOffset();
+	}
+	updateAccuracyOffset() {
+		let t = 0;
+		for (const e of this.accuracyOffsets) {
+			t += e.offset;
+		}
+		this.currentAccuracy = t;
+	}
+	setFlagReturnProgress(e) {
+		const i = 15;
+		const s = 2 * (e = clamp(e, 0.0001, 0.9999)) * Math.PI;
+		const n = `M25,10 A15,15 ${(180 * s) / Math.PI} ${e > 0.5 ? 1 : 0},1 ${i + Math.sin(s) * i + 10},${i - Math.cos(s) * i + 10}`;
+		this.flagReturnProgressPath1.setAttribute("d", n);
+		this.flagReturnProgressPath2.setAttribute("d", n);
+	}
+	setFlagReturnProgressVisibility(t) {
+		this.flagReturnProgressSvg.classList.toggle("hidden", !t);
+		this.flagReturnAccuracyOffset.offset = t ? 20 : 0;
+	}
+	setGameUiVisibility(t) {
+		this.gameUiVisibility = t;
+		this.updateVisibility();
+	}
+	setDeadVisibility(t) {
+		this.deadVisibility = t;
+		this.updateVisibility();
+	}
+	setMainInfoTextVisibility(t) {
+		this.mainInfoTextVisibility = t;
+		this.updateVisibility();
+	}
+	updateThirdPersonVisibility() {
+		this.thirdPersonVisibility = getMain().cam.thirdPersonMode != "front";
+		this.updateVisibility();
+	}
+	updateVisibility() {
+		const t =
+			this.gameUiVisibility &&
+			this.thirdPersonVisibility &&
+			this.deadVisibility &&
+			this.mainInfoTextVisibility;
+		this.el.style.display = t ? "" : "none";
+	}
+}
+let Ri = 0;
+function Ui(t) {
+	Ri++;
+	return t + Ri;
+}
+class qi {
+	el = document.createElementNS(svgNamespace, "svg");
+	returnTimerRectId;
+	removePointPolygonId;
+	points;
+	lastBorderTimerPercent;
+	returnTimerRect;
+	removePointPolygon;
+	removeAnimationTimeout;
+	constructor(t) {
+		this.el.classList.add("score-ui-dot");
+		this.el.setAttributeNS(null, "viewBox", "0 0 200 200");
+		const e = Ui("returnTimer");
+		this.returnTimerRectId = Ui("returnTimerRect");
+		const i = Ui("removePoint");
+		this.removePointPolygonId = Ui("removePointPolygon");
+		this.points = [];
+		this.points.push(new Vector2(0, 1));
+		this.points.push(new Vector2(1, 0));
+		this.points.push(new Vector2(0, -1));
+		this.points.push(new Vector2(-1, 0));
+		this.lastBorderTimerPercent = 1;
+		for (const t of this.points) {
+			t.multiplyScalar(55);
+			t.addScalar(100);
+			t.x += intRandom(-2, 2);
+			t.y += intRandom(-2, 2);
+		}
+		const s = this.points.map((t) => `${t.x} ${t.y}`).join(" ");
+		this.el.innerHTML = `
+\t\t\t<defs>
+\t\t\t\t<mask id="${e}">
+\t\t\t\t\t<rect x="0" y="0" width="200" height="200" class="return-timer-mask-bg"/>
+\t\t\t\t\t<rect x="0" y="0" width="200" height="0" id="${this.returnTimerRectId}" class="return-timer-mask-fg"/>
+\t\t\t\t</mask>
+\t\t\t\t<mask id="${i}">
+\t\t\t\t\t<rect x="0" y="0" width="200" height="200" style="fill: black;"/>
+\t\t\t\t\t<polygon id="${this.removePointPolygonId}" style="fill: white;" />
+\t\t\t\t</mask>
+\t\t\t</defs>
+\t\t\t<polygon points="${s}" class="shadow" />
+\t\t\t<polygon points="${s}" class="bg" />
+\t\t\t<polygon points="${s}" class="center-dot" style="--team-color: ${t};" mask="url(#${e})" />
+\t\t\t<polygon points="${s}" class="border bg" />
+\t\t\t<polygon points="${s}" class="border fg" mask="url(#${i})" />
+\t\t\t<g class="shards-container" transform="translate(100 100) scale(0.3)">
+\t\t\t\t<path class="shard" style="--x-amount: 100px; --y-amount: -80px;" d="M 151.374 -46.686 L 43.818 -158.167 L -44.111 -26.273"></path>
+\t\t\t\t<path class="shard" style="--x-amount: 90px; --y-amount: -30px;" d="M 207.899 6.7 L 153.729 -44.33 L -33.905 -26.273"></path>
+\t\t\t\t<path class="shard" style="--x-amount: 50px; --y-amount: 0px;" d="M 86.212 120.537 L 196.909 5.916 L -45.681 -28.629"></path>
+\t\t\t\t<path class="shard" style="--x-amount: 50px; --y-amount: 50px;" d="M 0.637 201.4 L 85.427 116.612 L -48.822 -29.413"></path>
+\t\t\t\t<path class="shard" style="--x-amount: 10px; --y-amount: 60px;" d="M -0.148 197.474 L -144.602 54.59 L -49.607 -33.339"></path>
+\t\t\t\t<path class="shard" style="--x-amount: -60px; --y-amount: 60px;" d="M -199.559 0.418 L -145.387 56.16 L -50.392 -31.769"></path>
+\t\t\t\t<path class="shard" style="--x-amount: -50px; --y-amount: 0px;" d="M -197.989 0.418 L -156.378 -43.545 L -48.822 -31.769"></path>
+\t\t\t\t<path class="shard" style="--x-amount: -100px; --y-amount: -20px;" d="M -106.92 -85.941 L -154.808 -41.19 L -47.252 -29.414"></path>
+\t\t\t\t<path class="shard" style="--x-amount: -50px; --y-amount: -20px;" d="M -108.49 -91.436 L -64.523 -133.829 L -48.822 -34.909"></path>
+\t\t\t\t<path class="shard" style="--x-amount: -20px; --y-amount: -110px;" d="M 2.991 -195.853 L -61.383 -127.549 L -45.682 -28.629"></path>
+\t\t\t\t<path class="shard" style="--x-amount: 40px; --y-amount: -50px;" d="M 1.421 -188.002 L 37.537 -150.316 L -47.252 -20.778"></path>
+\t\t\t</g>
+\t\t`;
+		this.returnTimerRect = null;
+		this.removePointPolygon = null;
+		this.setBorderTimerPercent(0);
+		this.removeAnimationTimeout = new Te(() => {
+			this.el.classList.remove("animating");
+		}, 1000);
+	}
+	getReturnTimerRect() {
+		if (!this.returnTimerRect) {
+			this.returnTimerRect = this.el.getElementById(this.returnTimerRectId);
+		}
+		return this.returnTimerRect;
+	}
+	getRemovePointPolygon() {
+		if (!this.removePointPolygon) {
+			this.removePointPolygon = this.el.getElementById(this.removePointPolygonId);
+		}
+		return this.removePointPolygon;
+	}
+	setState(t, e) {
+		this.el.classList.toggle("captured", t);
+		this.el.classList.toggle("grabbed", t || e <= 0);
+		this.el.classList.toggle("returned", e >= 1);
+		const i = this.getReturnTimerRect();
+		if (i) {
+			const t = 0.23 + 0.54 * e;
+			i.setAttributeNS(null, "y", String(200 * (1 - t)));
+			i.setAttributeNS(null, "height", String(200 * t));
+		}
+	}
+	setRemoved(t, e) {
+		this.el.classList.toggle("removed", t);
+		if (t && e) {
+			this.el.classList.add("animating");
+			this.removeAnimationTimeout.start();
+		}
+	}
+	setBorderTimerPercent(t) {
+		const e = Math.round(60 * t) / 60;
+		if (this.lastBorderTimerPercent == e) {
+			return;
+		}
+		this.lastBorderTimerPercent = e;
+		const i = [];
+		i.push(new Vector2(0, 0));
+		i.push(new Vector2(0, -1));
+		i.push(new Vector2(-1, 0));
+		i.push(new Vector2(0, 1));
+		i.push(new Vector2(1, 0));
+		i.push(new Vector2(0, -1));
+		const s = 4 * e;
+		const n = s % 1;
+		const o = i.length - Math.floor(s) - 2;
+		i.splice(2 + o);
+		const a = i[i.length - 1];
+		const r = i[i.length - 2];
+		a.lerp(r, n);
+		for (const t of i) {
+			t.multiplyScalar(100);
+			t.addScalar(100);
+		}
+		const l = i.map((t) => `${t.x} ${t.y}`).join(" ");
+		const h = this.getRemovePointPolygon();
+		if (h) {
+			h.setAttributeNS(null, "points", l);
+		}
+	}
+}
+class Hi {
+	el = document.createElement("div");
+	iconEl;
+	teamId;
+	onNeedsNotificationCbs;
+	hasReceivedScore;
+	currentMaxScoreCount;
+	score;
+	grabbedState;
+	removeScoreTimerIsRunning;
+	removeScoreTimer;
+	prevNow;
+	timerStateReceived;
+	dots;
+	constructor(t) {
+		this.el.classList.add("flag-score-item");
+		this.iconEl = document.createElementNS(svgNamespace, "svg");
+		this.iconEl.classList.add("flag-score-icon");
+		this.iconEl.setAttributeNS(null, "viewBox", "0 0 241.205 241.205");
+		this.teamId = t;
+		this.el.appendChild(this.iconEl);
+		const e = n_1[t];
+		this.iconEl.innerHTML = `
+\t\t\t<path fill="${e.cssColor}" style="stroke-width: 20px; stroke: white;" d="M160.8,38.551c-20.152,0-40.3-13.435-40.3-13.435S100.348,38.551,80.2,38.551s-40.3-6.717-40.3-6.717V132.6a31.093,31.093,0,0,0,3.318,14.013,160.68,160.68,0,0,0,77.29,73.31,160.68,160.68,0,0,0,77.29-73.31,31.093,31.093,0,0,0,3.318-14.013V31.834S180.956,38.551,160.8,38.551Z"/>
+\t\t\t<g style="transform: scale(0.8); transform-origin: center;">
+\t\t\t\t<rect fill="${e.cssColorDark}" x="80.842" y="135.427" width="80.498" height="16.144"/>
+\t\t\t\t<path fill="${e.cssColorDark}" d="M67.178,75.757l13.367,52.576h80.8l13.07-52.576L147.369,95.6a5.886,5.886,0,0,1-8.6-1.84l-17.972-31.67L102.8,93.3a5.887,5.887,0,0,1-8.526,1.846Z"/>
+\t\t\t</g>
+\t\t`;
+		this.onNeedsNotificationCbs = new Set();
+		this.hasReceivedScore = false;
+		this.currentMaxScoreCount = 3;
+		this.score = 0;
+		this.grabbedState = "return";
+		this.removeScoreTimerIsRunning = false;
+		this.removeScoreTimer = Infinity;
+		this.prevNow = Date.now();
+		this.timerStateReceived = false;
+		this.dots = [];
+		for (let t = 0; t < this.currentMaxScoreCount; t++) {
+			const t = new qi(e.cssColor);
+			this.el.appendChild(t.el);
+			this.dots.push(t);
+		}
+	}
+	setScore(t) {
+		if (t > this.score && this.hasReceivedScore) {
+			this.grabbedState = "return";
+			this.fireNeedsNotification("capture");
+		}
+		this.score = t;
+		this.hasReceivedScore = true;
+		this.updatePointIcons();
+	}
+	setScoreTimerState(t) {
+		let e = false;
+		if (t.maxScoreCount != this.currentMaxScoreCount) {
+			e = true;
+			this.currentMaxScoreCount = t.maxScoreCount;
+		}
+		this.removeScoreTimerIsRunning = t.timerRunning;
+		this.prevNow = Date.now();
+		this.removeScoreTimer = t.msUntilRemove;
+		for (const [i, s] of this.dots.entries()) {
+			s.setRemoved(i > t.maxScoreCount - 1, this.timerStateReceived && e && i == t.maxScoreCount);
+			if (i != t.maxScoreCount - 1) {
+				s.setBorderTimerPercent(0);
+			} else {
+				s.setBorderTimerPercent(this.getBorderTimerPercent());
+			}
+		}
+		this.timerStateReceived = true;
+	}
+	getBorderTimerPercent() {
+		if (this.removeScoreTimer < 0) {
+			return 0;
+		}
+		return q(60, 0, 0, 1, this.removeScoreTimer / 1000, true);
+	}
+	loop(t, e) {
+		if (this.removeScoreTimerIsRunning) {
+			const t = Date.now();
+			const e = t - this.prevNow;
+			this.prevNow = t;
+			this.removeScoreTimer -= e;
+			if (this.removeScoreTimer < 0) {
+				this.removeScoreTimer = 0;
+				this.removeScoreTimerIsRunning = false;
+			}
+			for (const [t, e] of this.dots.entries()) {
+				if (t == this.currentMaxScoreCount - 1) {
+					e.setBorderTimerPercent(this.getBorderTimerPercent());
+				}
+			}
+		}
+	}
+	setGrabbedState(t) {
+		if (this.grabbedState != t) {
+			this.grabbedState = t;
+			this.fireNeedsNotification(t);
+			this.updatePointIcons();
+		}
+	}
+	updatePointIcons() {
+		for (const [t, e] of this.dots.entries()) {
+			let i = 1;
+			t == this.score &&
+				(this.grabbedState == "grab" ? (i = 0) : this.grabbedState == "drop" && (i = 0.5));
+			e.setState(t < this.score, i);
+		}
+	}
+	getFinalFlagHeld() {
+		return this.score == this.currentMaxScoreCount - 1 && this.grabbedState == "grab";
+	}
+	get hasFullScore() {
+		return this.score >= this.currentMaxScoreCount;
+	}
+	getScoreWithGrabbedState() {
+		let score = this.score;
+		if (this.grabbedState == "grab") {
+			score += 0.5;
+		} else if (this.grabbedState == "drop") {
+			score += 0.25;
+		}
+		return score;
+	}
+	onNeedsNotification(t) {
+		this.onNeedsNotificationCbs.add(t);
+	}
+	fireNeedsNotification(t) {
+		this.onNeedsNotificationCbs.forEach((e) =>
+			e({
+				type: t,
+				teamId: this.teamId,
+			}),
+		);
+	}
+}
+class Wi {
+	el = document.createElement("div");
+	onNeedsNotificationCbs;
+	scoreItems;
+	constructor(
+		public gameWrapper: HTMLElement,
+		e,
+	) {
+		this.el.classList.add("flag-score-container");
+		gameWrapper.appendChild(this.el);
+		this.onNeedsNotificationCbs = new Set();
+		this.scoreItems = [];
+		for (let t = 0; t < e; t++) {
+			if (t == 0) {
+				continue;
+			}
+			const e = new Hi(t);
+			this.el.appendChild(e.el);
+			this.scoreItems[t] = e;
+			e.onNeedsNotification((t) => {
+				this.onNeedsNotificationCbs.forEach((e) => e(t));
+			});
+		}
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	update(t) {
+		for (let e = 0; e < this.scoreItems.length; e++) {
+			if (e != 0) {
+				this.scoreItems[e].setScore(t[e]);
+			}
+		}
+	}
+	setFlagScoreTimerState(t) {
+		for (const e of this.scoreItems) {
+			if (e) {
+				e.setScoreTimerState(t);
+			}
+		}
+	}
+	loop(t, e) {
+		for (const i of this.scoreItems) {
+			if (i) {
+				i.loop(t, e);
+			}
+		}
+	}
+	setFlagGrabbedState(t, e) {
+		const i = this.scoreItems[t];
+		if (i) {
+			i.setGrabbedState(e);
+		}
+	}
+	getFinalFlagHeld() {
+		for (const t of this.scoreItems) {
+			if (t && t.getFinalFlagHeld()) {
+				return true;
+			}
+		}
+		return false;
+	}
+	getWinningTeam() {
+		for (const t of this.scoreItems) {
+			if (t && t.hasFullScore) {
+				return t.teamId;
+			}
+		}
+		return null;
+	}
+	getFlagsRatio() {
+		let t = Infinity;
+		let e = 0;
+		for (const i of this.scoreItems) {
+			if (!i) {
+				continue;
+			}
+			const s = i.getScoreWithGrabbedState();
+			t = Math.min(t, s);
+			e = Math.max(e, s);
+		}
+		if (e == 0) {
+			return 0;
+		}
+		return t / e;
+	}
+	onNeedsNotification(t) {
+		this.onNeedsNotificationCbs.add(t);
+	}
+	setVisible(t) {
+		this.el.style.display = t ? "" : "none";
+	}
+}
+class HealthUi {
+	seed = intRandom(0, 99999);
+	el = document.createElement("div");
+	barContainerEl;
+	bgBar;
+	mainBarContainer;
+	mainBar;
+	damageProtectionBarContainer1;
+	damageProtectionBarContainer2;
+	damageProtectionBar;
+	borderBar;
+	heartContainer;
+	fgEl;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("health-ui-container", "wrinkledPaper");
+		this.el.style.cssText = `
+\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t`;
+		gameWrapper.appendChild(this.el);
+		this.barContainerEl = document.createElement("div");
+		this.barContainerEl.classList.add("health-ui-bar-container");
+		this.el.appendChild(this.barContainerEl);
+		this.bgBar = document.createElement("div");
+		this.bgBar.classList.add("health-ui-bar", "bg", "wrinkledPaper");
+		this.bgBar.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t`;
+		this.barContainerEl.appendChild(this.bgBar);
+		this.mainBarContainer = document.createElement("div");
+		this.mainBarContainer.classList.add("health-ui-bar", "clip");
+		this.barContainerEl.appendChild(this.mainBarContainer);
+		this.mainBar = document.createElement("div");
+		this.mainBar.classList.add("health-ui-bar", "main", "wrinkledPaper");
+		this.mainBarContainer.appendChild(this.mainBar);
+		this.damageProtectionBarContainer1 = document.createElement("div");
+		this.damageProtectionBarContainer1.classList.add("health-ui-bar");
+		this.damageProtectionBarContainer1.style.position = "relative";
+		this.mainBarContainer.appendChild(this.damageProtectionBarContainer1);
+		this.damageProtectionBarContainer2 = document.createElement("div");
+		this.damageProtectionBarContainer2.classList.add("health-ui-bar", "clip");
+		this.damageProtectionBarContainer1.appendChild(this.damageProtectionBarContainer2);
+		this.damageProtectionBar = document.createElement("div");
+		this.damageProtectionBar.classList.add("health-ui-bar", "wrinkledPaper", "damage-protection");
+		this.damageProtectionBarContainer2.appendChild(this.damageProtectionBar);
+		this.borderBar = document.createElement("div");
+		this.borderBar.classList.add("health-ui-bar", "border", "wrinkledPaper");
+		this.barContainerEl.appendChild(this.borderBar);
+		this.heartContainer = document.createElement("div");
+		this.heartContainer.classList.add("health-ui-heart");
+		this.heartContainer.innerHTML =
+			'\n\t\t<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 101 104">\n\t\t\t<path d="M88.46 29.518c-20.115-17.868-37.426 7.436-37.426 7.436s-17.608-24.235-37.723-6.367c-19.15 17.013-1.536 36.621 6.817 45.585 8.678 9.313 27.586 18.743 30.166 18.743s22.968-9.634 31.646-18.947c8.353-8.968 25.67-29.439 6.52-46.45z" style="fill: var(--default-ui-bg-color)"/>\n\t\t\t<path class="fg" d="M78.92 38.154c-14.928-13.261-28.075 9.169-28.075 9.169s-12.7-21.638-27.622-8.376c-14.212 12.624-.877 25.725 5.322 32.377 6.44 6.911 21.905 13.981 21.905 13.981s15.041-7.183 21.482-14.094c6.197-6.653 21.201-20.432 6.988-33.057z" style="fill: var(--default-text-color)"/>\n\t\t</svg>\n\t\t';
+		this.el.appendChild(this.heartContainer);
+		this.fgEl = this.heartContainer.getElementsByClassName("fg")[0];
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	setHealth(t) {
+		const e = 100 * (t = clampTo01(t));
+		this.mainBarContainer.style.width = `${e}%`;
+		if (this.fgEl) {
+			this.fgEl.classList.toggle("beating", t < 0.2);
+		}
+	}
+	flashDamageProtection(t) {
+		t = 100 * clampTo01(t);
+		this.damageProtectionBarContainer2.style.left = `${t}%`;
+		this.damageProtectionBar.style.transform = `translateX(-${t}%)`;
+		this.damageProtectionBar.style.opacity = "1";
+		this.damageProtectionBar.style.transition = "none";
+		Ct(this.damageProtectionBar);
+		this.damageProtectionBar.style.opacity = "0";
+		this.damageProtectionBar.style.transition = "";
+	}
+	setVisible(t) {
+		this.el.style.display = t ? "" : "none";
+	}
+	setCssColor(t, e) {
+		this.borderBar.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t\t--wrinkled-paper-border-color: ${e};
+\t\t`;
+		this.mainBar.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${this.seed};
+\t\t\t--wrinkled-paper-color: ${t};
+\t\t`;
+	}
+}
+let curInnerWidth = 0;
+let curInnerHeight = 0;
+const resizeCallbacks = new Set<() => void>();
+function checkForResize() {
+	const { innerWidth, innerHeight } = window;
+	if (!(innerWidth == curInnerWidth && innerHeight == curInnerHeight)) {
+		curInnerWidth = innerWidth;
+		curInnerHeight = innerHeight;
+		resizeCallbacks.forEach((t) => t());
+	}
+}
+function observeResize(cb: () => void) {
+	resizeCallbacks.add(cb);
+}
+window.addEventListener("resize", () => {
+	checkForResize();
+});
+(function resizeCheckLoop() {
+	checkForResize();
+	setTimeout(() => {
+		resizeCheckLoop();
+	}, 1000);
+})();
+class SkipText {
+	el = document.createElement("div");
+	text = "Press space to skip...";
+	currentTimerValue = 0;
+	currentInterval = null;
+	onTimerEndCbs = new Set();
+	onSkipActionCbs = new Set();
+	creationCooldownEnd = 0;
+	allowSpaceSkip = true;
+	keyDownCb = (e: KeyboardEvent) => {
+		const elapsed = performance.now() < this.creationCooldownEnd;
+		if (e.code == "Space" && this.allowSpaceSkip && !elapsed) {
+			this.fireSkipAction();
+		}
+	};
+	constructor() {
+		this.el.classList.add("skipDialogText");
+		this.text = "Press space to skip...";
+		this.currentTimerValue = 0;
+		this.currentInterval = null;
+		this.onTimerEndCbs = new Set();
+		this.onSkipActionCbs = new Set();
+		this.creationCooldownEnd = 0;
+		this.allowSpaceSkip = true;
+		window.addEventListener("keydown", this.keyDownCb);
+		this.el.addEventListener("click", () => {
+			this.fireSkipAction();
+		});
+		this.startCreationCooldown();
+		this.updateText();
+	}
+	destructor() {
+		window.removeEventListener("keydown", this.keyDownCb);
+		this.fireSkipAction();
+	}
+	setText(t) {
+		this.text = t;
+		this.updateText();
+	}
+	setVisibility(t) {
+		this.el.style.display = t ? "" : "none";
+	}
+	updateText() {
+		let text = this.text;
+		if (this.currentTimerValue > 0) {
+			text += ` (${this.currentTimerValue})`;
+		}
+		this.el.textContent = text;
+	}
+	startTimer(t = this.currentTimerValue) {
+		this.stopTimer();
+		this.currentTimerValue = t;
+		this.currentInterval = window.setInterval(() => {
+			this.currentTimerValue--;
+			if (this.currentTimerValue <= 0) {
+				this.stopTimer();
+				this.onTimerEndCbs.forEach((t) => t());
+			}
+			this.updateText();
+		}, 1000);
+	}
+	stopTimer() {
+		if (this.currentInterval) {
+			window.clearInterval(this.currentInterval);
+			this.currentInterval = null;
+			this.currentTimerValue = 0;
+			this.updateText();
+		}
+	}
+	startCreationCooldown() {
+		this.creationCooldownEnd = performance.now() + 1000;
+	}
+	setAllowSpaceSkip(t) {
+		this.allowSpaceSkip = t;
+	}
+	async waitForTimerEnd() {
+		const t = new Promise((resolve) => {
+			this.onTimerEndCbs.add(resolve);
+		});
+		await t;
+	}
+	async waitForSkipAction() {
+		const t = new Promise((resolve) => {
+			this.onSkipActionCbs.add(resolve);
+		});
+		await t;
+	}
+	fireSkipAction() {
+		this.onSkipActionCbs.forEach((t) => t());
+	}
+	async waitForSkip() {
+		return await Promise.race([this.waitForTimerEnd(), this.waitForSkipAction()]);
+	}
+}
+class PlayersListDialog extends Dialog {
+	playersList;
+	skinManager;
+	teamWonTitle = document.createElement("h2");
+	teamsContainer;
+	currentAvatarBlobUrlReferences;
+	configuredColumnTypes;
+	teamEls;
+	skipText;
+	scoresFrozen;
+	playersListDirty;
+	boundOnResize;
+	constructor(t, e, i, customOnCurtainClickCb) {
+		super(t, {
+			customOnCurtainClickCb,
+			needsUnlockedPointer: false,
+			startVisible: false,
+		});
+		this.playersList = e;
+		this.skinManager = i;
+		this.teamWonTitle.classList.add("playersListTeamWonTitle", "blueNight");
+		this.teamWonTitle.style.display = "none";
+		this.el.appendChild(this.teamWonTitle);
+		this.teamsContainer = document.createElement("div");
+		this.teamsContainer.classList.add("playersListContainer");
+		this.el.appendChild(this.teamsContainer);
+		this.currentAvatarBlobUrlReferences = new Set();
+		this.configuredColumnTypes = [];
+		this.teamEls = [];
+		for (const [t, e] of n_1.entries()) {
+			const containerEl = document.createElement("div");
+			containerEl.classList.add("playersListTeam", "wrinkledPaper");
+			containerEl.style.cssText = `
+\t\t\t\tbackground: ${e.cssColorLight};
+\t\t\t\tbackground: paint(wrinkledPaper);
+\t\t\t\t--team-bg-color-light: ${e.cssColorLight};
+\t\t\t\t--team-bg-color-dark: ${e.cssColorDark};
+\t\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t\t`;
+			const s = document.createElement("table");
+			s.classList.add("playersListTeamTable", "itemsTable");
+			containerEl.appendChild(s);
+			const colGroupEl = document.createElement("colgroup");
+			s.appendChild(colGroupEl);
+			const o = document.createElement("thead");
+			o.style.cssText = `
+\t\t\t\tbackground: ${e.cssColor};
+\t\t\t\tbackground: paint(wrinkledPaper);
+\t\t\t\t--wrinkled-paper-color: ${e.cssColor};
+\t\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t\t`;
+			s.appendChild(o);
+			const headerRowEl = document.createElement("tr");
+			headerRowEl.classList.add("playersListHead");
+			o.appendChild(headerRowEl);
+			const tbody = document.createElement("tbody");
+			s.appendChild(tbody);
+			this.teamEls[t] = {
+				containerEl,
+				tbody,
+				name: e.id,
+				colGroupEl,
+				headerRowEl,
+			};
+		}
+		this.skipText = new SkipText();
+		this.el.appendChild(this.skipText.el);
+		this.skipText.setVisibility(false);
+		this.scoresFrozen = false;
+		this.playersListDirty = true;
+		this.updateTeamsOrder();
+		this.boundOnResize = this.onResize.bind(this);
+		observeResize(this.boundOnResize);
+		this.onResize();
+	}
+	destructor() {
+		super.destructor();
+		observeResize(this.boundOnResize);
+		for (const t of this.currentAvatarBlobUrlReferences) {
+			t.destructor();
+		}
+		this.currentAvatarBlobUrlReferences.clear();
+	}
+	onVisibilityChange() {
+		if (this.playersListDirty) {
+			this.updatePlayersList();
+			this.playersListDirty = false;
+		}
+	}
+	onResize() {
+		const e = clamp(window.innerHeight - 200, 100, 600);
+		this.el.classList.toggle("topCenter", window.innerHeight < 790);
+		this.teamsContainer.style.maxHeight = `${e}px`;
+	}
+	playersListChanged() {
+		if (this.visible) {
+			this.updatePlayersList();
+		} else {
+			this.playersListDirty = true;
+		}
+	}
+	updateTeamsOrder(t = -1) {
+		while (this.teamsContainer.lastChild) {
+			this.teamsContainer.removeChild(this.teamsContainer.lastChild);
+		}
+		const e = this.teamEls[t];
+		if (e) {
+			this.teamsContainer.appendChild(e.containerEl);
+		}
+		for (const [e, i] of this.teamEls.entries()) {
+			if (e != t) {
+				this.teamsContainer.appendChild(i.containerEl);
+			}
+		}
+	}
+	setActiveGamemode(t) {
+		this.configuredColumnTypes = R(t);
+		this.updateTableHeaders();
+		this.updatePlayersList();
+	}
+	updateTableHeaders() {
+		for (const [t, { colGroupEl, headerRowEl }] of this.teamEls.entries()) {
+			const s = n_1[t];
+			let n = 1;
+			const o = [];
+			const a = [];
+			for (const e of this.configuredColumnTypes) {
+				if (!U(t) && e != "avatar" && e != "playerName") {
+					continue;
+				}
+				let i = 150;
+				if (e == "avatar") {
+					i = 60;
+				} else if (e == "playerName") {
+					i = 300;
+				}
+				const r = document.createElement("col");
+				r.style.width = `${i}px`;
+				o.push(r);
+				if (e == "avatar") {
+					n++;
+					continue;
+				}
+				const l = document.createElement("th");
+				l.textContent =
+					e == "playerName"
+						? s.playersListText
+						: e == "totalScore"
+							? "Score"
+							: e == "kills"
+								? "Kills"
+								: e == "deaths"
+									? "Deaths"
+									: e == "flags"
+										? "Flags"
+										: e == "kd"
+											? "K/D"
+											: e;
+				if (n > 1) {
+					l.colSpan = n;
+					n = 1;
+				}
+				a.push(l);
+			}
+			colGroupEl.replaceChildren(...o);
+			headerRowEl.replaceChildren(...a);
+		}
+	}
+	updatePlayersList() {
+		if (this.scoresFrozen) {
+			return;
+		}
+		const t = new Map();
+		for (const { tbody } of this.teamEls) {
+			for (const i of tbody.children) {
+				if (i.childElementCount > 0) {
+					const e = i.children[0];
+					if (e) {
+						const i = e.children[0];
+						if (i && i instanceof HTMLDivElement) {
+							const e = i.style.backgroundImage;
+							if (e) {
+								let s = t.get(e);
+								if (!s) {
+									s = [];
+									t.set(e, s);
+								}
+								s.push(i);
+							}
+						}
+					}
+				}
+			}
+		}
+		for (const t of this.teamEls) {
+			const e = t.tbody;
+			while (e.lastChild) {
+				e.removeChild(e.lastChild);
+			}
+		}
+		const e = Array.from(this.currentAvatarBlobUrlReferences);
+		this.currentAvatarBlobUrlReferences.clear();
+		const i = Array.from(this.playersList.values()).sort((t, e) => e.scoreTotal - t.scoreTotal);
+		for (const e of i) {
+			const i = document.createElement("tr");
+			i.classList.add("playersListItem", "tableItem");
+			this.teamEls[e.teamId].tbody.appendChild(i);
+			for (const s of this.configuredColumnTypes) {
+				if (!U(e.teamId) && s != "avatar" && s != "playerName") {
+					continue;
+				}
+				const n = document.createElement("td");
+				if (s != "avatar" && s != "playerName") {
+					n.classList.add("playersListItemScore");
+				}
+				if (s == "totalScore") {
+					n.textContent = String(e.scoreTotal);
+				} else if (s == "flags") {
+					n.textContent = String(e.scoreFlags);
+					n.classList.add("playersListItemScore");
+				} else if (s == "kills") {
+					n.textContent = String(e.scoreKills);
+				} else if (s == "deaths") {
+					n.textContent = String(e.scoreDeaths);
+				} else if (s == "elo") {
+					n.textContent = String(Math.round(e.elo));
+				} else if (s == "kd") {
+					const t = e.scoreDeaths <= 0 ? e.scoreKills : e.scoreKills / e.scoreDeaths;
+					n.textContent = String(Math.round(100 * t) / 100);
+				} else if (s == "avatar") {
+					const i = document.createElement("div");
+					i.classList.add("player-avatar");
+					n.appendChild(i);
+					const s = e.getSmallAvatar().getBlobUrlReference();
+					this.currentAvatarBlobUrlReferences.add(s);
+					(async () => {
+						const e = await s.getBlobUrl();
+						const o = `url("${e}")`;
+						const a = t.get(o);
+						let r = null;
+						if (a && a.length > 0) {
+							r = a.pop();
+						}
+						if (r) {
+							n.removeChild(i);
+							n.appendChild(r);
+							t.delete(e);
+						} else {
+							i.style.backgroundImage = o;
+						}
+					})();
+				} else if (s == "playerName") {
+					const t = document.createElement("span");
+					t.classList.add("player-list-username");
+					t.textContent = e.playerName;
+					n.appendChild(t);
+					n.classList.add("players-list-item-username");
+					if (e.playerNameVerified) {
+						const t = document.createElement("div");
+						t.classList.add("player-name-verified-icon");
+						n.appendChild(t);
+					}
+					let i = null;
+					if (e.hasOwnership) {
+						i = "You";
+					} else if (e.isSameSquadPlayer) {
+						i = "Squad";
+					}
+					if (i) {
+						const t = document.createElement("span");
+						t.textContent = i;
+						t.classList.add("players-list-label");
+						t.style.background = n_1[e.teamId].cssColor;
+						n.appendChild(t);
+					}
+				}
+				i.appendChild(n);
+			}
+		}
+		for (const t of this.teamEls) {
+			t.containerEl.style.display = t.tbody.childElementCount > 0 ? "" : "none";
+		}
+		for (const t of e) {
+			t.destructor();
+		}
+	}
+	freezeScores() {
+		this.updatePlayersList();
+		this.scoresFrozen = true;
+	}
+	setGameEndState(t) {
+		this.allowCurtainClose = false;
+		if (t == null) {
+			return;
+		}
+		const e = n_1[t];
+		this.teamWonTitle.textContent = `Team ${e.id} won!`;
+		this.teamWonTitle.style.display = "";
+		this.teamWonTitle.style.color = e.cssColor;
+	}
+}
+class NotificationsUi {
+	el = document.createElement("div");
+	currentIconEl;
+	constructor(
+		public gameWrapper: HTMLElement,
+		e = "topleft",
+	) {
+		this.el.classList.add("notificationIconsUiContainer", e);
+		gameWrapper.appendChild(this.el);
+		this.currentIconEl = null;
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	showIcon(t) {
+		if (this.currentIconEl) {
+			this.el.removeChild(this.currentIconEl);
+		}
+		let e = null;
+		if (t) {
+			e = document.createElement("div");
+			e.classList.add("notificationIcon");
+			e.style.backgroundImage = `url(${t})`;
+			this.el.appendChild(e);
+		}
+		this.currentIconEl = e;
+	}
+	removeIcon() {
+		this.showIcon(null);
+	}
+}
+const Xi = new Map();
+Xi.set(1, {
+	text: "Kill",
+	overviewText: "Kills",
+	includeInCollectorAchievement: true,
+});
+Xi.set(2, {
+	text: "Assist",
+	overviewText: "Assists",
+	includeInCollectorAchievement: true,
+});
+Xi.set(3, {
+	text: "Carrier Kill",
+	overviewText: "Carrier Kills",
+	includeInCollectorAchievement: true,
+});
+Xi.set(4, {
+	text: "Grab",
+	overviewText: "Flag Grabs",
+	includeInCollectorAchievement: true,
+});
+Xi.set(5, {
+	text: "",
+	overviewText: "Flag Carry",
+	visibilityDuration: 0.5,
+	includeInCollectorAchievement: true,
+});
+Xi.set(7, {
+	text: "Carrier Assist",
+	overviewText: "Carrier Assist",
+	visibilityDuration: 0.5,
+	includeInCollectorAchievement: true,
+});
+Xi.set(6, {
+	text: "Capture",
+	overviewText: "Flag Captures",
+	includeInCollectorAchievement: true,
+});
+Xi.set(8, {
+	overviewText: "Win Bonus",
+	hideInGame: true,
+	includeInCollectorAchievement: true,
+});
+Xi.set(9, {
+	text: "Flag Return",
+	overviewText: "Flag Return",
+	includeInCollectorAchievement: true,
+});
+Xi.set(10, {
+	text: "Headshot",
+	overviewText: "Headshots",
+	includeInCollectorAchievement: true,
+});
+Xi.set(11, {
+	text: "Long Range",
+	overviewText: "Long Range Hits",
+	includeInCollectorAchievement: true,
+});
+Xi.set(12, {
+	text: "Capture Assist",
+	overviewText: "Capture Assists",
+	includeInCollectorAchievement: true,
+});
+Xi.set(13, {
+	text: "",
+	overviewText: "On the Hill",
+	visibilityDuration: 0.5,
+});
+class ScoreOffsetNotificationsUi {
+	el = document.createElement("div");
+	listEl;
+	createdNotifications;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("score-offset-notifications-container", "fullScreen");
+		gameWrapper.appendChild(this.el);
+		this.listEl = document.createElement("div");
+		this.listEl.classList.add("score-offset-notifications-list", "blueNight", "whiteBigText");
+		this.el.appendChild(this.listEl);
+		this.createdNotifications = [];
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	showOffsetNotification(t, e) {
+		const i = Xi.get(e);
+		if (!i || i.hideInGame) {
+			return;
+		}
+		let i_visibilityDuration = i.visibilityDuration;
+		if (i_visibilityDuration === undefined) {
+			i_visibilityDuration = 2;
+		}
+		const n = document.createElement("div");
+		n.classList.add("scoreOffsetNotification");
+		this.listEl.appendChild(n);
+		this.createdNotifications.unshift({
+			el: n,
+			destroyTime: Date.now() + 1000 * i_visibilityDuration + 1000,
+		});
+		const o = document.createElement("div");
+		o.classList.add("scoreOffsetNotificationAnim");
+		o.style.animation = `1s notificationIconFade ${i_visibilityDuration}s both, 0.2s notificationIconPop`;
+		n.appendChild(o);
+		if (i.text) {
+			const t = document.createTextNode(`${i.text} `);
+			o.appendChild(t);
+		}
+		const a = document.createElement("span");
+		a.classList.add("scoreOffsetNotificationScore");
+		a.textContent = `+${t}`;
+		o.appendChild(a);
+		this.destroyOldNotifications();
+		this.updateNotificationOffsets();
+	}
+	destroyOldNotifications() {
+		let t = -1;
+		for (const [e, i] of this.createdNotifications.entries()) {
+			if (i.destroyTime <= Date.now()) {
+				t = e;
+				break;
+			}
+		}
+		if (t >= 0) {
+			for (let e = t; e < this.createdNotifications.length; e++) {
+				const createdNotification = this.createdNotifications[e];
+				if (createdNotification.el.parentNode) {
+					createdNotification.el.parentNode.removeChild(createdNotification.el);
+				}
+			}
+			this.createdNotifications.splice(t);
+		}
+	}
+	updateNotificationOffsets() {
+		for (const [t, e] of this.createdNotifications.entries()) {
+			e.el.style.transform = `translateY(${-40 * t}px)`;
+		}
+	}
+	removeAll() {
+		while (this.listEl.firstChild) {
+			this.listEl.removeChild(this.listEl.firstChild);
+		}
+	}
+}
+class GameOverStatsDialog extends Dialog {
+	statsContainer;
+	didWatchRewardedAd;
+	rewardedAdFailed;
+	onRewardedAdIsPlayingChangeCbs;
+	skipText;
+	boundOnResize;
+	constructor(
+		t,
+		{
+			trackedMyPlayerScores,
+			totalScore,
+			myTeamId,
+			receivedCoins,
+			coinsAlreadyDoubled,
+			autoSkipStatsScreen,
+		},
+	) {
+		super(t, {
+			allowCurtainClose: false,
+		});
+		const r = document.createElement("h2");
+		r.classList.add("dialogTitle", "blueNight");
+		r.textContent = "Your Game Stats";
+		const l = n_1[myTeamId];
+		r.style.color = l.cssColor;
+		this.el.appendChild(r);
+		this.statsContainer = document.createElement("div");
+		this.statsContainer.classList.add("gameoverStatsContainer", "wrinkledPaper");
+		this.statsContainer.style.cssText = `
+\t\t\tbackground: ${l.cssColorLight};
+\t\t\tbackground: paint(wrinkledPaper);
+\t\t\t--team-bg-color-light: ${l.cssColorLight};
+\t\t\t--team-bg-color-dark: ${l.cssColorDark};
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		this.el.appendChild(this.statsContainer);
+		const h = document.createElement("table");
+		h.classList.add("gameOverStatsTable", "itemsTable");
+		this.statsContainer.appendChild(h);
+		const d = document.createElement("tbody");
+		h.appendChild(d);
+		for (const [t, i] of Xi.entries()) {
+			const s = trackedMyPlayerScores.get(t);
+			if (!s) {
+				continue;
+			}
+			const n = i.text || i.overviewText;
+			const o = document.createElement("tr");
+			o.classList.add("tableItem");
+			d.appendChild(o);
+			const a = document.createElement("td");
+			a.textContent = n || "";
+			o.appendChild(a);
+			const r = document.createElement("td");
+			r.textContent = String(s);
+			o.appendChild(r);
+		}
+		const c = document.createElement("tr");
+		c.classList.add("tableItem", "totalScoreRow");
+		d.appendChild(c);
+		const u = document.createElement("td");
+		u.textContent = "Total";
+		c.appendChild(u);
+		const p = document.createElement("td");
+		p.textContent = String(totalScore);
+		c.appendChild(p);
+		this.didWatchRewardedAd = false;
+		this.rewardedAdFailed = false;
+		this.onRewardedAdIsPlayingChangeCbs = new Set();
+		if (receivedCoins > 0) {
+			const t = document.createElement("div");
+			t.classList.add("game-over-stats-coins-container");
+			this.el.appendChild(t);
+			const e = new CurrencyContainer();
+			t.appendChild(e.el);
+			if (coinsAlreadyDoubled) {
+				e.animateAmount(receivedCoins / 2);
+				const i = document.createElement("doubled-container");
+				i.classList.add("blueNight", "hidden");
+				t.append(i);
+				const s = document.createElement("peli-plus-icon");
+				i.append(s);
+				const o = document.createElement("span");
+				o.textContent = "x2";
+				i.append(o);
+				(async () => {
+					await e.waitForTargetReached();
+					await new Promise((resolve) => setTimeout(resolve, 500));
+					i.classList.remove("hidden");
+					e.animateAmount(receivedCoins);
+				})();
+			} else if (!isSteam()) {
+				e.animateAmount(receivedCoins);
+				const claimX2Button = new CustomButton({
+					text: "Claim x2",
+					icon: "static/img/rewardedAdIcon.svg",
+					iconSize: 1.8,
+					extraClasses: ["shake-anim"],
+					onClick: async () => {
+						this.skipText.setAllowSpaceSkip(false);
+						this.skipText.stopTimer();
+						claimX2Button.enabled = false;
+						if (!this.didWatchRewardedAd) {
+							this.fireRewardedAdIsPlayingChange(true);
+							const t = await getMain().poki.rewardedBreakWithErrorDialog({
+								category: "multiply-reward",
+								details: "game end double coins",
+								placement: "game-over-screen",
+							});
+							this.fireRewardedAdIsPlayingChange(false);
+							if (t) {
+								this.didWatchRewardedAd = true;
+							} else {
+								claimX2Button.enabled = true;
+							}
+						}
+						this.skipText.setAllowSpaceSkip(true);
+						let t = false;
+						if (this.didWatchRewardedAd) {
+							const s = await getMain().shopState.doubleLastGameCoins();
+							if (s.success) {
+								claimX2Button.visible = false;
+								e.animateAmount(2 * receivedCoins);
+								if (2 * receivedCoins >= bs) {
+									activateSteamAchievement("thousandCoinsOneGame");
+								}
+								if (autoSkipStatsScreen) {
+									this.skipText.startTimer(6);
+								}
+								t = true;
+							} else {
+								if (s.error == "no-recent-coins") {
+									getMain().dialogManager.showAlert({
+										title: "Failed to double coins",
+										text: "You either already doubled your coins recently, or no coins were awarded in your last game.",
+									});
+								} else {
+									getMain().dialogManager.showAlert({
+										title: "Server error",
+										text: "An error occurred while doubling your coins.",
+									});
+									console.error(s.error);
+								}
+								claimX2Button.enabled = true;
+								this.rewardedAdFailed = true;
+							}
+						}
+						if (!t) {
+							getMain().network.matchMaking.leaveQueue();
+						}
+					},
+				});
+				t.appendChild(claimX2Button.el);
+			}
+		}
+		this.skipText = new SkipText();
+		this.el.appendChild(this.skipText.el);
+		this.boundOnResize = this.onResize.bind(this);
+		observeResize(this.boundOnResize);
+		this.onResize();
+	}
+	onResize() {
+		this.el.classList.toggle("topCenter", window.innerHeight < 900);
+		const e = clamp(window.innerHeight - 350, 100, 600);
+		this.statsContainer.style.maxHeight = `${e}px`;
+	}
+	onRewardedAdIsPlayingChange(t) {
+		this.onRewardedAdIsPlayingChangeCbs.add(t);
+	}
+	fireRewardedAdIsPlayingChange(t) {
+		this.onRewardedAdIsPlayingChangeCbs.forEach((e) => e(t));
+	}
+}
+class ts {
+	timeSeconds;
+	name;
+	running = false;
+	startTime = 0;
+	onSuddenChangeCbs = new Set();
+	constructor(t = 0, e = "") {
+		this.timeSeconds = t;
+		this.name = e;
+	}
+	setTotalTime(t) {
+		this.timeSeconds = t;
+	}
+	start() {
+		this.running = true;
+		this.startTime = Date.now();
+	}
+	clear() {
+		const t = this.timeRemaining > 1;
+		this.cleared = true;
+		if (t) {
+			this.onSuddenChangeCbs.forEach((t) => t());
+		}
+	}
+	onSuddenChange(t) {
+		this.onSuddenChangeCbs.add(t);
+	}
+	get timeRemaining() {
+		if (this.cleared) {
+			return 0;
+		}
+		if (this.running) {
+			const t = (Date.now() - this.startTime) / 1000;
+			return Math.max(0, this.timeSeconds - t);
+		}
+		return this.timeSeconds;
+	}
+	toString() {
+		let timeRemaining = this.timeRemaining;
+		timeRemaining = Math.round(10 * timeRemaining) / 10;
+		return `<${this.name} ${timeRemaining}>`;
+	}
+}
+interface CornerStatData {
+	name: string;
+	redThreshold: number;
+}
+class CornerStat {
+	redThreshold;
+	el = document.createElement("div");
+	valueEl;
+	constructor(
+		public cornerStatsUi: CornerStatsUi,
+		{ name, redThreshold }: CornerStatData,
+	) {
+		this.redThreshold = redThreshold;
+		this.el.classList.add("corner-stat", "whiteBigText", "blueNight");
+		const s = document.createElement("span");
+		s.textContent = `${name}: `;
+		this.el.appendChild(s);
+		this.valueEl = document.createElement("span");
+		this.valueEl.textContent = "-";
+		this.el.appendChild(this.valueEl);
+	}
+	setValue(t) {
+		if (this.cornerStatsUi.visible) {
+			this.valueEl.textContent = String(t);
+			if (this.redThreshold && typeof t === "number") {
+				this.valueEl.classList.toggle("red", t > this.redThreshold);
+			}
+		}
+	}
+}
+class CornerStatsUi {
+	container = document.createElement("div");
+	createdStats;
+	fpsStat;
+	pingStat;
+	networkStabilityStat;
+	visible;
+	_onVisiblityChangeCbs: (() => void)[];
+	constructor(
+		t,
+		public game: Game,
+	) {
+		this.game = game;
+		this.container.classList.add("corner-stats-container", "hidden");
+		t.appendChild(this.container);
+		this.createdStats = [];
+		this.fpsStat = this.createCornerStat({
+			name: "FPS",
+		});
+		this.pingStat = this.createCornerStat({
+			name: "Ping",
+		});
+		this.networkStabilityStat = this.createCornerStat({
+			name: "Network",
+			redThreshold: 5,
+		});
+		this.visible = false;
+		this._onVisiblityChangeCbs = new Set();
+		getMain().settingsManager.onValueChange("showStats", () => {
+			this.updateVisibility();
+		});
+		this.updateVisibility();
+	}
+	destructor() {
+		if (this.container.parentElement) {
+			this.container.parentElement.removeChild(this.container);
+		}
+	}
+	createCornerStat(data: CornerStatData) {
+		const e = new CornerStat(this, data);
+		this.container.appendChild(e.el);
+		this.createdStats.push(e);
+		return e;
+	}
+	updateVisibility() {
+		const t =
+			getMain().settingsManager.getValue("showStats") &&
+			this.game.gameStarted &&
+			!this.game.gameEnded;
+		if (this.visible != t) {
+			if (!t) {
+				for (const t of this.createdStats) {
+					t.setValue("-");
+				}
+			}
+			if (t != this.visible) {
+				this.visible = t;
+				this.container.classList.toggle("hidden", !t);
+				this._onVisiblityChangeCbs.forEach((t) => t());
+			}
+		}
+	}
+	onVisibilityChange(t: () => void) {
+		this._onVisiblityChangeCbs.add(t);
+	}
+}
+const ss = [
+	"anal",
+	"anus",
+	"arse",
+	"ballsack",
+	"balls",
+	"bitch",
+	"biatch",
+	"blowjob",
+	"boner",
+	"boob",
+	"butt",
+	"clitoris",
+	"cock",
+	"cunt",
+	"damn",
+	"dick",
+	"dildo",
+	"faggot",
+	"fuck",
+	"homo",
+	"jew",
+	"jizz",
+	"nigger",
+	"nigga",
+	"penis",
+	"piss",
+	"poop",
+	"pussy",
+	"queer",
+	"slut",
+	"twat",
+	"vagina",
+	"whore",
+];
+class Chat {
+	game;
+	createdMessages = [];
+	visible = false;
+	toggledVisible = true;
+	el = document.createElement("div");
+	chatLogEl;
+	formEl;
+	textBoxEl;
+	chatKey;
+	boundChatKeyCb;
+	chatVisibilityKey;
+	boundChatVisibilityKeyCb;
+	boundUpdateVisibilities;
+	boundOnTouchSupported;
+	constructor(
+		public gameWrapper: HTMLElement,
+		public game: OnlineGame,
+	) {
+		this.el.classList.add("chat-container", "wrinkledPaper");
+		this.el.style.cssText = `
+\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		gameWrapper.appendChild(this.el);
+		this.chatLogEl = document.createElement("div");
+		this.chatLogEl.classList.add("chat-log-container");
+		this.el.appendChild(this.chatLogEl);
+		this.formEl = document.createElement("form");
+		this.formEl.addEventListener("submit", (t) => {
+			this.sendMessage();
+			t.preventDefault();
+		});
+		this.el.appendChild(this.formEl);
+		this.textBoxEl = document.createElement("input");
+		this.textBoxEl.classList.add("dialog-text-input", "wrinkledPaper", "chat-input");
+		this.textBoxEl.placeholder = "Press T to chat with your squad";
+		this.textBoxEl.maxLength = 200;
+		this.formEl.appendChild(this.textBoxEl);
+		const i = getMain();
+		this.chatKey = i.input.getKey("chat");
+		this.boundChatKeyCb = () => {
+			if (i.network.squadManager.isInSquad) {
+				if (i.settingsManager.getValue("chatEnabled")) {
+					this.textBoxEl.focus();
+				}
+				this.updateVisibility();
+			}
+		};
+		this.chatKey.onPressedDown(this.boundChatKeyCb);
+		this.chatVisibilityKey = i.input.getKey("toggleChatVisibility");
+		this.boundChatVisibilityKeyCb = () => {
+			if (this.visible) {
+				this.textBoxEl.blur();
+			}
+			this.toggledVisible = !this.visible;
+			this.updateVisibility();
+			if (this.visible) {
+				this.textBoxEl.focus();
+			}
+		};
+		this.chatVisibilityKey.onPressedDown(this.boundChatVisibilityKeyCb);
+		this.boundUpdateVisibilities = () => {
+			this.updateVisibility();
+			this.updateTouchButtonVisibility();
+		};
+		i.network.squadManager.onUserVisibleSquadIdChange(this.boundUpdateVisibilities);
+		this.boundOnTouchSupported = () => {
+			this.el.classList.toggle("touch", i.input.touch.touchSupported);
+			if (i.input.touch.touchSupported) {
+				this.toggledVisible = false;
+				this.textBoxEl.placeholder = "Type to chat with your squad";
+				this.updateVisibility();
+			}
+			this.updateTouchButtonVisibility();
+		};
+		i.input.touch.onTouchSupportedChange(this.boundOnTouchSupported);
+		i.settingsManager.onValueChange("chatEnabled", this.boundUpdateVisibilities);
+		i.settingsManager.onValueChange("hideUi", this.boundUpdateVisibilities);
+		game.cornerStatsUi.onVisibilityChange(() => {
+			this.updateHeight();
+		});
+		game.onGameEndFinish(() => {
+			this.updateVisibility();
+		});
+		this.boundOnTouchSupported();
+		this.updateVisibility();
+		this.updateTouchButtonVisibility();
+		this.updateHeight();
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+		this.chatKey.removeCb(this.boundChatKeyCb);
+		this.chatVisibilityKey.removeCb(this.boundChatVisibilityKeyCb);
+		const t = getMain();
+		t.network.squadManager.removeOnUserVisibleSquadIdChange(this.boundUpdateVisibilities);
+		t.input.touch.removeOnTouchSupportedChange(this.boundOnTouchSupported);
+		t.settingsManager.removeOnValueChange("chatEnabled", this.boundUpdateVisibilities);
+		t.settingsManager.removeOnValueChange("hideUi", this.boundUpdateVisibilities);
+		for (const t of this.createdMessages) {
+			this.destroyMessage(t);
+		}
+		this.createdMessages = [];
+	}
+	loop() {
+		while (true) {
+			const t = this.createdMessages[0];
+			if (!t) {
+				break;
+			}
+			if (!(performance.now() - t.lastMessageTime > 10000)) {
+				break;
+			}
+			this.destroyMessage(t);
+		}
+	}
+	destroyMessage(t) {
+		if (t.avatarBlobReference) {
+			t.avatarBlobReference.destructor();
+		}
+		this.chatLogEl.removeChild(t.messageEl);
+		this.createdMessages = this.createdMessages.filter((e) => e != t);
+		if (this.createdMessages.length == 0 && getMain().input.touch.touchSupported) {
+			this.toggledVisible = false;
+			this.updateVisibility();
+		}
+	}
+	sendMessage() {
+		const value = this.textBoxEl.value;
+		this.textBoxEl.value = "";
+		this.textBoxEl.blur();
+		if (value) {
+			getMain().network.sendChatMessage(value);
+		}
+	}
+	receivedChatMessage(messageThing) {
+		let e = this.createdMessages[this.createdMessages.length - 1];
+		if (messageThing.type == "playerMessage") {
+			const i = messageThing.data.playerId;
+			const s = this.game.players.get(i);
+			if (!e || i != e.playerId) {
+				const messageEl = document.createElement("div");
+				messageEl.classList.add("chat-message-container");
+				this.chatLogEl.appendChild(messageEl);
+				let avatarBlobReference = null;
+				if (s) {
+					const e = s.getSmallAvatar();
+					avatarBlobReference = e.getBlobUrlReference();
+					const i = document.createElement("div");
+					i.classList.add("player-avatar");
+					messageEl.appendChild(i);
+					(async () => {
+						const t = await avatarBlobReference.getBlobUrl();
+						i.style.backgroundImage = `url("${t}")`;
+					})();
+				}
+				const contentsEl = document.createElement("div");
+				contentsEl.classList.add("chat-message-content");
+				messageEl.appendChild(contentsEl);
+				if (s) {
+					const t = document.createElement("h3");
+					t.classList.add("chat-message-name");
+					t.textContent = s.playerName;
+					contentsEl.appendChild(t);
+				}
+				e = {
+					messageEl,
+					contentsEl,
+					playerId: i,
+					avatarBlobReference,
+					lastMessageTime: performance.now(),
+				};
+				this.createdMessages.push(e);
+			}
+			if (!e) {
+				throw new Error("Assertion failed, lastMessageData is undefined");
+			}
+			e.lastMessageTime = performance.now();
+			const n = getMain();
+			const msg = document.createElement("div");
+			const a = n.settingsManager.getValue("chatProfanityFilterEnabled");
+			if (messageThing.data.guardianRejected) {
+				if (s && s.hasOwnership) {
+					if (a) {
+						msg.classList.add("filtered-error");
+					} else {
+						msg.classList.add("filtered-warning");
+					}
+				} else if (a || getMain().poki.isPokiBuild) {
+					return;
+				}
+			}
+			let r = messageThing.data.message.split(" ");
+			r = r.map((t) => {
+				if (
+					((t) => {
+						let filtered = false;
+						for (const i of ss) {
+							if (t.toLocaleLowerCase().includes(i)) {
+								filtered = true;
+								break;
+							}
+						}
+						return !!filtered;
+					})(t)
+				) {
+					return new Array(t.length + 1).join("*");
+				}
+				return t;
+			});
+			msg.textContent = r.join(" ");
+			e.contentsEl.appendChild(msg);
+			msg.scrollIntoView({
+				behavior: "smooth",
+			});
+			this.toggledVisible = true;
+			this.updateVisibility();
+		}
+	}
+	updateVisibility() {
+		const t = getMain();
+		const e =
+			!this.game.usedForCameraShotsOnly &&
+			t.network.squadManager.userVisibleSquadId != "M8M6" &&
+			!(!t.settingsManager.getValue("chatEnabled") || t.settingsManager.getValue("hideUi")) &&
+			(document.activeElement == this.textBoxEl ||
+				(!!this.toggledVisible && t.network.squadManager.isInSquad));
+		this.visible = e;
+		this.el.classList.toggle("hidden", !e);
+	}
+	updateTouchButtonVisibility() {
+		const t = getMain();
+		const touch = t.input.touch;
+		if (touch.chatButton) {
+			const i = t.network.squadManager.isInSquad && t.settingsManager.getValue("chatEnabled");
+			touch.chatButton.setVisibility(i);
+		}
+	}
+	updateHeight() {
+		this.el.classList.toggle("up", this.game.cornerStatsUi.visible);
+	}
+}
+class os extends Ve {
+	radius;
+	pos = new Vector3();
+	aabb;
+	constructor(...t) {
+		super(...t);
+		this.radius = this.worldMatrix.getMaxScaleOnAxis();
+		this.pos.setFromMatrixPosition(this.worldMatrix);
+		const e = this.pos.clone().subScalar(this.radius);
+		const i = this.pos.clone().addScalar(this.radius);
+		this.aabb = new Box3(e, i);
+	}
+	getSphereManifold(t, e) {
+		return ze(t, e, this.pos, this.radius);
+	}
+	rayCast(t, e) {
+		const i = this.pos.clone().sub(t);
+		const s = i.length();
+		if (s < this.radius) {
+			return {
+				dist: 0,
+				pos: t.clone(),
+				collider: this,
+			};
+		}
+		const n = i.clone().projectOnVector(e);
+		if (n.dot(e) < 0) {
+			return null;
+		}
+		const o = n.length();
+		const a = Math.sqrt(s ** 2 - o ** 2);
+		if (a > this.radius) {
+			return null;
+		}
+		const dist = o - Math.sqrt(this.radius ** 2 - a ** 2);
+		const l = e.clone();
+		l.setLength(dist);
+		return {
+			pos: t.clone().add(l),
+			dist,
+			collider: this,
+		};
+	}
+}
+class OctreeNode {
+	items: Collider[] = [];
+	allChildren: OctreeNode[] = [];
+	children = new Set<OctreeNode>();
+	constructor(
+		public aabb: Box3,
+		public depth = 0,
+	) {}
+	addItems(items) {
+		for (const item of items) {
+			this.items.push(item);
+		}
+	}
+	subdivideRecursive({ boundsContainsCb, maxDepth, itemCountDivideLimit }) {
+		if (!(this.depth >= maxDepth || this.items.length <= itemCountDivideLimit)) {
+			this.subdivide();
+			for (const s of this.children) {
+				for (const e of this.items) {
+					if (boundsContainsCb(e, s.aabb)) {
+						s.addItems([e]);
+					}
+				}
+				if (s.items.length <= 0) {
+					this.children.delete(s);
+				} else {
+					s.subdivideRecursive({
+						boundsContainsCb,
+						maxDepth,
+						itemCountDivideLimit,
+					});
+				}
+			}
+			this.items = [];
+		}
+	}
+	subdivide() {
+		const min = this.aabb.min;
+		const max = this.aabb.max;
+		const i = this.aabb.getCenter(new Vector3());
+		for (let index = 0; index < 8; index++) {
+			const n = new Box3();
+			if (index % 2 < 1) {
+				n.min.x = min.x;
+				n.max.x = i.x;
+			} else {
+				n.min.x = i.x;
+				n.max.x = max.x;
+			}
+			if (index % 4 < 2) {
+				n.min.y = min.y;
+				n.max.y = i.y;
+			} else {
+				n.min.y = i.y;
+				n.max.y = max.y;
+			}
+			if (index < 4) {
+				n.min.z = min.z;
+				n.max.z = i.z;
+			} else {
+				n.min.z = i.z;
+				n.max.z = max.z;
+			}
+			const node = new OctreeNode(n, this.depth + 1);
+			this.children.add(node);
+			this.allChildren[index] = node;
+		}
+	}
+	*traverseDown(t = () => true) {
+		if (t(this)) {
+			yield this;
+			for (const e of this.children) {
+				for (const i of e.traverseDown(t)) {
+					yield i;
+				}
+			}
+		}
+	}
+	*findEndNodes(t = () => true) {
+		for (const e of this.traverseDown(t)) {
+			if (e.items.length != 0) {
+				yield e;
+			}
+		}
+	}
+}
+class PhysicsManager {
+	rigidBodies = new Set();
+	mapColliders: Collider[] = [];
+	rootOctreeNode: OctreeNode | null = null;
+	octreeMaxDepth = 5;
+	mapBounds = null;
+	octreeAxisVoxelCount = 0;
+	worldToOctreeVoxelSpaceMultiplier = new Vector3();
+	isLoweringTimeScale = false;
+	timeScale = 1;
+	stepCount = 10;
+	flyRoofHeight = Infinity;
+	flySphereRadius = Infinity;
+	flySphereCenter = new Vector3(0, 0, 0);
+	constructor() {
+		const t = getMain().mapLoader.mapVariablesManager;
+		t.onVariablesChanged(() => {
+			this.flyRoofHeight = t.get("flyRoofHeight");
+			this.flySphereCenter.fromArray(t.get("flySphereCenter"));
+			this.flySphereRadius = t.get("flySphereRadius");
+		});
+	}
+	destructor() {}
+	loop(t, e) {
+		if (this.isLoweringTimeScale) {
+			this.timeScale -= 0.0003 * e;
+			if (this.timeScale < 0.01) {
+				this.timeScale = 0.01;
+				this.isLoweringTimeScale = false;
+			}
+		}
+		for (const t of this.rigidBodies) {
+			if (t.enabled) {
+				t.beginPhysicsSteps();
+			}
+		}
+		const i = (e * this.timeScale) / 1000 / this.stepCount;
+		for (let t = 0; t < this.stepCount; t++) {
+			for (const t of this.rigidBodies) {
+				if (t.enabled) {
+					t.stepVelocity(i);
+				}
+			}
+			for (const t of this.rigidBodies) {
+				if (t.enabled) {
+					t.resolveMapCollisionsOctree(i);
+				}
+			}
+		}
+		for (const t of this.rigidBodies) {
+			if (t.enabled) {
+				t.endPhysicsSteps();
+			}
+		}
+	}
+	startLoweringTimeScale() {
+		this.isLoweringTimeScale = true;
+	}
+	resetTimeScale() {
+		this.isLoweringTimeScale = false;
+		this.timeScale = 1;
+	}
+	registerRigidBody(t) {
+		this.rigidBodies.add(t);
+		return t;
+	}
+	removeRigidBody(t) {
+		this.rigidBodies.delete(t);
+	}
+	addMapCollider(t) {
+		const e = new Matrix4().fromArray(t.matrix);
+		const i = t.colliderType == "sphere" ? new os(e, t) : new je(e, t);
+		this.mapColliders.push(i);
+		return i;
+	}
+	removeMapColliders() {
+		this.mapColliders = [];
+		this.rootOctreeNode = null;
+	}
+	buildOctree() {
+		if (this.mapColliders.length <= 0) {
+			return;
+		}
+		const t = new Box3();
+		for (const e of this.mapColliders) {
+			if (e.aabb) {
+				t.expandByPoint(e.aabb.min);
+				t.expandByPoint(e.aabb.max);
+			}
+		}
+		this.mapBounds = t;
+		this.octreeAxisVoxelCount = 2 ** this.octreeMaxDepth;
+		const e = t.getSize(new Vector3());
+		this.worldToOctreeVoxelSpaceMultiplier.set(1, 1, 1);
+		this.worldToOctreeVoxelSpaceMultiplier.divide(e);
+		this.worldToOctreeVoxelSpaceMultiplier.multiplyScalar(this.octreeAxisVoxelCount);
+		this.rootOctreeNode = new OctreeNode(t);
+		this.rootOctreeNode.addItems(this.mapColliders);
+		this.rootOctreeNode.subdivideRecursive({
+			boundsContainsCb: (t, e) => !!t.aabb && t.aabb.intersectsBox(e),
+			maxDepth: this.octreeMaxDepth,
+			itemCountDivideLimit: 10,
+		});
+	}
+	getOctreeNodesInAabb(box: Box3, e = true) {
+		const nodes = new Set<OctreeNode>();
+		if (!this.rootOctreeNode) {
+			return nodes;
+		}
+		const minSpace = this.worldToOctreeVoxelSpace(box.min);
+		const maxSpace = this.worldToOctreeVoxelSpace(box.max);
+		for (let x = minSpace[0]; x <= maxSpace[0]; x++) {
+			for (let y = minSpace[1]; y <= maxSpace[1]; y++) {
+				for (let z = minSpace[2]; z <= maxSpace[2]; z++) {
+					const path = this.octreeVoxelSpaceToNodePath([x, y, z]);
+					if (path) {
+						const node = this.getOctreeNodeForPath(path);
+						if (node && (node.items.length > 0 || !e)) {
+							nodes.add(node);
+						}
+					}
+				}
+			}
+		}
+		return nodes;
+	}
+	getCollidersFromOctreeNodes(octreeNodes): Set<Collider> {
+		const e = new Set();
+		for (const i of octreeNodes) {
+			for (const t of i.items) {
+				e.add(t);
+			}
+		}
+		return e;
+	}
+	getCollidersForAabbUsingOctree(box: Box3) {
+		return this.getCollidersFromOctreeNodes(this.getOctreeNodesInAabb(box));
+	}
+	worldToOctreeVoxelSpace(vec: Vector3) {
+		const e = vec.clone();
+		if (!this.mapBounds) {
+			throw new Error("Failed to convert coordinate, octree hasn't been built");
+		}
+		e.clamp(this.mapBounds.min, this.mapBounds.max);
+		e.sub(this.mapBounds.min);
+		e.multiply(this.worldToOctreeVoxelSpaceMultiplier);
+		return [Math.floor(e.x), Math.floor(e.y), Math.floor(e.z)];
+	}
+	octreeVoxelSpaceToNodePath([e, i, s]) {
+		if (
+			e < 0 ||
+			i < 0 ||
+			s < 0 ||
+			e > this.octreeAxisVoxelCount - 1 ||
+			i > this.octreeAxisVoxelCount - 1 ||
+			s > this.octreeAxisVoxelCount - 1
+		) {
+			return null;
+		}
+		let oAVC = this.octreeAxisVoxelCount;
+		let oAVC_1 = this.octreeAxisVoxelCount;
+		let oAVC_2 = this.octreeAxisVoxelCount;
+		const r = [];
+		for (let t = 0; t < this.octreeMaxDepth; t++) {
+			const t = oAVC >> 1;
+			const l = oAVC_1 >> 1;
+			const h = oAVC_2 >> 1;
+			let d = 0;
+			if (e % oAVC >= t) {
+				d += 1;
+			}
+			if (i % oAVC_1 >= l) {
+				d += 2;
+			}
+			if (s % oAVC_2 >= h) {
+				d += 4;
+			}
+			r.push(d);
+			oAVC = t;
+			oAVC_1 = l;
+			oAVC_2 = h;
+		}
+		return r;
+	}
+	getOctreeNodeForPath(t: number[]) {
+		let rootOctreeNode = this.rootOctreeNode;
+		for (const i of t) {
+			if (!rootOctreeNode) {
+				return null;
+			}
+			if (rootOctreeNode.allChildren.length <= 0) {
+				return rootOctreeNode;
+			}
+			rootOctreeNode = rootOctreeNode.allChildren[i];
+		}
+		return rootOctreeNode;
+	}
+	*getColliders() {
+		for (const t of this.mapColliders) {
+			yield t;
+		}
+		for (const t of this.getPlayerColliders()) {
+			yield t;
+		}
+	}
+	*getPlayerColliders() {
+		for (const t of this.rigidBodies) {
+			if (t instanceof RigidBody) {
+				for (const e of t.colliders) {
+					yield e;
+				}
+			}
+		}
+	}
+	getRayCastCache(t, e) {
+		const i = e.clone().sub(t);
+		i.setLength(1);
+		if (i.length() == 0) {
+			return null;
+		}
+		const s = new Box3();
+		s.expandByPoint(t);
+		s.expandByPoint(e);
+		const octreeNodes = this.getOctreeNodesInAabb(s);
+		return {
+			from: t.clone(),
+			to: e.clone(),
+			dir: i,
+			length: t.distanceTo(e),
+			octreeNodes,
+		};
+	}
+	rayCastMapColliders(t, e = null) {
+		return this.rayCastHelper(t, this.getCollidersFromOctreeNodes(t.octreeNodes), e);
+	}
+	rayCastPlayerColliders(t, e = null) {
+		return this.rayCastHelper(t, this.getPlayerColliders(), e);
+	}
+	rayCastHelper(t, colliders: Collider[], i = null) {
+		let s = null;
+		for (const collider of colliders) {
+			const e = collider.rayCast(t.from, t.dir);
+			if (e && e.dist < t.length && (!s || e.dist < s.dist)) {
+				const t = e;
+				if (i && !i(t)) {
+					continue;
+				}
+				s = t;
+			}
+		}
+		return s;
+	}
+}
+type GlobalVariables = { probability?: number };
+class ls {
+	lastReceivedGlobalVariables: GlobalVariables = {};
+	lastReceivedRandomVariablesArray: GlobalVariables[] = [];
+	currentVariablesIndex = -1;
+	variablesIndexSeed = 123;
+	defaultValues = {
+		floorDeathHeight: -16,
+		sphereDeathRadius: 0,
+		flyRoofHeight: Infinity,
+		flySphereCenter: [0, 0, 0],
+		flySphereRadius: Infinity,
+		cloudsHeight: 0,
+		waterSfxVolume: 0,
+		waterSfxHeight: 0,
+		windSfxVolume: 0.002,
+		windSfxBoostVolume: 0,
+		windSfxBoostHeight: 0,
+		birdsSfxVolume: 0.003,
+		jungleSfxVolume: 0,
+		rainSfxVolume: 0,
+		insectsSfxVolume: 0,
+		skyHighColor: [0, 0.415, 0.96],
+		skyMidColor: [0.807, 0.89, 0.933],
+		skyLowColor: [0.807, 0.89, 0.933],
+		skyPower: 0.6,
+		fogAmount: 0.002,
+		fogHeightAmount: 0,
+		fogHeightOffset: 0,
+		fogHeightDistFalloff: 0,
+		fogHeightAmountMin: 0,
+		fogHeightAmountMax: 1,
+		colorMultiplier: [0.78, 0.811, 0.941],
+		colorMultiplierAdjust: 0.15,
+		colorAdder: [0.007, 0.011, 0.011],
+		colorAdderAdjust: -0.009,
+		saturation: 1.2,
+		lightningEnabled: false,
+	};
+	onVariablesChangedCbs = new Set<() => void>();
+	currentVariables;
+	constructor() {
+		this.currentVariables = {
+			...this.defaultValues,
+		};
+	}
+	init() {}
+	setVariables(
+		receivedGlobalVariables: GlobalVariables | undefined,
+		lastReceivedRandomVariablesArray: GlobalVariables[]
+	) {
+		this.lastReceivedGlobalVariables = receivedGlobalVariables || {};
+		this.lastReceivedRandomVariablesArray = lastReceivedRandomVariablesArray;
+		this.updateVariablesIndex();
+		this.updateVariablesFromArray();
+	}
+	updateVariablesIndex() {
+		if (this.lastReceivedRandomVariablesArray.length == 0) {
+			this.currentVariablesIndex = -1;
+		} else {
+			const vars = Array.from(this.lastReceivedRandomVariablesArray.entries()).map(([item, e]) => ({
+				probability: Math.max(0, e.probability || 1),
+				item,
+			}));
+			this.currentVariablesIndex = getVariablesIndex(vars, this.variablesIndexSeed) ?? -1;
+		}
+	}
+	setSeed(seed: number) {
+		this.variablesIndexSeed = seed;
+		this.updateVariablesIndex();
+		this.updateVariablesFromArray();
+	}
+	updateVariablesFromArray() {
+		const current = this.lastReceivedRandomVariablesArray[this.currentVariablesIndex];
+		this.currentVariables = {
+			...this.defaultValues,
+			...this.lastReceivedGlobalVariables,
+			...current,
+		};
+		this.onVariablesChangedCbs.forEach((cb) => cb());
+	}
+	onVariablesChanged(t) {
+		this.onVariablesChangedCbs.add(t);
+	}
+	get(t) {
+		return this.currentVariables[t];
+	}
+}
+class MapLoader {
+	configManager;
+	mapsConfig;
+	onIsLoadingMapChangeCbs = new Set();
+	isLoadingMap = false;
+	loadCloudsCalled = false;
+	environmentIsInit = false;
+	cachedMapHashes = new Set();
+	fetchingMapCbs = new Map();
+	onOneMapAvailableCbs = new Set();
+	firstMapDownloaded = false;
+	onFirstMapDownloadedCbs = new Set();
+	onMapCachedCbs = new Set();
+	mapVariablesManager = new ls();
+	cloudsObj;
+	currentLoadingMapContexts;
+	lastMapLoadRequestId;
+	constructor(t, e) {
+		this.configManager = t;
+		this.mapsConfig = e;
+		this.mapVariablesManager.onVariablesChanged(() => {
+			this.updateWeatherParams();
+			this.updateCloudHeight();
+		});
+		this.cloudsObj = null;
+		this.currentLoadingMapContexts = new Map();
+		this.lastMapLoadRequestId = 0;
+	}
+	async init() {
+		getMain();
+		this.mapsConfig.onConfigChange(async (t) => {
+			this.cachedMapHashes.clear();
+			const e = await this.openCache();
+			if (e) {
+				const i = [];
+				let s = false;
+				for (const n of t.maps) {
+					const t = n.isNasset ? ".nasset" : ".glb";
+					const o = n.assetName + t;
+					const a = new URL(`${this.configManager.basePath}maps/${o}`);
+					a.searchParams.set("hash", n.hash);
+					const r = (async (t) => {
+						let i = false;
+						try {
+							if (await e.match(a.href)) {
+								i = true;
+							}
+						} catch (error) {
+							console.warn(`Couldn't get map (${o}) from cache`, error);
+						}
+						if (i) {
+							s = true;
+							this.markMapAsCached(n.hash, false);
+						}
+					})();
+					i.push(r);
+				}
+				await Promise.all(i);
+				if (s) {
+					this.fireOnMapCachedCbs();
+				}
+			}
+			this.cacheRemainingMaps();
+			this.deleteOldMapCaches();
+		});
+		await this.mapsConfig.waitForConfigLoad();
+		if (!this.mapsConfig.loadedConfigData) {
+			throw new Error("Assertion error, mapsconfig isn't loaded");
+		}
+		this.deleteLegacyCaches();
+		this.mapVariablesManager.init();
+	}
+	async cacheRemainingMaps() {
+		const t = getMain();
+		await this.waitForFirstMapDownload();
+		await t.assets.getPackage("main").waitForLoad();
+		if (!this.mapsConfig.loadedConfigData) {
+			throw new Error("Assertion error, mapsconfig isn't loaded");
+		}
+		try {
+			const e = await t.assets.getMessenger();
+			await e.send.cacheRemainingMaps(
+				Array.from(this.cachedMapHashes),
+				this.mapsConfig.loadedConfigData,
+			);
+		} catch (error) {
+			if (error instanceof AggregateError) {
+				for (const e of error.errors) {
+					if (e instanceof Error) {
+						console.error(e.message);
+					}
+				}
+			}
+		}
+	}
+	async openCache() {
+		if (typeof caches === "undefined") {
+			return null;
+		}
+		try {
+			return await caches.open("maps");
+		} catch (t) {
+			return null;
+		}
+	}
+	markMapAsCached(t, e = true) {
+		if (!this.cachedMapHashes.has(t)) {
+			this.cachedMapHashes.add(t);
+			this.fireFirstMapAvailable();
+			if (e) {
+				this.fireOnMapCachedCbs();
+			}
+		}
+	}
+	hasCachedMap(t) {
+		return this.cachedMapHashes.has(t);
+	}
+	async deleteLegacyCaches() {
+		if (typeof caches === "undefined") {
+			return;
+		}
+		let t = [];
+		try {
+			t = await caches.keys();
+		} catch (error) {
+			console.warn("Unable to delete old map caces", error);
+		}
+		const e = /^mapsV(\d+)$/;
+		for (const i of t) {
+			if (i.match(e)) {
+				(async () => {
+					try {
+						caches.delete(i);
+					} catch (error) {
+						console.warn(`Unable to delete old map cache "${i}""`, error);
+					}
+				})();
+			}
+		}
+	}
+	async deleteOldMapCaches() {
+		const loadedConfigData = this.mapsConfig.loadedConfigData;
+		if (!loadedConfigData) {
+			return;
+		}
+		const e = await this.openCache();
+		if (e) {
+			for (const i of await e.keys()) {
+				let s = false;
+				const n = new URL(i.url).searchParams.get("hash");
+				if (n) {
+					for (const e of loadedConfigData.maps) {
+						if (e.hash == n) {
+							s = true;
+							break;
+						}
+					}
+				}
+				if (!s) {
+					await e.delete(i);
+				}
+			}
+		}
+	}
+	async waitForOneMapAvailable() {
+		if (this.cachedMapHashes.size > 0) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onOneMapAvailableCbs.add(resolve));
+		await t;
+	}
+	fireFirstMapAvailable() {
+		for (const t of this.onOneMapAvailableCbs) {
+			t();
+		}
+		this.onOneMapAvailableCbs.clear();
+	}
+	async waitForFirstMapDownload() {
+		if (this.firstMapDownloaded) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onFirstMapDownloadedCbs.add(resolve));
+		await t;
+	}
+	onMapCached(t) {
+		this.onMapCachedCbs.add(t);
+	}
+	fireOnMapCachedCbs() {
+		this.onMapCachedCbs.forEach((t) => t());
+	}
+	reloadMap() {
+		if (this.lastLoadMapRequest) {
+			this.loadMap(this.lastLoadMapRequest.options, this.lastLoadMapRequest.cb);
+		}
+	}
+	async loadDevMap(t) {
+		await this.loadMap(
+			{
+				request: {
+					type: "dev",
+				},
+				computeNormals: false,
+			},
+			t,
+		);
+	}
+	async loadLoadingMap(t) {
+		await this.loadMap(
+			{
+				request: {
+					type: "loading",
+				},
+				computeNormals: false,
+			},
+			t,
+		);
+	}
+	async loadConfigMap(t, e, i, { retryOnFail = false } = {}) {
+		const config = this.mapsConfig.getListedMapConfigByHash(t);
+		try {
+			if (!config) {
+				throw new MapLoadError(
+					`Failed to load map, "${t}" is not in the mapsConfig.`,
+					"map-not-in-config",
+				);
+			}
+			await this.loadMap(
+				{
+					request: {
+						type: "config",
+						config,
+					},
+					...e,
+				},
+				i,
+			);
+		} catch (error) {
+			if (!(error instanceof MapLoadError)) {
+				throw error;
+			}
+			if (!retryOnFail) {
+				throw error;
+			}
+			await this.reloadMapsConfigAndRetryLoadConfigMap(t, e, i);
+		}
+	}
+	async loadConfigMapWithDialogMessage(t, e, i) {
+		try {
+			await this.loadConfigMap(t, e, i, {
+				retryOnFail: true,
+			});
+			return true;
+		} catch (error) {
+			console.error(error);
+			const e = getMain();
+			const i = e.dialogManager;
+			const title = "Failed to load map";
+			if (error instanceof MapLoadError && error.name == "hash-validation-failed") {
+				i.showAlert({
+					title,
+					text: "Something went wrong while verifying the map.",
+				});
+			} else if (error instanceof MapLoadError && error.name == "map-not-in-config") {
+				const t = "The game you tried to join is using a map that is no longer available";
+				const n = e.network.squadManager.isInSquad
+					? "please wait until the squad has started a new game"
+					: "please try joining another game";
+				i.showAlert({
+					title,
+					text: `${t}, ${n}.`,
+				});
+			} else {
+				i.showAlert({
+					title,
+					text: "Something went wrong while loading the map. Please try again.",
+				});
+			}
+			return false;
+		}
+	}
+	async loadMap(t, cb) {
+		const loadingText = getMain().mainInfoTextManager.requestInfoText("Loading map...", {
+			showPercentage: true,
+			priority: 1,
+			startLoading: true,
+		});
+		loadingText.setPercentage(0);
+		this.initEnvironment();
+		const s = this.lastMapLoadRequestId++;
+		this.currentLoadingMapContexts.set(s, {
+			cb,
+			loadingText,
+		});
+		const n = await getMain().assets.getMessenger();
+		try {
+			const o = await n.send.loadMap(t, s);
+			this.loadMapResponseCbReceived(o, cb);
+		} finally {
+			getMain().mainInfoTextManager.removeInfoText(loadingText);
+			this.currentLoadingMapContexts.delete(s);
+		}
+	}
+	async reloadMapsConfigAndRetryLoadConfigMap(t, e, i) {
+		await this.mapsConfig.load();
+		return await this.loadConfigMap(t, e, i, {
+			retryOnFail: false,
+		});
+	}
+	reportFirstMapDownloaded() {
+		if (!this.firstMapDownloaded) {
+			this.firstMapDownloaded = true;
+			for (const t of this.onFirstMapDownloadedCbs) {
+				t();
+			}
+			this.onFirstMapDownloadedCbs.clear();
+		}
+	}
+	reportMapLoadProgress(t, e) {
+		const i = this.currentLoadingMapContexts.get(e);
+		if (i) {
+			i.loadingText.setPercentage(t);
+		}
+	}
+	setGamplayObjects(t, e) {
+		const i = this.currentLoadingMapContexts.get(e);
+		if (!i) {
+			return;
+		}
+		const s = t.flags.map((t) => ({
+			flagTeamId: t.flagTeamId,
+			pos: new Vector3().fromArray(t.pos),
+			rot: new Quaternion().fromArray(t.rot),
+		}));
+		const spawnPositions = t.spawnPositions.map((t) =>
+			t.map((t) => ({
+				pos: new Vector3().fromArray(t.pos),
+				rot: new Quaternion().fromArray(t.rot),
+			})),
+		);
+		const kingOfTheHillPosition = new Vector3().fromArray(t.kingOfTheHillPosition);
+		i.cb({
+			type: "colliders",
+			colliders: t.colliders,
+		});
+		const gameplayData = {
+			flags: s,
+			spawnPositions,
+			mapName: t.mapName,
+			assetName: t.assetName,
+			kingOfTheHillPosition,
+		};
+		i.cb({
+			type: "gameplay-data",
+			gameplayData,
+		});
+	}
+	loadMapResponseCbReceived(t, e) {
+		const scene = AssetsManager.deserializeThreeObject(t.scene);
+		scene.traverse((t) => {
+			t.frustumCulled = false;
+		});
+		const hinges = [];
+		for (const { object, behavior } of t.hingeObjects) {
+			const hinge = AssetsManager.deserializeThreeObject(object);
+			hinges.push({
+				hinge,
+				behavior,
+			});
+		}
+		const appearingObjects = [];
+		for (const { objects, triggers, behavior } of t.appearingObjects) {
+			const t = [];
+			for (const i of objects) {
+				const object_1 = AssetsManager.deserializeThreeObject(i.object);
+				const startOffset = new Vector3().fromArray(i.startOffset);
+				t.push({
+					...i,
+					startOffset,
+					object: object_1,
+				});
+			}
+			const triggers_1 = [];
+			for (const t of triggers) {
+				triggers_1.push({
+					pos: new Vector3().fromArray(t.pos),
+					radius: t.radius,
+				});
+			}
+			appearingObjects.push({
+				objects: t,
+				triggers: triggers_1,
+				behavior,
+			});
+		}
+		e({
+			type: "scene",
+			scene,
+			appearingObjects,
+			hinges,
+		});
+		if (t.lobbyCamPositions) {
+			const e = t.lobbyCamPositions.map((t) => ({
+				posA: new Vector3().fromArray(t.posA),
+				rotA: new Quaternion().fromArray(t.rotA),
+				posB: new Vector3().fromArray(t.posB),
+				rotB: new Quaternion().fromArray(t.rotB),
+			}));
+			getMain().cam.setLobbyCamPositions(e);
+		}
+		if (t.mapConfig) {
+			this.mapVariablesManager.setVariables(
+				t.mapConfig.globalMapVariables || null,
+				t.mapConfig.randomMapVariableSets || [],
+			);
+		} else {
+			this.mapVariablesManager.setVariables(null, []);
+		}
+		this.fireFirstMapAvailable();
+	}
+	initEnvironment() {
+		if (this.environmentIsInit) {
+			return;
+		}
+		getMain().materials.precompileShaders();
+		this.updateWeatherParams();
+		const t = new SphereGeometry(700, 8, 6);
+		const e = new Mesh(t, getMain().materials.skyDomeMat);
+		e.frustumCulled = false;
+		e.name = "skydome";
+		e.renderOrder = -1;
+		getMain().scene.add(e);
+		this.environmentIsInit = true;
+	}
+	updateWeatherParams() {
+		const t = new Color(...this.mapVariablesManager.get("colorMultiplier"));
+		t.addScalar(this.mapVariablesManager.get("colorMultiplierAdjust"));
+		const colorAdder = new Color(...this.mapVariablesManager.get("colorAdder"));
+		colorAdder.addScalar(this.mapVariablesManager.get("colorAdderAdjust"));
+		getMain().materials.applyWeatherParams({
+			colorMultiplier: t,
+			colorAdder,
+			fogAmount: this.mapVariablesManager.get("fogAmount"),
+			fogHeightAmount: this.mapVariablesManager.get("fogHeightAmount"),
+			fogHeightOffset: this.mapVariablesManager.get("fogHeightOffset"),
+			fogHeightDistFalloff: this.mapVariablesManager.get("fogHeightDistFalloff"),
+			fogHeightAmountMin: this.mapVariablesManager.get("fogHeightAmountMin"),
+			fogHeightAmountMax: this.mapVariablesManager.get("fogHeightAmountMax"),
+			saturation: this.mapVariablesManager.get("saturation"),
+			skyHighColor: new Color(...this.mapVariablesManager.get("skyHighColor")),
+			skyMidColor: new Color(...this.mapVariablesManager.get("skyMidColor")),
+			skyLowColor: new Color(...this.mapVariablesManager.get("skyLowColor")),
+			skyPower: this.mapVariablesManager.get("skyPower"),
+		});
+	}
+	updateCloudHeight() {
+		if (this.cloudsObj) {
+			this.cloudsObj.position.y = this.mapVariablesManager.get("cloudsHeight");
+		}
+	}
+	static disposeMapGeometries(t) {
+		t.traverse((t) => {
+			if (t instanceof Mesh) {
+				t.geometry.dispose();
+			}
+		});
+	}
+	async loadClouds() {
+		if (this.loadCloudsCalled) {
+			return;
+		}
+		this.loadCloudsCalled = true;
+		const t = await getMain().assets.getPackage("main").getFileAsBuffer("clouds.glb");
+		const e = await getMain().assets.getMessenger();
+		const i = await e.send.loadClouds(t);
+		this.cloudsObj = AssetsManager.deserializeThreeObject(i);
+		if (this.cloudsObj) {
+			getMain().scene.add(this.cloudsObj);
+		}
+		this.updateCloudHeight();
+	}
+}
+class PreferredMapManager {
+	mapLoader;
+	mapsConfigLoader;
+	votedScores = new Map();
+	_forcingSoloMap = null;
+	onMatchMakeDataChangeCbs = new Set();
+	constructor(t, e) {
+		this.mapLoader = t;
+		this.mapsConfigLoader = e;
+		t.onMapCached(() => {
+			this.onMatchMakeDataChangeCbs.forEach((t) => t());
+		});
+	}
+	onMatchMakeDataChange(t) {
+		this.onMatchMakeDataChangeCbs.add(t);
+	}
+	getMatchMakePreferredMapHashes() {
+		if (!this.mapsConfigLoader.loadedConfigData) {
+			return null;
+		}
+		const e = [];
+		const forcingSoloMap = this.forcingSoloMap;
+		if (forcingSoloMap) {
+			e.push({
+				hash: forcingSoloMap,
+				preference: 1,
+			});
+		}
+		let n = Infinity;
+		let o = -Infinity;
+		for (const t of this.mapsConfigLoader.loadedConfigData.maps) {
+			if (forcingSoloMap && forcingSoloMap !== t.hash) {
+				continue;
+			}
+			if (!this.mapLoader.hasCachedMap(t.hash)) {
+				continue;
+			}
+			let preference = 0;
+			const a = this.votedScores.get(t.assetName);
+			if (a) {
+				preference = a.votedScore;
+				if (a.hasTemporaryBoost) {
+					preference += 0.5;
+				}
+				preference -= q(0, 3, 1, 0, a.lastPlayedCounter, true);
+			}
+			n = Math.min(n, preference);
+			o = Math.max(o, preference);
+			e.push({
+				hash: t.hash,
+				preference,
+			});
+		}
+		n = clampTo01(n);
+		o = clamp(o, n, 1);
+		if (n == o) {
+			for (const t of e) {
+				t.preference = 0;
+			}
+		} else {
+			for (const t of e) {
+				t.preference = q(n, o, 0, 1, t.preference, true);
+			}
+		}
+		return e;
+	}
+	getMatchMakeData() {
+		if (!this.mapsConfigLoader.loadedConfigData) {
+			return null;
+		}
+		const mapHashes = this.getMatchMakePreferredMapHashes();
+		if (!mapHashes) {
+			return null;
+		}
+		return {
+			op: "preferredMapHashes",
+			mapHashes,
+			configTimestamp: this.mapsConfigLoader.loadedConfigData.lastUpdatedTimestamp,
+			allowPreferredOnly: Boolean(this.forcingSoloMap),
+		};
+	}
+	getRandomPreferredMapHash() {
+		const t = this.getMatchMakePreferredMapHashes();
+		if (!t) {
+			return null;
+		}
+		i = t.map((t) => ({
+			probability: t.preference,
+			item: t.hash,
+		}));
+		const e = selectWeighted(i, Math.random());
+		var i;
+		if (e) {
+			return e;
+		}
+		const s = randomChoice(t);
+		if (s) {
+			return s.hash;
+		}
+		return null;
+	}
+	getOrCreateMapVoteData(t) {
+		let e = this.votedScores.get(t);
+		return (
+			e ||
+			((e = {
+				votedScore: 0,
+				hasTemporaryBoost: false,
+				lastPlayedCounter: 0,
+			}),
+			this.votedScores.set(t, e),
+			e)
+		);
+	}
+	voteMap(t) {}
+	markRecentMap(t) {
+		const e = this.mapsConfigLoader.getListedMapConfigByHash(t);
+		if (!e) {
+			return;
+		}
+		for (const t of this.votedScores.values()) {
+			t.lastPlayedCounter++;
+		}
+		this.getOrCreateMapVoteData(e.assetName).lastPlayedCounter = 0;
+	}
+	forceSoloMap(t) {
+		this._forcingSoloMap = t;
+		this.onMatchMakeDataChangeCbs.forEach((t) => t());
+	}
+	disableForcedSoloMap() {
+		this._forcingSoloMap = null;
+		this.onMatchMakeDataChangeCbs.forEach((t) => t());
+	}
+	get isForcingSoloMap() {
+		return !!this._forcingSoloMap;
+	}
+	get forcingSoloMap() {
+		return this._forcingSoloMap;
+	}
+}
+class cs {
+	appearingObjects = [];
+	destructed = false;
+	constructor() {}
+	destructor() {
+		this.destructed = true;
+		this.removeObjects();
+	}
+	removeObjects() {
+		const scene = getMain().scene;
+		for (const { objects } of this.appearingObjects) {
+			for (const i of objects) {
+				scene.remove(i.object);
+			}
+		}
+		this.appearingObjects = [];
+	}
+	setAppearingObjects(t) {
+		if (this.destructed) {
+			return;
+		}
+		this.removeObjects();
+		const scene = getMain().scene;
+		for (const { objects, triggers, behavior } of t) {
+			const t = [];
+			for (const s of objects) {
+				s.object.matrixAutoUpdate = false;
+				s.object.visible = false;
+				scene.add(s.object);
+				t.push({
+					...s,
+					startPos: s.object.position.clone().add(s.startOffset),
+					endPos: s.object.position.clone(),
+					animationFinished: false,
+				});
+			}
+			this.appearingObjects.push({
+				objects: t,
+				triggers,
+				hasBeenTriggered: false,
+				allAnimationsFinished: false,
+				t: 0,
+				behavior,
+			});
+		}
+	}
+	updatePlayerPositions(t) {
+		for (const e of this.appearingObjects) {
+			const i = e.behavior == "appear" || e.behavior == "toggle";
+			const s = e.behavior == "toggle";
+			if (e.hasBeenTriggered && !s) {
+				continue;
+			}
+			let n = true;
+			for (const i of e.triggers) {
+				let e = false;
+				for (const s of t) {
+					if (s.distanceTo(i.pos) < i.radius) {
+						e = true;
+						break;
+					}
+				}
+				if (!e) {
+					n = false;
+					break;
+				}
+			}
+			if (i && n) {
+				e.hasBeenTriggered = true;
+				let t = 0;
+				for (const { object, duration } of e.objects) {
+					object.visible = true;
+					t = Math.max(duration, t);
+				}
+				getMain().renderer.renderWorthyEventHappened(1000 * t);
+			}
+			if (s && !n) {
+				e.hasBeenTriggered = false;
+				e.t = 0;
+				e.allAnimationsFinished = false;
+				for (const t of e.objects) {
+					t.animationFinished = false;
+					t.object.visible = false;
+				}
+				getMain().renderer.renderWorthyEventHappened();
+			}
+		}
+	}
+	loop(t, e) {
+		for (const t of this.appearingObjects) {
+			if (!t.hasBeenTriggered || t.allAnimationsFinished) {
+				continue;
+			}
+			let i = true;
+			t.t += 0.001 * e;
+			for (const e of t.objects) {
+				if (e.animationFinished) {
+					continue;
+				}
+				let s = q(0, e.duration, 0, 1, t.t, true);
+				s = -(Math.cos(Math.PI * s) - 1) / 2;
+				e.object.position.lerpVectors(e.startPos, e.endPos, s);
+				e.object.updateMatrix();
+				e.object.updateWorldMatrix(false, true);
+				if (s >= 1) {
+					e.animationFinished = true;
+				} else {
+					i = false;
+				}
+			}
+			if (i) {
+				t.allAnimationsFinished = true;
+			}
+		}
+	}
+}
+class HingeManager {
+	hingeObjects = [];
+	activeHingeObjects = new Map();
+	onHingeMoveCbs = new Map();
+	destructed = false;
+	constructor() {}
+	destructor() {
+		this.setHingeObjects([]);
+		this.destructed = true;
+	}
+	setHingeObjects(t) {
+		if (this.destructed) {
+			return;
+		}
+		const scene = getMain().scene;
+		for (const { object } of this.hingeObjects) {
+			scene.remove(object);
+		}
+		this.hingeObjects = [];
+		this.activeHingeObjects.clear();
+		for (const { hinge, behavior } of t) {
+			hinge.matrixAutoUpdate = false;
+			new Quaternion().setFromRotationMatrix(hinge.matrixWorld);
+			this.hingeObjects.push({
+				object: hinge,
+				behavior,
+				defaultWorldMatrix: hinge.matrixWorld.clone(),
+				defaultWorldMatrixInv: hinge.matrixWorld.clone().invert(),
+				worldPos: hinge.position.clone(),
+			});
+			scene.add(hinge);
+		}
+	}
+	shootHinge(t, e, i) {
+		const s = this.hingeObjects[t];
+		if (!s) {
+			return null;
+		}
+		let dampening = 0.99;
+		let springMultiplier = 0.0005;
+		let a = 0.001;
+		if (s.behavior == "light-sturdy") {
+			dampening = 0.9;
+			springMultiplier = 0.01;
+			a = 0.001;
+		}
+		let r = this.activeHingeObjects.get(t);
+		if (!r) {
+			r = {
+				physicsValue: new Ee({
+					dampening,
+					springMultiplier,
+				}),
+			};
+			this.activeHingeObjects.set(t, r);
+		}
+		const l = e.clone().add(i);
+		e = e.clone().applyMatrix4(s.defaultWorldMatrixInv);
+		i = l.clone().applyMatrix4(s.defaultWorldMatrixInv);
+		e.z = 0;
+		i.z = 0;
+		const h = e.clone().cross(i);
+		r.physicsValue.velocity += a * h.z;
+		return s;
+	}
+	onHingeMove(t, e) {
+		let i = this.onHingeMoveCbs.get(t);
+		if (!i) {
+			i = new Set();
+			this.onHingeMoveCbs.set(t, i);
+		}
+		i.add(e);
+	}
+	removeOnHingeMove(t, e) {
+		const i = this.onHingeMoveCbs.get(t);
+		if (i) {
+			i.delete(e);
+			if (i.size <= 0) {
+				this.onHingeMoveCbs.delete(t);
+			}
+		}
+	}
+	loop(t, e) {
+		for (const [i, s] of this.activeHingeObjects) {
+			const n = this.hingeObjects[i];
+			const { object, defaultWorldMatrix } = n;
+			s.physicsValue.loop(t, e);
+			object.matrix.makeRotationZ(s.physicsValue.value);
+			object.matrix.premultiply(defaultWorldMatrix);
+			object.matrixWorld.copy(object.matrix);
+			if (Math.abs(s.physicsValue.value) < 0.0001 && Math.abs(s.physicsValue.velocity) < 0.00001) {
+				this.activeHingeObjects.delete(i);
+			}
+			const r = this.onHingeMoveCbs.get(i);
+			if (r) {
+				r.forEach((t) => t(n));
+			}
+		}
+	}
+}
+class GameTimerUi {
+	gameWrapper;
+	visible = true;
+	el = document.createElement("div");
+	tenMinutesEl;
+	oneMinuteEl;
+	tenSecondsEl;
+	oneSecondEl;
+	timeRemainingData;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("game-timer-container", "whiteBigText", "blueNight");
+		gameWrapper.appendChild(this.el);
+		this.tenMinutesEl = this.addDigitEl();
+		this.oneMinuteEl = this.addDigitEl();
+		const e = document.createElement("span");
+		e.textContent = ":";
+		this.el.appendChild(e);
+		this.tenSecondsEl = this.addDigitEl();
+		this.oneSecondEl = this.addDigitEl();
+		this.timeRemainingData = null;
+		this.updateVisibility();
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	addDigitEl() {
+		const t = document.createElement("span");
+		t.textContent = "-";
+		t.classList.add("timer-digit");
+		this.el.appendChild(t);
+		return t;
+	}
+	setTimeRemaining(remaining) {
+		this.timeRemainingData = {
+			remaining,
+			receivedAt: performance.now(),
+		};
+		this.updateVisibility();
+	}
+	loop(t, e) {
+		if (this.timeRemainingData) {
+			const t = Math.max(
+				0,
+				this.timeRemainingData.remaining - (performance.now() - this.timeRemainingData.receivedAt),
+			);
+			const e = Math.floor(t / 600000);
+			const i = Math.floor(posMod(t, 600000) / 60000);
+			const s = Math.floor(posMod(t, 60000) / 10000);
+			const n = Math.floor(posMod(t, 10000) / 1000);
+			this.tenMinutesEl.textContent = e > 0 ? String(e) : "";
+			this.oneMinuteEl.textContent = String(i);
+			this.tenSecondsEl.textContent = String(s);
+			this.oneSecondEl.textContent = String(n);
+		}
+	}
+	setVisible(t) {
+		this.visible = t;
+		this.updateVisibility();
+	}
+	updateVisibility() {
+		const t = this.visible && this.timeRemainingData;
+		this.el.style.display = t ? "" : "none";
+	}
+}
+class gs {
+	el = document.createElement("div");
+	teamId;
+	teamColor;
+	playerDots;
+	alivePlayers;
+	constructor(t) {
+		this.teamId = t;
+		const e = n_1[t];
+		this.teamColor = e.cssColor;
+		this.playerDots = [];
+		this.alivePlayers = 0;
+	}
+	setPlayerCount(t, e) {
+		const i = (t = Math.min(t, 10)) - this.playerDots.length;
+		const s = -i;
+		for (let t = 0; t < i; t++) {
+			const t = new qi(this.teamColor);
+			this.playerDots.push(t);
+			this.el.append(t.el);
+		}
+		for (let t = 0; t < s; t++) {
+			const t = this.playerDots[this.playerDots.length - 1];
+			this.playerDots.splice(this.playerDots.length - 1, 1);
+			this.el.removeChild(t.el);
+		}
+		for (const [t, i] of this.playerDots.entries()) {
+			const s = t < e;
+			i.setRemoved(!s, true);
+			i.setState(s, 1);
+		}
+		this.alivePlayers = e;
+	}
+	get hasAlivePlayer() {
+		return this.alivePlayers > 0;
+	}
+}
+class EliminationScoreUi {
+	el = document.createElement("div");
+	scoreTeams;
+	constructor(
+		public gameWrapper: HTMLElement,
+		e,
+	) {
+		this.el.classList.add("elimination-score-container");
+		gameWrapper.appendChild(this.el);
+		this.scoreTeams = [];
+		for (let t = 0; t < e; t++) {
+			if (t == 0) {
+				continue;
+			}
+			const e = new gs(t);
+			this.el.appendChild(e.el);
+			this.scoreTeams[t] = e;
+		}
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	setPlayerCount(t, e, i) {
+		const s = this.scoreTeams[t];
+		if (s) {
+			s.setPlayerCount(e, i);
+		}
+	}
+	getWinningTeam() {
+		for (const t of this.scoreTeams) {
+			if (t && t.hasAlivePlayer) {
+				return t.teamId;
+			}
+		}
+		return null;
+	}
+	setVisible(t) {
+		this.el.style.display = t ? "" : "none";
+	}
+}
+class fs {
+	el = document.createElement("div");
+	gamemodeEl;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("active-gamemode-container", "blueNight", "whiteBigText");
+		builtAt.appendChild(this.el);
+		this.el.append("Gamemode: ");
+		this.gamemodeEl = document.createElement("span");
+		this.gamemodeEl.textContent = "-";
+		this.el.append(this.gamemodeEl);
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	setActiveGamemode(t) {
+		this.gamemodeEl.textContent = X(t);
+	}
+	setVisible(t) {
+		this.el.style.display = t ? "" : "none";
+	}
+}
+class KingOfTheHillUi {
+	visible = true;
+	el = document.createElement("div");
+	progressEls;
+	redScore;
+	blueScore;
+	constructor(public gameWrapper: HTMLElement) {
+		this.el.classList.add("king-of-the-hill-ui-container", "wrinkledPaper");
+		this.el.style.cssText = `
+\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		gameWrapper.appendChild(this.el);
+		this.progressEls = [];
+		this.redScore = 0;
+		this.blueScore = 0;
+		for (let t = 0; t < 3; t++) {
+			if (t == 0) {
+				continue;
+			}
+			const e = document.createElement("div");
+			e.classList.add("king-of-the-hill-progress", "container");
+			const i = intRandom(1, 99999);
+			const s = n_1[t];
+			const n = document.createElement("div");
+			n.classList.add("value");
+			e.append(n);
+			this.el.append(e);
+			this.progressEls.push(n);
+			const o = document.createElement("div");
+			o.classList.add("wrinkledPaper", "value-color");
+			n.append(o);
+			o.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${i};
+\t\t\t--wrinkled-paper-color: ${s.cssColor};
+\t\t\t`;
+			this.el.append(e);
+			const a = document.createElement("div");
+			a.classList.add("wrinkledPaper", "bg");
+			e.append(a);
+			a.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${i};
+\t\t\t`;
+			this.el.append(e);
+		}
+		this.setProgress(0, 0, 10);
+		this.updateVisibility();
+	}
+	destructor() {
+		this.gameWrapper.removeChild(this.el);
+	}
+	setProgress(t, e, i) {
+		this.redScore = t;
+		this.blueScore = e;
+		const s = t / i;
+		const n = e / i;
+		this.progressEls[0].style.width = `${100 * s}%`;
+		this.progressEls[1].style.width = `${100 * n}%`;
+	}
+	getWinningTeam() {
+		if (this.redScore > this.blueScore) {
+			return Y;
+		}
+		if (this.blueScore > this.redScore) {
+			return Z;
+		}
+		return null;
+	}
+	setVisible(t) {
+		this.visible = t;
+		this.updateVisibility();
+	}
+	updateVisibility() {
+		const visible = this.visible;
+		this.el.style.display = visible ? "" : "none";
+	}
+}
+const bs = 1000;
+class OnlineGame {
+	#S = null;
+	teamCount = 3;
+	activeGamemode = _;
+	physics = new PhysicsManager();
+	players = new Map<number, Player>();
+	hingeManager = new HingeManager();
+	arrowManager: ArrowManager;
+	crosshair;
+	flags: Flag[] = [];
+	appearingObjectsManager = new cs();
+	gameIsVisible = false;
+	receivedColliders = false;
+	scene: Object3D[] | null = null;
+	onGameIsVisibleCbs = new Set();
+	onUsedForCamShotsOnlyChangeCbs = new Set();
+	_usedForCameraShotsOnly = false;
+	uiVisible = false;
+	activeGamemodeUi = null;
+	flagScoreUi = null;
+	eliminationScoreUi: EliminationScoreUi | null = null;
+	gameTimerUi: GameTimerUi | null = null;
+	kingOfTheHillUi: KingOfTheHillUi | null = null;
+	healthUi: HealthUi;
+	weaponSelectionDialog;
+	playersListDialog;
+	gameOverStatsDialog: GameOverStatsDialog | null = null;
+	cornerNotificationsUi;
+	gameOverNotificationsUi;
+	crosshairNotificationsUi;
+	scoreOffsetNotificationsUi;
+	cornerStatsUi;
+	waitingForPlayersInfoText;
+	gameEndLoweringTimeScaleDuration;
+	gameEndTitleDurationWin;
+	gameEndTitleDurationLose;
+	gameEndPlayersListDuration;
+	gameEndShowStatsDuration;
+	gameEndRewardedAdDuration;
+	gameEndShowStatsAfterRewardedDuration;
+	trackedMyPlayerScores;
+	spawnPositions: { [k]: { pos: Vector3; rot: Quaternion; } } = null;
+	kingOfTheHillPosition = new Vector3();
+	kingOfTheHillSphere: Group | null = new Group();
+	isForegroundGame;
+	gameStartTime;
+	gameStarted;
+	gameEnded;
+	gameSeed;
+	onGameSeedChangeCbs;
+	finishedGameEndFlow;
+	destructed;
+	shouldPlayFinalFlagMusic;
+	currentFinalFlagMusic;
+	currentGameEndWaitingMusic;
+	onMyPlayerChangeCbs;
+	onGameEndCbs;
+	onGameEndFinishCbs;
+	gameEndWaitTimers;
+	gameEndTimerSuddenChangeDisabled;
+	onEstimatedMaxGameEndWaitTimeSuddenChangeCbs;
+	onSdkGameplayStartedChangeCbs;
+	onSquadPlayersChangeCbs;
+	onGameEndAccountStatsChangeCbs;
+	gameEndStepsReachedStatScreens;
+	onGameEndStatsScreenCbs;
+	isDoingGameEndSteps;
+	gameEndMyTotalScore;
+	gameEndReceivedCoins;
+	gameEndCoinsAlreadyDoubled;
+	gameEndShowStatsScreen;
+	gameEndStatsShowTimer;
+	gameEndAdBreakTimer;
+	gameEndRewardedAdTimer;
+	gameEndStatsAfterRewardedAdTimer;
+	currentLoadedMapHash;
+	boundUpdateUiVisible;
+	boundOnPlayerListDown;
+	boundOnPlayerListUp;
+	antiCheat: AntiCheat;
+	chat: Chat;
+	constructor(public gameWrapper: HTMLElement) {
+		this.arrowManager = new ArrowManager(this.physics, this.hingeManager, this.teamCount);
+		this.crosshair = new Crosshair(gameWrapper);
+		this.healthUi = new HealthUi(gameWrapper);
+		this.weaponSelectionDialog = new WeaponSelectionDialog(gameWrapper);
+		getMain().dialogManager.addDialog(this.weaponSelectionDialog);
+		this.playersListDialog = new PlayersListDialog(
+			gameWrapper,
+			this.players,
+			getMain().skins,
+			() => {
+				this.playersListDialog.visible = false;
+				return false;
+			},
+		);
+		getMain().dialogManager.addDialog(this.playersListDialog);
+		this.cornerNotificationsUi = new NotificationsUi(gameWrapper);
+		this.gameOverNotificationsUi = new NotificationsUi(gameWrapper, "centerbig");
+		this.crosshairNotificationsUi = new NotificationsUi(gameWrapper, "crosshair");
+		this.scoreOffsetNotificationsUi = new ScoreOffsetNotificationsUi(gameWrapper);
+		this.cornerStatsUi = new CornerStatsUi(gameWrapper, this);
+		this.waitingForPlayersInfoText = getMain().mainInfoTextManager.requestInfoText(
+			"Waiting for players...",
+			{
+				shouldBounce: false,
+				showInMainMenu: false,
+			},
+		);
+		this.gameEndLoweringTimeScaleDuration = 6;
+		this.gameEndTitleDurationWin = 3;
+		this.gameEndTitleDurationLose = 2;
+		this.gameEndPlayersListDuration = 6;
+		this.gameEndShowStatsDuration = 8;
+		this.gameEndRewardedAdDuration = 15;
+		this.gameEndShowStatsAfterRewardedDuration = 6;
+		this.trackedMyPlayerScores = new Map();
+		this.kingOfTheHillSphere = null;
+		this.isForegroundGame = false;
+		this.gameStartTime = 0;
+		this.gameStarted = false;
+		this.gameEnded = false;
+		this.gameSeed = 0;
+		this.onGameSeedChangeCbs = new Set();
+		this.finishedGameEndFlow = false;
+		this.destructed = false;
+		this.shouldPlayFinalFlagMusic = false;
+		this.currentFinalFlagMusic = null;
+		this.currentGameEndWaitingMusic = null;
+		this.onMyPlayerChangeCbs = new Set();
+		this.onGameEndCbs = new Set();
+		this.onGameEndFinishCbs = new Set();
+		this.gameEndWaitTimers = [];
+		this.gameEndTimerSuddenChangeDisabled = false;
+		this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs = new Set();
+		this.onSdkGameplayStartedChangeCbs = new Set();
+		this.onSquadPlayersChangeCbs = new Set();
+		this.onGameEndAccountStatsChangeCbs = new Set();
+		this.gameEndStepsReachedStatScreens = false;
+		this.onGameEndStatsScreenCbs = new Set();
+		this.isDoingGameEndSteps = false;
+		this.gameEndMyTotalScore = 0;
+		this.gameEndReceivedCoins = 0;
+		this.gameEndCoinsAlreadyDoubled = false;
+		this.gameEndShowStatsScreen = false;
+		this.gameEndStatsShowTimer = null;
+		this.gameEndAdBreakTimer = null;
+		this.gameEndRewardedAdTimer = null;
+		this.gameEndStatsAfterRewardedAdTimer = null;
+		this.currentLoadedMapHash = null;
+		this.boundUpdateUiVisible = this.updateUiVisible.bind(this);
+		getMain().mainMenu.onVisibilityChange(this.boundUpdateUiVisible);
+		this.updateUiVisible();
+		this.boundOnPlayerListDown = this.onPlayerListDown.bind(this);
+		this.boundOnPlayerListUp = this.onPlayerListUp.bind(this);
+		const e = getMain().input.getKey("playerList");
+		e.onPressedDown(this.boundOnPlayerListDown);
+		e.onPressedUp(this.boundOnPlayerListUp);
+		getMain().input.getKey("playerListTouch").onPressedDown(this.boundOnPlayerListDown);
+		this.antiCheat = new AntiCheat();
+		this.antiCheat.onPlayerNeedsReport((t, e, i) => {
+			getMain().network.sendReportCheater(t, e, i);
+		});
+		this.chat = new Chat(gameWrapper, this);
+		getMain().cam.setThirdPersonMode("none");
+		getMain().network.squadManager.onSquadMembersChange(this.#v);
+		this.#v();
+	}
+	destructor() {
+		if (this.destructed) {
+			return;
+		}
+		this.destructed = true;
+		this.setMapScene(null, null);
+		this.fireSdkGameplayStartedChange();
+		this.physics.destructor();
+		for (const t of this.players.values()) {
+			t.destructor();
+		}
+		this.players.clear();
+		this.hingeManager.destructor();
+		this.arrowManager.destructor();
+		this.crosshair.destructor();
+		this.appearingObjectsManager.destructor();
+		for (const t of this.flags) {
+			t.destructor();
+		}
+		if (this.activeGamemodeUi) {
+			this.activeGamemodeUi.destructor();
+		}
+		if (this.flagScoreUi) {
+			this.flagScoreUi.destructor();
+		}
+		if (this.gameTimerUi) {
+			this.gameTimerUi.destructor();
+		}
+		if (this.eliminationScoreUi) {
+			this.eliminationScoreUi.destructor();
+		}
+		this.healthUi.destructor();
+		this.cornerNotificationsUi.destructor();
+		this.gameOverNotificationsUi.destructor();
+		this.crosshairNotificationsUi.destructor();
+		this.scoreOffsetNotificationsUi.destructor();
+		if (this.cornerStatsUi) {
+			this.cornerStatsUi.destructor();
+		}
+		getMain().mainInfoTextManager.removeInfoText(this.waitingForPlayersInfoText);
+		this.chat.destructor();
+		getMain().mainMenu.removeOnVisibilityChange(this.boundUpdateUiVisible);
+		getMain().network.squadManager.removeOnSquadMembersChange(this.#v);
+		const t = getMain().input.getKey("playerList");
+		t.removeCb(this.boundOnPlayerListDown);
+		t.removeCb(this.boundOnPlayerListUp);
+		getMain().input.getKey("playerListTouch").removeCb(this.boundOnPlayerListDown);
+		this.playersListDialog.close();
+		this.closeGameOverStatsDialog();
+		this.weaponSelectionDialog.close();
+		this.gameEndWaitTimers = [];
+		getMain().adBanners.setPageVisibility("gameEnd", false);
+		if (this.currentFinalFlagMusic) {
+			this.currentFinalFlagMusic.stop();
+			this.currentFinalFlagMusic = null;
+		}
+		if (this.currentGameEndWaitingMusic) {
+			this.currentGameEndWaitingMusic.stop();
+			this.currentGameEndWaitingMusic = null;
+		}
+		getMain().classSelectionImageManager.setTeamId(null);
+	}
+	get sdkGameplayStarted() {
+		return !this.gameEnded && !this.isDoingGameEndSteps && !this.destructed;
+	}
+	onSdkGameplayStartedChange(t) {
+		this.onSdkGameplayStartedChangeCbs.add(t);
+	}
+	fireSdkGameplayStartedChange() {
+		this.onSdkGameplayStartedChangeCbs.forEach((t) => t());
+	}
+	setActiveGamemode(t) {
+		this.activeGamemode = t;
+		if (!this.activeGamemodeUi) {
+			this.activeGamemodeUi = new fs(this.gameWrapper);
+		}
+		this.activeGamemodeUi.setActiveGamemode(t);
+		$(t)
+			? this.flagScoreUi ||
+				((this.flagScoreUi = new Wi(this.gameWrapper, this.teamCount)),
+				this.flagScoreUi.onNeedsNotification(this.showFlagNotification.bind(this)))
+			: this.flagScoreUi && (this.flagScoreUi.destructor(), (this.flagScoreUi = null));
+		a0(t)
+			? this.gameTimerUi || (this.gameTimerUi = new GameTimerUi(this.gameWrapper))
+			: this.gameTimerUi && (this.gameTimerUi.destructor(), (this.gameTimerUi = null));
+		t == a1
+			? this.eliminationScoreUi ||
+				(this.eliminationScoreUi = new EliminationScoreUi(this.gameWrapper, this.teamCount))
+			: this.eliminationScoreUi &&
+				(this.eliminationScoreUi.destructor(), (this.eliminationScoreUi = null));
+		if (t == a2) {
+			if (!this.kingOfTheHillUi) {
+				this.kingOfTheHillUi = new KingOfTheHillUi(this.gameWrapper);
+			}
+			this.createKingOfTheHillSphereIfNeeded();
+		} else {
+			if (this.kingOfTheHillUi) {
+				this.kingOfTheHillUi.destructor();
+				this.kingOfTheHillUi = null;
+			}
+			if (this.kingOfTheHillSphere && this.kingOfTheHillSphere.parent) {
+				this.kingOfTheHillSphere.parent.remove(this.kingOfTheHillSphere);
+			}
+		}
+		this.playersListDialog.setActiveGamemode(t);
+	}
+	createKingOfTheHillSphereIfNeeded() {
+		if (this.activeGamemode != a2) {
+			return;
+		}
+		if (this.kingOfTheHillSphere) {
+			return;
+		}
+		if (!this.scene) {
+			return;
+		}
+		const t = new IcosahedronGeometry(a3, 2);
+		const e = t.getAttribute("position");
+		const i = new Float32Array(3 * e.count);
+		const s = [0.04, 0.04, 0];
+		for (let t = 0; t < i.byteLength; t += 3) {
+			for (let e = 0; e < s.length; e++) {
+				i[t + e] = 0.3 * s[e];
+			}
+		}
+		t.setAttribute("color", new BufferAttribute(i, 3));
+		const n = t.clone();
+		n.scale(-1, 1, 1);
+		const o = new Mesh(t, getMain().materials.lightsMat);
+		const l = new Mesh(n, getMain().materials.lightsMat);
+		this.kingOfTheHillSphere = new Group();
+		this.kingOfTheHillSphere.renderOrder = 100;
+		this.kingOfTheHillSphere.add(o);
+		this.kingOfTheHillSphere.add(l);
+		this.kingOfTheHillSphere.updateWorldMatrix(false, true);
+		this.kingOfTheHillSphere.name = "king of the hill sphere";
+		this.scene.add(this.kingOfTheHillSphere);
+		this.updateKingOfTheHillRenderPosition();
+	}
+	updateKingOfTheHillRenderPosition() {
+		if (this.kingOfTheHillSphere) {
+			this.kingOfTheHillSphere.position.copy(this.kingOfTheHillPosition);
+			this.kingOfTheHillSphere.updateWorldMatrix(false, true);
+		}
+	}
+	setGameTimerTimeRemaining(t) {
+		if (this.gameTimerUi) {
+			this.gameTimerUi.setTimeRemaining(t);
+		}
+	}
+	async loadMap(t) {
+		const e = (data) => {
+			if (data.type == "gameplay-data") {
+				this.updateMapGameplayData(data.gameplayData);
+			} else if (data.type == "colliders") {
+				this.physics.removeMapColliders();
+				for (const t of data.colliders) {
+					this.physics.addMapCollider(t);
+				}
+				this.physics.buildOctree();
+				this.receivedColliders = true;
+				this.updateGameIsVisible();
+			} else {
+				if (data.type == "scene") {
+					if (this.destructed) {
+						MapLoader.disposeMapGeometries(data.scene);
+					} else {
+						this.setMapScene(data.scene, t);
+					}
+					this.hingeManager.setHingeObjects(data.hinges);
+					this.appearingObjectsManager.setAppearingObjects(data.appearingObjects);
+				}
+			}
+		};
+		const i = getMain();
+		const i_mapLoader = i.mapLoader;
+		if (
+			!(await i_mapLoader.loadConfigMapWithDialogMessage(
+				t,
+				{
+					teamColors: a5(this.activeGamemode),
+					mirrorSpawnPoints: a5(this.activeGamemode),
+				},
+				e,
+			))
+		) {
+			i.network.closeCurrentConnection();
+		}
+	}
+	setMapScene(scene: Object3D[], e) {
+		if (this.scene) {
+			MapLoader.disposeMapGeometries(this.scene);
+			getMain().scene.remove(this.scene);
+		}
+		this.scene = scene;
+		if (scene) {
+			getMain().scene.add(scene);
+		}
+		this.updateSceneVisibility();
+		this.updateGameIsVisible();
+		this.createKingOfTheHillSphereIfNeeded();
+		this.currentLoadedMapHash = e;
+		this.notifyServerCurrentMap();
+	}
+	#C = null;
+	updateMapGameplayData(mapGameplayData) {
+		if (!this.destructed) {
+			for (const t of this.flags) {
+				t.destructor();
+			}
+			this.flags = [];
+			if ($(this.activeGamemode)) {
+				for (const { flagTeamId, pos, rot } of mapGameplayData.flags) {
+					this.createFlag(flagTeamId, pos, rot);
+				}
+			}
+			this.spawnPositions = mapGameplayData.spawnPositions;
+			if (mapGameplayData.kingOfTheHillPosition) {
+				this.kingOfTheHillPosition = mapGameplayData.kingOfTheHillPosition;
+				this.updateKingOfTheHillRenderPosition();
+			}
+			this.#C = mapGameplayData.assetName;
+		}
+	}
+	setServerGameTime(t) {
+		this.gameStartTime = getMain().now - t;
+	}
+	setServerGameSeed(t) {
+		this.gameSeed = t;
+		this.onGameSeedChangeCbs.forEach((e) => e(t));
+	}
+	onGameSeedChange(t) {
+		this.onGameSeedChangeCbs.add(t);
+	}
+	get gameTime() {
+		if (this.gameStarted) {
+			return getMain().now - this.gameStartTime;
+		}
+		return 0;
+	}
+	notifyServerCurrentMap() {
+		const t = getMain();
+		if (!this.currentLoadedMapHash) {
+			return;
+		}
+		t.network.sendCurrentLoadedMapHash(this.currentLoadedMapHash);
+		if (this.physics.mapBounds) {
+			t.network.sendWorldBounds(this);
+		}
+		t.network.sendDefaultFlagPositions(this);
+		t.network.sendDefaultSpawnPositions(this);
+		t.network.sendKingOfTheHillPosition(this);
+	}
+	createPlayer(id: number, params) {
+		const main = getMain();
+		const s = new Player(
+			this,
+			main.input,
+			main.sfx,
+			this.physics,
+			main.settingsManager,
+			main.hudIcons,
+			id,
+			params,
+		);
+		s.init();
+		this.players.set(id, s);
+		this.playersListDialog.playersListChanged();
+		main.renderer.renderWorthyEventHappened();
+	}
+	destroyPlayer(id: number) {
+		const e = this.players.get(id);
+		if (e) {
+			const i = e.sameSquadOrOwned;
+			e.destructor();
+			this.players.delete(id);
+			this.playersListDialog.playersListChanged();
+			getMain().renderer.renderWorthyEventHappened();
+			if (i) {
+				this.fireSquadPlayersChange();
+			}
+		}
+	}
+	setPlayerOwnership(id: number, ownership: boolean) {
+		const i = this.players.get(id);
+		if (i) {
+			i.setHasOwnership(ownership);
+		}
+		this.updateUsedForCameraShotsOnly();
+		getMain().mainMenu.setJoinState("joined");
+		getMain().gameManager.setJoinedOnce();
+		this.updatePlayerIconVisibilities();
+		this.playersListDialog.playersListChanged();
+		const s = this.getMyTeamId();
+		this.playersListDialog.updateTeamsOrder(s);
+		this.updateMyTeamColor();
+		this.updateWaitingForPlayersText();
+		this.fireSquadPlayersChange();
+		this.onMyPlayerChangeCbs.forEach((t) => t());
+	}
+	getMyTeamColor() {
+		let t = 0;
+		const e = this.getMyPlayer();
+		if (e) {
+			t = e.teamId;
+		}
+		let colors = n_1[t];
+		if (!colors) {
+			colors = n_1[0];
+			t = 0;
+		}
+		return {
+			colors,
+			myTeamId: t,
+		};
+	}
+	updateMyTeamColor() {
+		const { colors, myTeamId } = this.getMyTeamColor();
+		this.weaponSelectionDialog.setCssColor(colors.cssColor, colors.cssColorDark);
+		this.healthUi.setCssColor(colors.cssColor, colors.cssColorDark);
+		getMain().classSelectionImageManager.setTeamId(myTeamId);
+	}
+	setPlayerName(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setPlayerName(e);
+			this.playersListDialog.playersListChanged();
+			if (i.sameSquadOrOwned) {
+				this.fireSquadPlayersChange();
+			}
+		}
+	}
+	setPlayerNameVerified(t) {
+		const e = this.players.get(t);
+		if (e) {
+			e.setNamePlayerVerified();
+			this.playersListDialog.playersListChanged();
+		}
+	}
+	setPlayerTeamId(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setTeamId(e);
+		}
+		this.updateAllEliminationScoreboards();
+		this.playersListDialog.playersListChanged();
+		if (i && i.sameSquadOrOwned) {
+			this.fireSquadPlayersChange();
+		}
+	}
+	setPlayerServerFlyEnabled(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setServerFlyEnabled(e);
+		}
+	}
+	setSameSquadPlayerData(t) {
+		let e = false;
+		for (const { playerId, squadPlayerId, isLeader } of t) {
+			const t = this.players.get(playerId);
+			if (t) {
+				t.setIsSameSquadPlayer(true, squadPlayerId, isLeader);
+				e = true;
+			}
+		}
+		if (e) {
+			this.fireSquadPlayersChange();
+			this.playersListDialog.playersListChanged();
+		}
+	}
+	onSquadPlayersChange(t) {
+		this.onSquadPlayersChangeCbs.add(t);
+	}
+	fireSquadPlayersChange() {
+		this.onSquadPlayersChangeCbs.forEach((t) => t());
+	}
+	setPlayerScores(t) {
+		const e = this.players.get(t.playerId);
+		if (e) {
+			e.setScores(t);
+		}
+		this.playersListDialog.playersListChanged();
+	}
+	createFlag(t, e, i) {
+		const s = new Flag(this.flags.length, t, e, i, this, this.physics);
+		s.onCurrentHoldingPlayerChange(() => {
+			this.updateFlagGrabbedStates();
+		});
+		s.onNearDefaultPosChange(() => {
+			this.updateFlagGrabbedStates();
+		});
+		this.flags.push(s);
+	}
+	*getMyFlags(t = -1) {
+		if (-1 == t) {
+			const e = this.getMyPlayer();
+			if (e) {
+				t = e.teamId;
+			}
+		}
+		for (const e of this.flags) {
+			if (e.teamId == t) {
+				yield e;
+			}
+		}
+	}
+	*getEnemyFlags(t = -1) {
+		for (const e of this.flags) {
+			if (e.teamId != t) {
+				yield e;
+			}
+		}
+	}
+	playerChangeFlag(t, e, i) {
+		const s = this.flags[e];
+		if (s) {
+			const e = this.players.get(t);
+			this.gameEnded ||
+				(i == 0 || i == 1
+					? e && e.dead && e.report(Qe, 1)
+					: i == 3 && e && e.dead && e.report(Qe, 1));
+			if (e) {
+				e.changeFlagFromServer(s, i);
+			} else if (i == 3) {
+				s.returnToDefaultPos();
+			}
+		}
+	}
+	showFlagNotification(t) {
+		const t_type = t.type;
+		let i;
+		if (t.teamId == 1) {
+			i = 2;
+		} else if (t.teamId == 2) {
+			i = 1;
+		}
+		if (i) {
+			const s = `static/img/notificationIcons/flag/${n_1[i].id}/${t_type}.svg`;
+			if (this.uiVisible) {
+				this.cornerNotificationsUi.showIcon(s);
+			}
+			let n = i == this.getMyTeamId();
+			if (!(t.type != "grab" && t.type != "capture")) {
+				n = !n;
+			}
+			let o = n ? "positive" : "negative";
+			if (t.type == "capture") {
+				o += "Important";
+			}
+			getMain().sfx.playSound(`flag/${o}`);
+		}
+		this.updateFinalFlagMusic();
+	}
+	setFlagDroppedPosition(t, e, i, s, n, o, a) {
+		const r = this.flags[t];
+		if (r) {
+			r.setDroppedPosition(e, i, s, n, o, a);
+		}
+	}
+	loop(e, s) {
+		for (const t of this.players.values()) {
+			t.loop(e, s);
+		}
+		for (const t of this.flags) {
+			t.loop(e, s);
+		}
+		if (this.flagScoreUi) {
+			this.flagScoreUi.loop(e, s);
+		}
+		if (this.gameTimerUi) {
+			this.gameTimerUi.loop(e, s);
+		}
+		this.chat.loop();
+		this.hingeManager.loop(e, s);
+		this.arrowManager.loop(e, s);
+		this.crosshair.loop(e, s);
+		this.appearingObjectsManager.loop(e, s);
+		const n = getMain();
+		const cloudsObj = n.mapLoader.cloudsObj;
+		if (cloudsObj) {
+			cloudsObj.rotation.y = 0.00001 * e;
+			cloudsObj.updateWorldMatrix(false, true);
+		}
+		const a = this.getMyPlayer();
+		let r = 0;
+		const l = n.mapLoader.mapVariablesManager.get("windSfxVolume");
+		if (typeof l === "number") {
+			r = l;
+		}
+		let h = 0;
+		let d = 0;
+		const c = n.mapLoader.mapVariablesManager.get("birdsSfxVolume");
+		if (typeof c === "number") {
+			d = c;
+		}
+		let u = 0;
+		const p = n.mapLoader.mapVariablesManager.get("jungleSfxVolume");
+		if (typeof p === "number") {
+			u = p;
+		}
+		let g = 0;
+		const m = n.mapLoader.mapVariablesManager.get("rainSfxVolume");
+		if (typeof m === "number") {
+			g = m;
+		}
+		let f = 0;
+		const w = n.mapLoader.mapVariablesManager.get("insectsSfxVolume");
+		if (typeof w === "number") {
+			f = w;
+		}
+		if (a) {
+			const e = a.pos.y;
+			const s = n.mapLoader.mapVariablesManager.get("windSfxBoostVolume");
+			if (typeof s === "number" && s > 0) {
+				const t = n.mapLoader.mapVariablesManager.get("windSfxBoostHeight");
+				if (typeof t === "number") {
+					const n = Math.max(0, t - e);
+					const o = clampTo01(1 / n - 0.2) * s;
+					r = Math.max(o, r);
+				}
+			}
+			const o = n.mapLoader.mapVariablesManager.get("waterSfxVolume");
+			if (typeof o === "number" && o > 0) {
+				const i = n.mapLoader.mapVariablesManager.get("waterSfxHeight");
+				if (typeof i === "number") {
+					const s = Math.max(0, e - i);
+					h = clamp(0.07 / s, 0, 0.05);
+					h *= o;
+				}
+			}
+		}
+		n.gameManager.setAmbientVolumes(r, h, d, u, g, f);
+		const b = Math.round((performance.now() - n.network.lastReceiveMessageTime) / 100);
+		this.cornerStatsUi.networkStabilityStat.setValue(b);
+		this.physics.loop(e, s);
+		for (const t of this.players.values()) {
+			t.afterPhysicsLoop(e, s);
+		}
+		for (const t of this.flags) {
+			t.afterPhysicsLoop(e, s);
+		}
+	}
+	getMyPlayer() {
+		if (this.finishedGameEndFlow) {
+			return null;
+		}
+		for (const t of this.players.values()) {
+			if (t.hasOwnership) {
+				return t;
+			}
+		}
+		return null;
+	}
+	getMyTeamId() {
+		const t = this.getMyPlayer();
+		if (t) {
+			return t.teamId;
+		}
+		return -1;
+	}
+	updatePlayerIconVisibilities() {
+		const t = this.getMyTeamId();
+		for (const e of this.players.values()) {
+			e.updateIconOwnershipVisibility(t);
+		}
+	}
+	updateWaitingForPlayersText() {
+		this.waitingForPlayersInfoText.setIsLoading(!this.gameStarted);
+	}
+	setPlayerServerData(t, e, i, s, n, o, a = false) {
+		const r = this.players.get(t);
+		if (r) {
+			r.setServerData(e, i, s, n, o, a);
+		}
+		getMain().renderer.renderWorthyEventHappened();
+	}
+	playerServerDataFrameEnded() {
+		const t = Array.from(this.players.values()).map((t) => t.serverPos);
+		this.appearingObjectsManager.updatePlayerPositions(t);
+	}
+	setPlayerPingData(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setPingData(e);
+			if (i.hasOwnership) {
+				this.cornerStatsUi.pingStat.setValue(e);
+			}
+		}
+	}
+	createServerArrow(t, e, i, s, n, o, a, r, l) {
+		const h = this.players.get(t);
+		if (h) {
+			if (h.dead) {
+				h.report(Qe, 1);
+			}
+			h.serverArrowCreated();
+			if (h.bowWeapon) {
+				if (!h.bowWeapon.verifyArrowFrequency(h.avgArrowCreationFrequency)) {
+					h.report(Xe, 3);
+				}
+			} else {
+				h.report(Xe, 1);
+			}
+		}
+		const d = this.getMyPlayer();
+		let networkOffsetPos = new Vector3(0, 0, 0);
+		if (d && h) {
+			const t = d.ping + h.ping;
+			networkOffsetPos = d.getDeltaPositionMsAgo(t);
+		}
+		if (h) {
+			const t = new Vector3(i, s, n);
+			const d = new Vector3(o, a, r);
+			const p = h.getCamPos();
+			const g = p.clone().add(networkOffsetPos);
+			if (t.distanceTo(p) > 3 && t.distanceTo(g) > 3) {
+				t.copy(p);
+				networkOffsetPos.set(0, 0, 0);
+			}
+			this.arrowManager.createArrow(h, {
+				arrowId: e,
+				pos: t,
+				networkOffsetPos,
+				dir: d,
+				fireAmount01: l,
+			});
+		}
+	}
+	getSpawnPosition(team, key) {
+		if (!this.spawnPositions) {
+			throw new Error("Attempted to spawn before spawn positions were loaded");
+		}
+		const i = this.spawnPositions[team];
+		if (i) {
+			return i[key];
+		}
+		return {
+			pos: new Vector3(),
+			rot: new Quaternion(),
+		};
+	}
+	playerClaimedHitByArrow(t, e, i, s) {
+		const n = this.players.get(t);
+		const o = this.players.get(e);
+		if (n && o) {
+			n.playerClaimedHitByArrow(o, i, s);
+		}
+	}
+	playerHitByMelee(t, e) {
+		const i = this.players.get(t);
+		const s = this.players.get(e);
+		if (i && s) {
+			i.hitByMeleeFromServer(s);
+		}
+	}
+	playerHitByArrow(t, e) {
+		const i = this.players.get(t);
+		const s = this.players.get(e);
+		if (i && s) {
+			i.hitByArrowFromServer(s);
+		}
+	}
+	verifiedKillByServer(t, e) {
+		const i = this.players.get(t);
+		const s = this.players.get(e);
+		if (i && s) {
+			s.verifiedKillByServer(i);
+		}
+	}
+	forceSetPlayerHealthFromServer(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.forceSetHealthFromServer(e);
+		}
+	}
+	receivedPlayerPerformAction(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.receivedPerformAction(e);
+		}
+	}
+	receivedPlayerSpawn(t, e, i) {
+		const s = this.players.get(t);
+		if (s) {
+			s.receivedSpawn(e, i);
+		}
+	}
+	receivePlayerChangeClass(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.receiveChangeClassFromServer(e);
+		}
+	}
+	receivePlayerChangeWeaponType(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.receiveChangeWeaponTypeFromServer(e);
+		}
+	}
+	setPlayerEquippedSkinData(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setPlayerEquippedSkinData(e);
+			this.playersListDialog.playersListChanged();
+		}
+		if (i && i.sameSquadOrOwned) {
+			this.fireSquadPlayersChange();
+		}
+	}
+	setPlayerGungameWeaponIndex(t, e) {
+		const i = this.players.get(t);
+		if (i) {
+			i.setGungameWeaponIndex(e);
+		}
+	}
+	updateFlagScoreboard(t) {
+		if (this.flagScoreUi) {
+			this.flagScoreUi.update(t);
+		}
+	}
+	updateAllEliminationScoreboards() {
+		this.updateEliminationScoreboard(Y);
+		this.updateEliminationScoreboard(Z);
+	}
+	updateEliminationScoreboard(teamId: number) {
+		if (!this.eliminationScoreUi) {
+			return;
+		}
+		let e = 0;
+		let i = 0;
+		for (const s of this.players.values()) {
+			s.teamId == teamId && (e++, s.dead || i++);
+		}
+		this.eliminationScoreUi.setPlayerCount(teamId, e, i);
+	}
+	updateFlagGrabbedStates() {
+		const t = new Map();
+		for (const e of this.flags) {
+			let i;
+			if (e.teamId == 1) {
+				i = 2;
+			} else {
+				if (e.teamId != 2) {
+					continue;
+				}
+				i = 1;
+			}
+			if (e.currentHoldingPlayer) {
+				t.set(i, "grab");
+			} else if (!e.isNearDefaultPos) {
+				for (let i = 0; i < this.teamCount; i++) {
+					if (i != e.teamId) {
+						t.set(i, "drop");
+					}
+				}
+			}
+		}
+		for (const e of this.flags) {
+			if (!t.has(e.teamId)) {
+				t.set(e.teamId, "return");
+			}
+		}
+		if (this.flagScoreUi) {
+			for (const [e, i] of t) {
+				this.flagScoreUi.setFlagGrabbedState(e, i);
+			}
+		}
+		getMain().renderer.renderWorthyEventHappened();
+	}
+	async updateFinalFlagMusic() {
+		if (!this.flagScoreUi) {
+			return;
+		}
+		this.shouldPlayFinalFlagMusic = this.flagScoreUi.getFinalFlagHeld() && !this.gameEnded;
+		const t = !!this.currentFinalFlagMusic;
+		if (this.shouldPlayFinalFlagMusic != t) {
+			if (this.shouldPlayFinalFlagMusic) {
+				const t = await getMain().sfx.playSound("music/finalFlag");
+				if (this.currentFinalFlagMusic || !this.shouldPlayFinalFlagMusic) {
+					if (t) {
+						t.stop();
+					}
+				} else {
+					this.currentFinalFlagMusic = t;
+				}
+			} else {
+				if (this.currentFinalFlagMusic) {
+					this.currentFinalFlagMusic.stop();
+					this.currentFinalFlagMusic = null;
+				}
+			}
+		}
+	}
+	showKillNotification() {
+		if (this.uiVisible) {
+			this.crosshairNotificationsUi.showIcon("static/img/notificationIcons/crosshair/kill.svg");
+		}
+	}
+	showKilledNotification() {
+		if (this.uiVisible) {
+			this.crosshairNotificationsUi.showIcon("static/img/notificationIcons/crosshair/killed.svg");
+		}
+	}
+	offsetPlayerScore(t, e, i) {
+		if (this.gameEnded) {
+			return;
+		}
+		const s = this.players.get(t);
+		if (s && s.hasOwnership) {
+			let t = 0;
+			const s = this.trackedMyPlayerScores.get(i);
+			if (s) {
+				t = s;
+			}
+			t += e;
+			this.trackedMyPlayerScores.set(i, t);
+			if (this.uiVisible) {
+				this.scoreOffsetNotificationsUi.showOffsetNotification(e, i);
+				if (e > 0 && i == 1) {
+					this.showKillNotification();
+					getMain().sfx.playSound("feedback/kill");
+					this.#k++;
+					if (this.#k >= 100) {
+						activateSteamAchievement("hundredKillsNoDying");
+					}
+				}
+			}
+		}
+	}
+	#k = 0;
+	ownedPlayerDied() {
+		this.#k = 0;
+	}
+	notifyGameStarted() {
+		this.gameStarted = true;
+		this.#S = performance.now();
+		this.cornerStatsUi.updateVisibility();
+		this.updateWaitingForPlayersText();
+		for (const t of this.players.values()) {
+			t.updateFly();
+		}
+	}
+	receivedGameEndAccountStats(t) {
+		this.gameEndReceivedCoins = t.receivedCoins;
+		this.gameEndCoinsAlreadyDoubled = t.alreadyDoubled;
+		if (t.receivedCoins > 0) {
+			getMain().shopState.provideNewCoinCount(t.newCoinCount);
+		}
+		if (this.gameEndReceivedCoins >= bs) {
+			activateSteamAchievement("thousandCoinsOneGame");
+		}
+		this.updateGameEndShowStatsScreen();
+	}
+	updateGameEndShowStatsScreen() {
+		this.gameEndShowStatsScreen = this.gameEndMyTotalScore > 0 || this.gameEndReceivedCoins > 0;
+		if (this.gameEndStatsShowTimer) {
+			this.gameEndStatsShowTimer.setTotalTime(
+				this.gameEndShowStatsScreen ? this.gameEndShowStatsDuration : 0,
+			);
+		}
+	}
+	notifyGameEnded() {
+		this.gameEnded = true;
+		this.updateFinalFlagMusic();
+		this.updateUsedForCameraShotsOnly();
+		this.cornerStatsUi.updateVisibility();
+		getMain().network.markNextCloseAsIntentional();
+		getMain().recentGameTracker.setRecentGameNetworkData(null);
+		this.fireSdkGameplayStartedChange();
+		this.playersListDialog.visible = false;
+		this.playersListDialog.freezeScores();
+		if (this.#S != null) {
+			if (performance.now() - this.#S > 1800000) {
+				activateSteamAchievement("thirtyMinuteMatch");
+			}
+		}
+		for (const t of this.onGameEndCbs) {
+			t();
+		}
+		this.doGameEndSteps();
+		getMain().profileState.markStateAsStale();
+	}
+	async doGameEndSteps() {
+		if (this.isDoingGameEndSteps) {
+			return;
+		}
+		this.isDoingGameEndSteps = true;
+		const t = getMain();
+		if (
+			t.poki.isShowingRewardedBreak &&
+			(await t.poki.waitForRewardedBreakFinish(), this.destructed || this.finishedGameEndFlow)
+		) {
+			return;
+		}
+		this.fireSdkGameplayStartedChange();
+		const e = this.getMyPlayer();
+		let i;
+		let s = false;
+		let n = true;
+		let o = null;
+		if ($(this.activeGamemode) && this.flagScoreUi) {
+			o = this.flagScoreUi.getWinningTeam();
+		} else if (this.activeGamemode == a1 && this.eliminationScoreUi) {
+			o = this.eliminationScoreUi.getWinningTeam();
+		} else if (this.activeGamemode == a2 && this.kingOfTheHillUi) {
+			o = this.kingOfTheHillUi.getWinningTeam();
+			if (o == null) {
+				n = false;
+			}
+		} else if (a6(this.activeGamemode)) {
+			let t = null;
+			for (const e of this.players.values()) {
+				if (!t || e.scoreTotal > t.scoreTotal) {
+					t = e;
+				}
+			}
+			s = t == e;
+			n = false;
+		} else if (this.activeGamemode == a7 || this.activeGamemode == a8) {
+			let t = 0;
+			let e = 0;
+			for (const i of this.players.values()) {
+				if (i.teamId == Y) {
+					t += i.scoreKills;
+				} else if (i.teamId == Z) {
+					e += i.scoreKills;
+				}
+			}
+			if (t > e) {
+				o = Y;
+			}
+			if (e > t) {
+				o = Z;
+			}
+		}
+		if (o != null) {
+			s = Boolean(e && e.teamId == o);
+		}
+		if (s && this.#C && e) {
+			const t = e.equippedSkinData.equippedSkinIds;
+			if (t && t.includes("monkArms")) {
+				getMain().pilgrimAchievementManager.reportVisitedMap(this.#C);
+			}
+		}
+		i = s ? "victory" : n ? "defeated" : "gameEnded";
+		if (s) {
+			t.poki.happyTime(1);
+		}
+		this.updateUiVisible();
+		if (!t.mainMenu.hideUi && i) {
+			this.gameOverNotificationsUi.showIcon(`static/img/notificationIcons/gameOver/${i}.svg`);
+		}
+		t.cam.setThirdPersonMode("back");
+		t.sfx.playSound(`gameEnd/${s ? "win" : "lose"}`);
+		this.gameEndMyTotalScore = 0;
+		if (e) {
+			this.gameEndMyTotalScore = e.scoreTotal;
+		}
+		const a = s ? this.gameEndTitleDurationWin : this.gameEndTitleDurationLose;
+		const r = this.createGameEndWaitTimer(this.gameEndLoweringTimeScaleDuration + a, "title");
+		const l = this.createGameEndWaitTimer(this.gameEndPlayersListDuration, "playerlist");
+		this.gameEndStatsShowTimer = this.createGameEndWaitTimer(0, "stats");
+		this.gameEndAdBreakTimer = this.createGameEndWaitTimer(10, "adbreak");
+		this.updateGameEndShowStatsScreen();
+		r.start();
+		await Te.promise(1000 * this.gameEndLoweringTimeScaleDuration);
+		if (this.destructed || this.finishedGameEndFlow) {
+			return;
+		}
+		this.physics.startLoweringTimeScale();
+		await Te.promise(1000 * a);
+		if (this.destructed || this.finishedGameEndFlow) {
+			return;
+		}
+		if (!this.currentGameEndWaitingMusic) {
+			this.currentGameEndWaitingMusic = await t.sfx.playSound("music/waiting");
+		}
+		r.clear();
+		this.playersListDialog.setGameEndState(o);
+		this.playersListDialog.visible = true;
+		this.playersListDialog.skipText.setVisibility(true);
+		const autoSkipStatsScreen = t.settingsManager.getValue("autoSkipStatsScreen");
+		if (autoSkipStatsScreen) {
+			this.playersListDialog.skipText.startTimer(this.gameEndPlayersListDuration);
+		}
+		this.playersListDialog.skipText.startCreationCooldown();
+		t.adBanners.setPageVisibility("gameEnd", true);
+		this.gameEndStepsReachedStatScreens = true;
+		this.onGameEndStatsScreenCbs.forEach((t) => t());
+		if (e) {
+			e.updateSmoothCam();
+		}
+		l.start();
+		await this.playersListDialog.skipText.waitForSkip();
+		if (!this.destructed && !this.finishedGameEndFlow) {
+			l.clear();
+			this.playersListDialog.visible = false;
+			if (this.gameEndShowStatsScreen) {
+				let i = 0;
+				if (e) {
+					i = e.teamId;
+				}
+				let s = true;
+				for (const [t, e] of Xi.entries()) {
+					if (!e.includeInCollectorAchievement) {
+						continue;
+					}
+					if (!this.trackedMyPlayerScores.get(t)) {
+						s = false;
+						break;
+					}
+				}
+				if (s) {
+					activateSteamAchievement("allPointTypesCtf");
+				}
+				this.gameOverStatsDialog = new GameOverStatsDialog(this.gameWrapper, {
+					trackedMyPlayerScores: this.trackedMyPlayerScores,
+					totalScore: this.gameEndMyTotalScore,
+					myTeamId: i,
+					receivedCoins: this.gameEndReceivedCoins,
+					coinsAlreadyDoubled: this.gameEndCoinsAlreadyDoubled,
+					autoSkipStatsScreen,
+				});
+				this.gameOverStatsDialog.onRewardedAdIsPlayingChange((t) => {
+					if (t) {
+						this.gameEndTimerSuddenChangeDisabled = true;
+						if (this.gameEndStatsShowTimer) {
+							this.gameEndStatsShowTimer.clear();
+						}
+						if (!this.gameEndRewardedAdTimer) {
+							this.gameEndRewardedAdTimer = this.createGameEndWaitTimer(
+								this.gameEndRewardedAdDuration,
+								"rewarded ad",
+							);
+							this.gameEndRewardedAdTimer.start();
+						}
+						if (!this.gameEndStatsAfterRewardedAdTimer) {
+							this.gameEndStatsAfterRewardedAdTimer = this.createGameEndWaitTimer(
+								this.gameEndShowStatsAfterRewardedDuration,
+								"stats after rewarded",
+							);
+						}
+						if (this.gameEndAdBreakTimer) {
+							this.gameEndAdBreakTimer.clear();
+						}
+						this.gameEndTimerSuddenChangeDisabled = false;
+						this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
+					} else {
+						if (this.gameEndRewardedAdTimer) {
+							this.gameEndRewardedAdTimer.clear();
+							this.gameEndRewardedAdTimer = null;
+						}
+						if (this.gameEndStatsAfterRewardedAdTimer) {
+							this.gameEndStatsAfterRewardedAdTimer.start();
+						}
+					}
+				});
+				t.dialogManager.addDialog(this.gameOverStatsDialog);
+				if (autoSkipStatsScreen) {
+					this.gameOverStatsDialog.skipText.startTimer(this.gameEndShowStatsDuration);
+				}
+				this.gameEndStatsShowTimer.start();
+				await this.gameOverStatsDialog.skipText.waitForSkip();
+				if (this.destructed || this.finishedGameEndFlow) {
+					return;
+				}
+				this.gameEndStatsShowTimer.clear();
+			}
+			this.finishGameEndFlow();
+		}
+	}
+	canEstimateGameEndWaitTime() {
+		if (!this.isDoingGameEndSteps) {
+			return false;
+		}
+		if (this.gameOverStatsDialog && this.gameOverStatsDialog.rewardedAdFailed) {
+			return false;
+		}
+		return !!getMain().settingsManager.getValue("autoSkipStatsScreen");
+	}
+	estimateMaxGameEndWaitTimeSeconds() {
+		if (!this.gameEnded) {
+			return 300;
+		}
+		let t = 0;
+		for (const e of this.gameEndWaitTimers) {
+			t += e.timeRemaining;
+		}
+		return t;
+	}
+	createGameEndWaitTimer(t = 0, e = "") {
+		const i = new ts(t, e);
+		i.onSuddenChange(() => {
+			this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
+		});
+		this.gameEndWaitTimers.push(i);
+		this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
+		return i;
+	}
+	onEstimatedMaxGameEndWaitTimeSuddenChange(t) {
+		this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.add(t);
+	}
+	fireEstimatedMaxGameEndWaitTimeSuddenChange() {
+		if (!this.gameEndTimerSuddenChangeDisabled) {
+			this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.forEach((t) => t());
+		}
+	}
+	onMyPlayerChange(t) {
+		this.onMyPlayerChangeCbs.add(t);
+	}
+	onGameEnd(t) {
+		this.onGameEndCbs.add(t);
+	}
+	onGameEndFinish(t) {
+		this.onGameEndFinishCbs.add(t);
+	}
+	onGameEndStatsScreen(t) {
+		this.onGameEndStatsScreenCbs.add(t);
+	}
+	closeGameOverStatsDialog() {
+		if (this.gameOverStatsDialog) {
+			this.gameOverStatsDialog.close();
+			this.gameOverStatsDialog = null;
+		}
+	}
+	finishGameEndFlow() {
+		if (this.isDoingGameEndSteps) {
+			for (const t of this.players.values()) {
+				t.setHasOwnership(false);
+			}
+			if (this.currentGameEndWaitingMusic) {
+				this.currentGameEndWaitingMusic.stop();
+				this.currentGameEndWaitingMusic = null;
+			}
+			this.onMyPlayerChangeCbs.forEach((t) => t());
+			this.finishedGameEndFlow = true;
+			this.updateUsedForCameraShotsOnly();
+			this.gameOverNotificationsUi.removeIcon();
+			this.playersListDialog.visible = false;
+			this.closeGameOverStatsDialog();
+			getMain().network.closeCurrentConnection(true);
+			this.onGameEndFinishCbs.forEach((t) => t());
+		}
+	}
+	onPlayerListDown() {
+		if (!this.gameEnded) {
+			this.playersListDialog.visible = true;
+		}
+	}
+	onPlayerListUp() {
+		if (!this.gameEnded) {
+			this.playersListDialog.visible = false;
+		}
+	}
+	get usedForCameraShotsOnly() {
+		return this._usedForCameraShotsOnly;
+	}
+	updateUsedForCameraShotsOnly() {
+		const t = Boolean(this.isForegroundGame && this.gameEnded && !this.getMyPlayer());
+		if (t != this._usedForCameraShotsOnly) {
+			this._usedForCameraShotsOnly = t;
+			this.onUsedForCamShotsOnlyChangeCbs.forEach((t) => t());
+		}
+	}
+	becameForegroundGame() {
+		this.isForegroundGame = true;
+		this.updateUsedForCameraShotsOnly();
+		this.updateGameIsVisible();
+		this.updateUiVisible();
+	}
+	updateSceneVisibility() {
+		if (this.scene) {
+			this.scene.visible = this.gameIsVisible;
+		}
+	}
+	updateGameIsVisible() {
+		const t = Boolean(this.isForegroundGame && this.scene && this.receivedColliders);
+		if (t != this.gameIsVisible) {
+			this.gameIsVisible = t;
+			this.updateSceneVisibility();
+			this.onGameIsVisibleCbs.forEach((t) => t());
+			getMain().renderer.renderWorthyEventHappened();
+		}
+	}
+	onGameIsVisible(t) {
+		this.onGameIsVisibleCbs.add(t);
+	}
+	onUsedForCamShotsOnlyChange(t) {
+		this.onUsedForCamShotsOnlyChangeCbs.add(t);
+	}
+	#P = false;
+	#v = () => {
+		if (this.#P) {
+			return;
+		}
+		let t = 0;
+		for (const e of this.players.values()) {
+			e.sameSquadOrOwned && t++;
+		}
+		if (t >= 12) {
+			this.#P = true;
+			activateSteamAchievement("twelvePlayerSquad");
+		}
+	};
+	updateUiVisible() {
+		const t =
+			this.isForegroundGame &&
+			(!getMain().mainMenu.visible || false) &&
+			!this.gameEnded &&
+			!getMain().mainMenu.hideUi;
+		this.setUiVisible(t);
+		getMain().hudIcons.setGlobalVisibility(t);
+	}
+	setUiVisible(t) {
+		this.uiVisible = t;
+		this.healthUi.setVisible(t);
+		if (this.activeGamemodeUi) {
+			this.activeGamemodeUi.setVisible(t);
+		}
+		if (this.flagScoreUi) {
+			this.flagScoreUi.setVisible(t);
+		}
+		if (this.gameTimerUi) {
+			this.gameTimerUi.setVisible(t);
+		}
+		if (this.eliminationScoreUi) {
+			this.eliminationScoreUi.setVisible(t);
+		}
+		if (this.kingOfTheHillUi) {
+			this.kingOfTheHillUi.setVisible(t);
+		}
+		this.crosshair.setGameUiVisibility(t);
+		if (!t) {
+			this.cornerNotificationsUi.removeIcon();
+			this.crosshairNotificationsUi.removeIcon();
+			this.scoreOffsetNotificationsUi.removeAll();
+		}
+	}
+	#x = new WeakSet();
+	#M = 0;
+	reportOwnedPlayerHeadshotKill(t) {
+		if (!this.#x.has(t)) {
+			this.#x.add(t);
+			this.#M++;
+			if (this.#M >= 10) {
+				activateSteamAchievement("headshotTenNoMisses");
+			}
+		}
+	}
+	reportOwnedPlayerHeadshotMiss() {
+		this.#x = new WeakSet();
+		this.#M = 0;
+	}
+}
+class Ss extends Dialog {
+	networkManager;
+	squadManager;
+	gameManager;
+	avatarsManager;
+	skinManager;
+	currentSquadId;
+	squadIdText;
+	copyUrlButton;
+	clipboardPermissionGranted;
+	joinSquadIdInput;
+	joinSquadIdButton;
+	membersTbody;
+	inSquadButtonsContainer;
+	boundOnReadyToJoinChange;
+	startButton;
+	squadSettingsDialog;
+	currentAvatarBlobUrlReferences;
+	boundUpdateSquadId;
+	boundOnSquadIdChange;
+	boundOnSquadMembersChange;
+	boundOnLeaderStateChange;
+	boundOnSquadSettingChange;
+	boundUpdateStartButtonEnabled;
+	boundUpdateStartButtonEnabledFromStartClicked;
+	boundOnInGameChange;
+	constructor(t, e, i, s, n, o) {
+		super(t);
+		this.networkManager = e;
+		this.squadManager = i;
+		this.gameManager = s;
+		this.avatarsManager = n;
+		this.skinManager = o;
+		const a = document.createElement("div");
+		a.classList.add("squad-split-container");
+		this.el.appendChild(a);
+		const r = document.createElement("div");
+		r.classList.add("squad-split-section");
+		a.appendChild(r);
+		const l = document.createElement("h3");
+		l.classList.add("dialogTitle", "blueNight");
+		l.textContent = "Invite someone";
+		r.appendChild(l);
+		const h = document.createElement("div");
+		h.classList.add("squad-id-block");
+		r.appendChild(h);
+		const d = document.createElement("div");
+		d.textContent = "Invite Code:";
+		h.appendChild(d);
+		const c = document.createElement("div");
+		c.classList.add("squad-id-container");
+		h.appendChild(c);
+		this.currentSquadId = null;
+		this.squadIdText = document.createElement("div");
+		this.squadIdText.classList.add("allow-select", "squad-id");
+		c.appendChild(this.squadIdText);
+		const u = document.createElement("div");
+		u.classList.add("squad-id-copied-text");
+		u.textContent = "Copied!";
+		this.copyUrlButton = new CustomButton({
+			isIconButton: true,
+			ariaLabel: "Copy squad id to clipboard",
+			icon: "static/img/menuUI/copy.svg",
+			extraClasses: ["squad-id-button"],
+			onClick: async () => {
+				if (this.currentSquadId != null) {
+					await navigator.clipboard.writeText(this.currentSquadId);
+					u.classList.remove("animating");
+					u.offsetHeight;
+					u.classList.add("animating");
+				}
+			},
+		});
+		c.appendChild(this.copyUrlButton.el);
+		this.copyUrlButton.el.appendChild(u);
+		this.clipboardPermissionGranted = false;
+		this.updateCopyUrlButtonVisibility();
+		this.queryClipboardPermission();
+		const p = document.createElement("div");
+		p.classList.add("squad-split-divider");
+		a.appendChild(p);
+		const g = document.createElement("div");
+		g.classList.add("squad-split-divider-line", "wrinkledLine");
+		g.style.cssText = "--wrinkled-line-seed: 18";
+		p.appendChild(g);
+		const m = document.createElement("span");
+		m.textContent = "or";
+		p.appendChild(m);
+		const f = document.createElement("div");
+		f.classList.add("squad-split-divider-line", "wrinkledLine");
+		f.style.cssText = "--wrinkled-line-seed: 12";
+		p.appendChild(f);
+		const w = document.createElement("div");
+		w.classList.add("squad-split-section");
+		a.appendChild(w);
+		const b = document.createElement("h3");
+		b.classList.add("dialogTitle", "blueNight");
+		b.textContent = "Join existing squad";
+		w.appendChild(b);
+		const y = document.createElement("form");
+		y.classList.add("text-with-submit-form");
+		w.appendChild(y);
+		y.addEventListener("submit", async (t) => {
+			t.preventDefault();
+			if (this.networkManager.hasGameServerConnection) {
+				const t = getMain().dialogManager.showAlert({
+					title: "Are you sure?",
+					text: "If you join this squad, you'll leave the current match.",
+					buttons: [
+						{
+							text: "Yes",
+						},
+						{
+							text: "No",
+						},
+					],
+				});
+				if ((await t.waitForButton()) != 0) {
+					return;
+				}
+			}
+			i.joinExistingSquad(this.joinSquadIdInput.value);
+		});
+		this.joinSquadIdInput = new Ae({
+			placeholder: "Enter a code",
+			extraClasses: ["join-squad-input"],
+			maxLength: 8,
+			onInput: () => {
+				this.updateJoinButtonVisibility();
+			},
+		});
+		y.appendChild(this.joinSquadIdInput.el);
+		this.joinSquadIdButton = new CustomButton({
+			text: "Join",
+		});
+		y.appendChild(this.joinSquadIdButton.el);
+		this.updateJoinButtonVisibility();
+		const S = document.createElement("div");
+		S.classList.add("in-squad-content");
+		this.el.appendChild(S);
+		const v = document.createElement("div");
+		v.classList.add("squad-players-list", "wrinkledPaper", "wrinkled-paper-mask");
+		v.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		S.appendChild(v);
+		const C = document.createElement("table");
+		C.classList.add("itemsTable");
+		v.appendChild(C);
+		this.membersTbody = document.createElement("tbody");
+		C.appendChild(this.membersTbody);
+		this.inSquadButtonsContainer = document.createElement("div");
+		this.inSquadButtonsContainer.classList.add("in-squad-buttons");
+		S.appendChild(this.inSquadButtonsContainer);
+		const readyButton = new CustomButton({
+			text: "Ready",
+			onClick: () => {
+				s.joinGameWithoutAd();
+			},
+		});
+		this.inSquadButtonsContainer.appendChild(readyButton.el);
+		readyButton.enabled = s.readyToJoin;
+		this.boundOnReadyToJoinChange = (t) => {
+			readyButton.enabled = t;
+		};
+		s.onReadyToJoinChange(this.boundOnReadyToJoinChange);
+		this.startButton = new CustomButton({
+			text: "Start",
+			onClick: () => {
+				i.startSquad();
+			},
+		});
+		this.inSquadButtonsContainer.appendChild(this.startButton.el);
+		this.squadSettingsDialog = null;
+		const squadSettingsButton = new CustomButton({
+			isIconButton: true,
+			ariaLabel: "Squad settings",
+			icon: "static/img/menuUI/settings.svg",
+			extraClasses: ["squad-settings-button"],
+			iconSize: 1.5,
+			onClick: () => {
+				if (!this.squadSettingsDialog) {
+					this.squadSettingsDialog = new Le(t, this.squadManager);
+					getMain().dialogManager.addDialog(this.squadSettingsDialog);
+					this.squadSettingsDialog.addOnCloseCb(() => {
+						this.squadSettingsDialog = null;
+					});
+				}
+			},
+		});
+		this.el.appendChild(squadSettingsButton.el);
+		this.currentAvatarBlobUrlReferences = new Set();
+		this.boundUpdateSquadId = this.updateSquadId.bind(this);
+		this.boundOnSquadIdChange = this.onSquadIdChanged.bind(this);
+		i.onUserVisibleSquadIdChange(this.boundOnSquadIdChange);
+		i.onIsJoiningSquadChange(this.boundUpdateSquadId);
+		this.boundOnSquadMembersChange = () => {
+			this.updateMembersUi();
+			this.updateReadyStartButtonVisibility();
+		};
+		this.boundOnLeaderStateChange = () => {
+			this.updateMembersUi();
+		};
+		this.boundOnSquadSettingChange = (t, e) => {
+			if (t == "privateSquad") {
+				this.updateMembersUi();
+			}
+		};
+		i.onSquadMembersChange(this.boundOnSquadMembersChange);
+		i.onMySquadLeaderStateChange(this.boundOnLeaderStateChange);
+		i.onSquadSettingChange(this.boundOnSquadSettingChange);
+		this.boundUpdateStartButtonEnabled = this.updateStartButtonEnabled.bind(this);
+		i.onServerReadyForStartStateChange(this.boundUpdateStartButtonEnabled);
+		this.boundUpdateStartButtonEnabledFromStartClicked = () => {
+			this.updateStartButtonEnabled(true);
+		};
+		i.onStartClickedChange(this.boundUpdateStartButtonEnabledFromStartClicked);
+		this.boundOnInGameChange = () => {
+			this.updateReadyStartButtonVisibility();
+		};
+		s.onActiveGameChange(this.boundOnInGameChange);
+		this.updateSquadId();
+		this.updateMembersUi();
+		this.updateReadyStartButtonVisibility();
+		this.handleRequestInitialSquadId();
+	}
+	destructor() {
+		super.destructor();
+		this.squadManager.removeOnUserVisibleSquadIdChange(this.boundOnSquadIdChange);
+		this.squadManager.removeOnIsJoiningSquadChange(this.boundUpdateSquadId);
+		this.squadManager.removeOnSquadMembersChange(this.boundOnSquadMembersChange);
+		this.squadManager.removeOnMySquadLeaderStateChange(this.boundOnLeaderStateChange);
+		this.squadManager.removeOnSquadSettingChange(this.boundOnSquadSettingChange);
+		this.squadManager.removeOnServerReadyForStartStateChange(this.boundUpdateStartButtonEnabled);
+		this.squadManager.removeOnStartClickedChange(
+			this.boundUpdateStartButtonEnabledFromStartClicked,
+		);
+		this.gameManager.removeOnReadyToJoinChange(this.boundOnReadyToJoinChange);
+		this.gameManager.removeOnCurrentGameChange(this.boundOnInGameChange);
+		if (this.squadSettingsDialog) {
+			this.squadSettingsDialog.close();
+		}
+		for (const t of this.currentAvatarBlobUrlReferences) {
+			t.destructor();
+		}
+		this.currentAvatarBlobUrlReferences.clear();
+	}
+	async handleRequestInitialSquadId() {
+		try {
+			await this.squadManager.requestInitialSquadId();
+		} catch (error) {
+			console.error(error);
+			let e = "An unknown error occurred while requesting the squad id.";
+			if (error instanceof Ie) {
+				e = "Could not connect to the server. Please try again later.";
+			}
+			getMain().dialogManager.showAlert({
+				title: "Error getting squad id",
+				text: e,
+			});
+			this.close();
+		}
+	}
+	onSquadIdChanged() {
+		let userVisibleSquadId = this.squadManager.userVisibleSquadId;
+		if (userVisibleSquadId) {
+			userVisibleSquadId = userVisibleSquadId.trim().toUpperCase();
+		}
+		if (this.joinSquadIdInput.value.trim().toUpperCase() == userVisibleSquadId) {
+			this.joinSquadIdInput.value = "";
+		}
+		this.updateSquadId();
+		this.updateReadyStartButtonVisibility();
+	}
+	updateSquadId() {
+		let t = "...";
+		let e = null;
+		if (this.squadManager.userVisibleSquadId && !this.squadManager.isJoiningSquad) {
+			t = this.squadManager.userVisibleSquadId;
+			e = this.squadManager.userVisibleSquadId;
+		}
+		this.currentSquadId = e;
+		this.squadIdText.textContent = t;
+		this.updateCopyUrlButtonVisibility();
+	}
+	async queryClipboardPermission() {
+		let t;
+		try {
+			t = (
+				await navigator.permissions.query({
+					name: "clipboard-write",
+				})
+			).state;
+		} catch {
+			this.clipboardPermissionGranted = false;
+		}
+		if (t == "granted") {
+			this.clipboardPermissionGranted = true;
+		}
+		this.updateCopyUrlButtonVisibility();
+	}
+	updateCopyUrlButtonVisibility() {
+		const t = this.clipboardPermissionGranted && !!this.currentSquadId;
+		this.copyUrlButton.visible = t;
+	}
+	createMemberAvatarEl(t, e) {
+		const i = document.createElement("div");
+		i.classList.add("player-avatar");
+		const s = 40 * globalThis.devicePixelRatio;
+		let secondBackgroundColor = null;
+		if (-1 == e) {
+			e = 1;
+			secondBackgroundColor = n_1[2].cssColor;
+		}
+		const o = this.avatarsManager
+			.getAvatar({
+				backgroundColor: n_1[e].cssColor,
+				secondBackgroundColor,
+				width: s,
+				height: s,
+				skinObjectOpts: {
+					teamId: e,
+					skin: t.skinData,
+				},
+			})
+			.getBlobUrlReference();
+		this.currentAvatarBlobUrlReferences.add(o);
+		(async () => {
+			const t = await o.getBlobUrl();
+			i.style.backgroundImage = `url("${t}")`;
+		})();
+		return i;
+	}
+	updateMembersUi() {
+		while (this.membersTbody.firstChild) {
+			this.membersTbody.removeChild(this.membersTbody.firstChild);
+		}
+		const t = Array.from(this.squadManager.getSquadMembers());
+		const e = t.every((t) => t.ready);
+		const i = t.every((t) => t.joined);
+		let s = false;
+		if (
+			this.squadManager.currentSquadSettings &&
+			this.squadManager.currentSquadSettings.privateSquad
+		) {
+			s = true;
+		}
+		const n = Array.from(this.currentAvatarBlobUrlReferences);
+		this.currentAvatarBlobUrlReferences.clear();
+		for (const [n, o] of t.entries()) {
+			const t = document.createElement("tr");
+			this.membersTbody.appendChild(t);
+			t.style.cssText = `
+\t\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t\t`;
+			const a = document.createElement("td");
+			a.classList.add("squad-players-leader-container");
+			t.appendChild(a);
+			if (o.leader) {
+				const t = document.createElement("div");
+				t.classList.add("squad-leader-icon");
+				a.appendChild(t);
+			}
+			const { matchmakeServerId, gameServerId } = o;
+			if (
+				!this.squadManager.myClientIsSquadLeader ||
+				!s ||
+				(this.gameManager.activeGame instanceof OnlineGame &&
+					!this.gameManager.activeGame?.gameStarted) ||
+				(matchmakeServerId == null && gameServerId == null)
+			) {
+				const e = document.createElement("td");
+				e.classList.add("squad-players-avatar-container");
+				t.appendChild(e);
+				const i = this.createMemberAvatarEl(o, o.teamId);
+				e.appendChild(i);
+			} else {
+				const e = document.createElement("div");
+				e.classList.add("squad-team-color-selection-group");
+				t.appendChild(e);
+				const i = [];
+				if (matchmakeServerId) {
+					i.push(-1);
+				}
+				i.push(1, 2, 0);
+				for (const t of i) {
+					const i = `squadTeamColor${n}`;
+					const s = document.createElement("label");
+					e.appendChild(s);
+					const a = document.createElement("input");
+					a.type = "radio";
+					a.name = i;
+					a.value = String(t);
+					if (o.teamId == t) {
+						a.checked = true;
+					}
+					a.addEventListener("change", () => {
+						if (matchmakeServerId) {
+							const t = e.querySelector("input:checked");
+							if (t) {
+								this.squadManager.setConfiguredTeamColor(matchmakeServerId, parseInt(t.value, 10));
+							}
+						} else {
+							if (gameServerId) {
+								this.networkManager.sendSquadLeaderChangePlayerTeam(gameServerId, t);
+							}
+						}
+					});
+					s.appendChild(a);
+					s.appendChild(document.createElement("span"));
+					const h = this.createMemberAvatarEl(o, t);
+					s.appendChild(h);
+				}
+			}
+			const h = document.createElement("td");
+			t.appendChild(h);
+			h.textContent = o.name;
+			let d = "";
+			if (o.joined && !i) {
+				d = "Joined";
+			} else if (o.ready && !e) {
+				d = "Ready";
+			}
+			if (d) {
+				const t = document.createElement("span");
+				t.classList.add("players-list-label");
+				t.textContent = d;
+				h.appendChild(t);
+			}
+		}
+		for (const t of n) {
+			t.destructor();
+		}
+		this.updateStartButtonEnabled();
+	}
+	updateJoinButtonVisibility() {
+		const t = this.joinSquadIdInput.value.trim().length > 0;
+		this.joinSquadIdButton.el.style.display = t ? "" : "none";
+	}
+	updateStartButtonEnabled(t = false) {
+		this.startButton.enabled = this.squadManager.startButtonEnabled;
+		if (this.squadManager.startClicked && t) {
+			this.close();
+		}
+	}
+	updateReadyStartButtonVisibility() {
+		let t = false;
+		for (const e of this.squadManager.getSquadMembers()) {
+			t = true;
+			break;
+		}
+		const e = this.gameManager.getOnlineGame();
+		const i = (!e || e.gameEnded) && this.squadManager.userVisibleSquadId != null && t;
+		this.inSquadButtonsContainer.classList.toggle("hidden", !i);
+	}
+}
+class vs {
+	#A;
+	#joinButton;
+	onJoinClickedCbs;
+	el;
+	titleEl;
+	thumbContainer;
+	constructor(t, e) {
+		this.#A = e;
+		this.onJoinClickedCbs = new Set();
+		this.el = document.createElement("div");
+		this.el.classList.add("map-item");
+		this.titleEl = document.createElement("h2");
+		this.titleEl.classList.add("map-item-title", "blueNight");
+		this.titleEl.textContent = e.name;
+		this.el.appendChild(this.titleEl);
+		this.thumbContainer = document.createElement("div");
+		this.thumbContainer.classList.add("map-item-thumb", "wrinkled-paper-mask");
+		this.el.appendChild(this.thumbContainer);
+		if (e.thumbLayers && e.thumbLayers.length > 0) {
+			for (const [i, s] of e.thumbLayers.entries()) {
+				const n = `url("${t.basePath}mapThumbs/${e.assetName}/${i}.webp")`;
+				const o = document.createElement("div");
+				o.classList.add("map-item-thumb-layer");
+				o.style.backgroundImage = `${n}`;
+				o.style.zIndex = String(i);
+				o.style.setProperty("--layer-offset", `${s}px`);
+				this.thumbContainer.appendChild(o);
+			}
+		} else {
+			const i = `url("${t.basePath}mapThumbs/${e.assetName}.webp")`;
+			const s = document.createElement("div");
+			s.classList.add("map-item-thumb-layer", "legacy");
+			s.style.backgroundImage = `${i}`;
+			s.style.setProperty("--layer-offset", "0px");
+			this.thumbContainer.appendChild(s);
+		}
+		this.thumbContainer.style.cssText = `
+\t\t\t--wrinkled-paper-seed: ${intRandom(1, 99999)};
+\t\t`;
+		if (e.label) {
+			const t = document.createElement("span");
+			t.classList.add("map-ribbon", "wrinkledPaper", "blueNight");
+			t.textContent = e.label;
+			this.thumbContainer.appendChild(t);
+		}
+		this.#joinButton = new CustomButton({
+			text: "Join",
+			extraClasses: ["map-item-join-button"],
+			onClick: () => {
+				this.onJoinClickedCbs.forEach((t) => t());
+			},
+		});
+		this.el.appendChild(this.#joinButton.el);
+		this.#L();
+		const i = getMain().getPeliSdk();
+		if (i) {
+			i.entitlements.onChange(this.#L);
+		}
+	}
+	destructor() {
+		const t = getMain().getPeliSdk();
+		if (t) {
+			t.entitlements.removeOnChange(this.#L);
+		}
+	}
+	onJoinClicked(t) {
+		this.onJoinClickedCbs.add(t);
+	}
+	#L = () => {
+		let t = "Join";
+		let e = false;
+		if (this.#A.access == "plusCreateOnly" || this.#A.access == "plusDownloadOnly") {
+			const i = getMain().getPeliSdk();
+			if (i) {
+				e = true;
+				if (!i.entitlements.has("plusRewards")) {
+					t = "Unlock";
+				}
+			} else {
+				t = "Locked";
+			}
+		}
+		if (e) {
+			this.#joinButton.setPeliPlusIcon();
+		} else {
+			this.#joinButton.setIcon(null);
+		}
+		this.#joinButton.setText(t);
+	};
+	highlight() {
+		this.el.scrollIntoView();
+		this.el.classList.add("highlight", "wrinkledPaper");
+	}
+}
+class Cs extends Dialog {
+	#T = new Map();
+	configManager;
+	preferredMapManager;
+	gameManager;
+	mapsContainer = document.createElement("div");
+	maps;
+	constructor(t, e, i, s) {
+		super(t);
+		this.configManager = e;
+		this.preferredMapManager = i;
+		this.gameManager = s;
+		this.mapsContainer.classList.add("maps-container");
+		this.el.appendChild(this.mapsContainer);
+		this.maps = [];
+		this.configManager.mapsConfig.onConfigChange((t) => {
+			this.updateMaps(t);
+		});
+	}
+	destructor() {
+		super.destructor();
+		for (const t of this.maps) {
+			t.destructor();
+		}
+	}
+	updateMaps(t) {
+		this.maps = [];
+		this.#T.clear();
+		while (this.mapsContainer.firstChild) {
+			this.mapsContainer.removeChild(this.mapsContainer.firstChild);
+		}
+		const e = getMain().getPeliSdk();
+		for (const i of t.maps) {
+			if (i.hiddenInUi) {
+				continue;
+			}
+			const t = new vs(this.configManager, i);
+			this.maps.push(t);
+			this.#T.set(i.assetName, t);
+			this.mapsContainer.appendChild(t.el);
+			let s = false;
+			if (!(i.access != "plusCreateOnly" && i.access != "plusDownloadOnly")) {
+				s = true;
+			}
+			t.onJoinClicked(async () => {
+				if (s) {
+					if (!e) {
+						return void getMain().dialogManager.showAlert({
+							title: "Subscription required",
+							text: "A Pelican Party Plus subscription is required to get early access to this map.",
+						});
+					}
+					if (!e.entitlements.has("plusRewards")) {
+						return void e.subscription.showSubscribeModal({
+							flow: "getEarlyAccess",
+						});
+					}
+				}
+				const t = getMain();
+				const squadManager = t.network.squadManager;
+				if (squadManager.isInSquad && !squadManager.myClientIsSquadLeader) {
+					return void t.dialogManager.showAlert({
+						title: "You are currently in a squad",
+						text: "Only the squad leader may choose a map.",
+					});
+				}
+				const o = [i.hash];
+				if (i.alternativeMaps) {
+					const t = i.alternativeMaps.map((t) =>
+						this.configManager.mapsConfig.getListedMapConfigByAssetName(t),
+					);
+					for (const e of t) {
+						if (e) {
+							o.push(e.hash);
+						}
+					}
+				}
+				const a = randomChoice(o);
+				if (!a) {
+					throw new Error("Assertion failed, no map hash found");
+				}
+				this.preferredMapManager.forceSoloMap(a);
+				if (squadManager.myClientIsSquadLeader && !t.gameManager.getOnlineGame()) {
+					squadManager.startSquad();
+					this.close();
+				} else {
+					if (await this.gameManager.checkExistingGameAndJoin()) {
+						this.close();
+					} else {
+						this.preferredMapManager.disableForcedSoloMap();
+					}
+				}
+			});
+		}
+	}
+	highlightItem(t) {
+		const e = this.#T.get(t);
+		if (e) {
+			e.highlight();
+		}
+	}
+}
+class ks extends Dialog {
+	visible;
+	constructor(t) {
+		super(t, {
+			startVisible: false,
+		});
+		this.el.classList.add("ios-pwa-install-dialog");
+		this.el.innerHTML =
+			'\n\t\t\t<h2 class="dialogTitle blueNight">Install Narrow One</h2>\n\t\t\t<ol>\n\t\t\t\t<li>Tap the <span class="text-icon ios-share-icon"></span> icon.</li>\n\t\t\t\t<li>Choose <b>Add to Home Screen<span class="text-icon ios-add-icon"></span></b>.</li>\n\t\t\t</ol>\n\t\t';
+		Ct(this.el);
+		this.visible = true;
+	}
+}
+let Ps = "serviceWorker" in navigator;
+if (navigator.userAgent.includes("AppleWebKit/605.1.15") && !getURLSearchParams().serviceWorker) {
+	Ps = false;
+}
+let xs = false;
+let Ms = null;
+const As = new Set();
+let Is;
+let Ls = false;
+function Ts() {
+	Ls = true;
+	As.forEach((t) => t());
+}
+function Es(t) {
+	As.add(t);
+}
+function Ds() {
+	return Ls;
+}
+function Os() {
+	if (!Ms) {
+		throw new Error("No active service worker registration");
+	}
+	const Ms_waiting = Ms.waiting;
+	if (!Ms_waiting) {
+		throw new Error("No service worker is currently waiting");
+	}
+	Ms_waiting.postMessage({
+		type: "skipWaiting",
+	});
+}
+window.addEventListener("beforeinstallprompt", (t) => {
+	Rs();
+	Is = t;
+	t.preventDefault();
+});
+let Fs = false;
+const Bs = new Set();
+let Vs = false;
+function Rs() {
+	if (!Vs) {
+		Vs = true;
+		Bs.forEach((t) => t());
+	}
+}
+class MainMenu {
+	el = document.getElementById("mainMenu");
+	loadingImageContainer;
+	currentJoinState;
+	loadScreenHidden;
+	toggledVisibilityState;
+	toggleMenuButton;
+	visible;
+	onVisibilityChangeCbs;
+	contentVisible;
+	userProfileDialog;
+	cornerProfile;
+	menuButtonsContainer;
+	loginButton;
+	settingsDialog;
+	settingsButton;
+	shopDialog;
+	shopButton;
+	squadDialog;
+	squadButton;
+	mapsDialog;
+	mapsButton;
+	fullScreenButton;
+	exitFullScreenButton;
+	installButton;
+	installAvailable;
+	installPromptAccepted;
+	updateButton;
+	exitButton;
+	promoBanner;
+	currentMusicSfx;
+	hideUi;
+	constructor(public gameWrapper: HTMLElement) {
+		if (!this.el) {
+			throw new Error("Main menu element not found");
+		}
+		this.loadingImageContainer = document.getElementById("loadingImageContainer");
+		if (!this.loadingImageContainer) {
+			throw new Error("Loading image container element not found");
+		}
+		this.el.addEventListener("mousedown", (t) => {
+			if (t.target == this.el) {
+				this.onGameStartGesture();
+				t.stopImmediatePropagation();
+			}
+		});
+		this.currentJoinState = "joinable";
+		this.loadScreenHidden = false;
+		this.toggledVisibilityState = false;
+		this.toggleMenuButton = new CustomButton({
+			isIconButton: true,
+			extraClasses: ["toggle-menu-button"],
+			icon: "static/img/menuUI/hamburger.svg",
+			onClick: () => {
+				getMain().input.unlockPointer();
+				this.makeMainMenuVisibleFromUserGesture();
+			},
+		});
+		this.toggleMenuButton.visible = false;
+		builtAt.appendChild(this.toggleMenuButton.el);
+		this.visible = true;
+		this.onVisibilityChangeCbs = new Set();
+		this.contentVisible = false;
+		const e = document.createElement("div");
+		e.classList.add("main-menu-top-left");
+		this.el.appendChild(e);
+		this.userProfileDialog = null;
+		this.cornerProfile = new xe();
+		this.cornerProfile.onClick((t) => {
+			this.openUserProfileDialog({
+				showExtraStats: t.altKey,
+			});
+		});
+		e.appendChild(this.cornerProfile.el);
+		this.menuButtonsContainer = document.createElement("div");
+		this.menuButtonsContainer.classList.add("menu-buttons-container", "hidden");
+		e.appendChild(this.menuButtonsContainer);
+		this.loginButton = new MainMenuButton({
+			text: "Log in",
+			icon: "static/img/menuUI/login.svg",
+			onClick: () => {
+				getMain().auth.loginIfNotLoggedIn();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.loginButton.containerEl);
+		this.loginButton.setVisibility(false);
+		this.settingsDialog = null;
+		this.settingsButton = new MainMenuButton({
+			text: "Settings",
+			icon: "static/img/menuUI/settings.svg",
+			iconSizeMultiplier: 0.6,
+			testLabel: "settings",
+			onClick: () => {
+				const e = getMain();
+				this.settingsDialog = new SettingsDialog(builtAt, e.settingsManager, e.dialogManager);
+				getMain().dialogManager.addDialog(this.settingsDialog);
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.settingsButton.containerEl);
+		this.shopDialog = null;
+		this.shopButton = new MainMenuButton({
+			text: "Shop",
+			icon: "static/img/menuUI/shopChest.svg",
+			testLabel: "shop",
+			onClick: () => {
+				this.openShopDialog();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.shopButton.containerEl);
+		this.squadDialog = null;
+		this.squadButton = new MainMenuButton({
+			text: "Squad",
+			icon: "static/img/menuUI/squad.svg",
+			iconSizeMultiplier: 0.8,
+			testLabel: "squad",
+			onClick: () => {
+				this.openSquadDialog();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.squadButton.containerEl);
+		this.mapsDialog = null;
+		this.mapsButton = new MainMenuButton({
+			text: "Maps",
+			icon: "static/img/menuUI/maps.svg",
+			iconSizeMultiplier: 0.6,
+			testLabel: "maps",
+			onClick: () => {
+				this.openMapsDialog();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.mapsButton.containerEl);
+		this.fullScreenButton = new MainMenuButton({
+			text: "Full Screen",
+			icon: "static/img/menuUI/fullScreen.svg",
+			iconSizeMultiplier: 0.6,
+			onClick() {
+				getMain().fullScreenManager.requestFullScreen();
+				getMain().fullScreenManager.suggestAutoFullScreen();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.fullScreenButton.containerEl);
+		this.exitFullScreenButton = new MainMenuButton({
+			text: "Exit Full Screen",
+			icon: "static/img/menuUI/exitFullScreen.svg",
+			iconSizeMultiplier: 0.6,
+			onClick() {
+				getMain().fullScreenManager.exitFullScreen();
+			},
+		});
+		this.menuButtonsContainer.appendChild(this.exitFullScreenButton.containerEl);
+		this.installButton = new MainMenuButton({
+			text: "Install",
+			icon: "static/img/menuUI/download.svg",
+			onClick: async () => {
+				if (
+					(await (async () => {
+						let t;
+						if (Fs) {
+							const e = new ks(getMain().gameWrapper);
+							getMain().dialogManager.addDialog(e);
+							t = "dismissed";
+						} else {
+							if (!Is) {
+								throw new Error("Install available event hasn't fired yet");
+							}
+							Is.prompt();
+							t = (await Is.userChoice).outcome;
+						}
+						return t;
+					})()) == "accepted"
+				) {
+					this.installPromptAccepted = true;
+					this.updateInstallButtonVisibility();
+				}
+			},
+		});
+		this.installButton.setVisibility(false);
+		this.menuButtonsContainer.appendChild(this.installButton.containerEl);
+		this.installAvailable = false;
+		this.installPromptAccepted = false;
+		this.updateButton = new MainMenuButton({
+			text: "Update",
+			icon: "static/img/menuUI/download.svg",
+			isUpdateIcon: true,
+			onClick: async () => {
+				const t = getMain();
+				if (t.gameManager.getOnlineGame()) {
+					const e = t.dialogManager.showAlert({
+						title: "You are currently in a game",
+						text: "Do you want to leave the current match?",
+						buttons: [
+							{
+								text: "Yes",
+							},
+							{
+								text: "No",
+							},
+						],
+					});
+					if ((await e.waitForButton()) != 0) {
+						return;
+					}
+				}
+				Os();
+			},
+		});
+		this.updateButton.setVisibility(false);
+		this.menuButtonsContainer.appendChild(this.updateButton.containerEl);
+		this.exitButton = new MainMenuButton({
+			text: "Exit Round",
+			icon: "static/img/menuUI/exit.svg",
+			isExitButton: true,
+			onClick: async () => {
+				const t = getMain();
+				const e = t.gameManager.getOnlineGame();
+				if (e) {
+					if (e.gameStarted && !e.gameEnded) {
+						let e = "You will not earn any coins from this match.";
+						if (t.network.squadManager.myClientIsSquadLeader) {
+							e = "You are the squad leader so all members will exit this match too.";
+							if (!t.network.squadManager.currentSquadSettings?.privateSquad) {
+								e += " No one will earn any coins from this match.";
+							}
+						}
+						const i = t.dialogManager.showAlert({
+							title: "Are you sure?",
+							text: e,
+							buttons: [
+								{
+									text: "Exit",
+								},
+								{
+									text: "stay in game",
+								},
+							],
+						});
+						if ((await i.waitForButton()) != 0) {
+							return;
+						}
+						getMain().recentGameTracker.setRecentGameNetworkData(null);
+					}
+					if (t.network.squadManager.myClientIsSquadLeader) {
+						t.network.sendSquadLeaderRequestGameExit();
+					} else {
+						t.network.closeCurrentConnection();
+					}
+				}
+			},
+		});
+		this.exitButton.setVisibility(false);
+		this.menuButtonsContainer.appendChild(this.exitButton.containerEl);
+		if (isSteam() || window.matchMedia("(display-mode: standalone)").matches) {
+			this.closeGameButton = new MainMenuButton({
+				text: "Quit Narrow One",
+				icon: "static/img/menuUI/exit.svg",
+				isExitButton: true,
+				onClick: () => {
+					getMain().dialogManager.showAlert({
+						title: "Quit Narrow One?",
+						text: "Are you sure you want to close Narrow One?",
+						buttons: [
+							{
+								text: "Yes",
+								onClick: () => {
+									window.close();
+									setTimeout(() => {
+										getMain().dialogManager.showAlert({
+											title: "Failed to exit",
+											text: "Something went wrong while trying to close Narrow One. Your browser may not support this. Please close the game manually.",
+										});
+									}, 500);
+								},
+							},
+							{
+								text: "No",
+							},
+						],
+					});
+				},
+			});
+			this.menuButtonsContainer.appendChild(this.closeGameButton.containerEl);
+		}
+		Es(() => {
+			this.updateButton.setVisibility(true);
+		});
+		this.promoBanner = null;
+		const i = document.createElement("ul");
+		i.classList.add("bottom-texts", "whiteBigText", "blueNight");
+		this.el.appendChild(i);
+		const s = document.createElement("li");
+		s.textContent = "v1790709288";
+		i.appendChild(s);
+		const n = document.createElement("li");
+		i.appendChild(n);
+		const o = document.createElement("a");
+		o.textContent = "Privacy Policy";
+		o.href = "https://privacy.pelicanparty.co/";
+		o.target = "_blank";
+		n.appendChild(o);
+		this.currentMusicSfx = null;
+		this.hideUi = false;
+	}
+	init() {
+		const t = getMain();
+		t.poki.gameLoadingStart();
+		t.fullScreenManager.onFullScreenChange(() => {
+			this.updateFullScreenButtonVisibility();
+		});
+		t.fullScreenManager.onAutoFullScreenChange(() => {
+			this.updateFullScreenButtonVisibility();
+		});
+		this.updateFullScreenButtonVisibility();
+		t.input.onPointerLockChange((t, e) => {
+			if (!t && e) {
+				this.makeMainMenuVisibleFromUserGesture();
+			}
+			this.updateVisibility();
+		});
+		t.input.onDesiredPointerLockChange(() => {
+			this.updateToggleMenuVisible();
+		});
+		t.input.onDesiredPointerLockChange(() => {
+			this.updateVisibility();
+		});
+		t.input.touch.onTouchSupportedChange(() => {
+			this.updateToggleMenuVisible();
+		});
+		const e = t.input.keys.get("mainMenu");
+		if (!e) {
+			throw new Error("Assertion failed, no main menu key");
+		}
+		e.onPressedDown(() => {
+			t.input.unlockPointer();
+			this.makeMainMenuVisibleFromUserGesture();
+		});
+		t.gameManager.onActiveGameChange((t) => {
+			if (t) {
+				t.onGameIsVisible(() => {
+					this.updateLoadingImageVisibility();
+					this.updateVisibility();
+				});
+				if (t instanceof OnlineGame) {
+					t.onUsedForCamShotsOnlyChange(() => {
+						this.updateVisibility();
+					});
+				}
+			}
+			this.updateVisibility();
+			this.updateLoadingImageVisibility();
+		});
+		t.input.touch.onTouchListenerClick(() => {
+			this.onGameStartGesture();
+		});
+		bi((t) => {
+			const e = getMain().settingsManager.getValue("requireAddressBarHide");
+			if (!t && e) {
+				this.onGameStartGesture();
+			}
+		});
+		t.gameManager.onGameEnd(() => {
+			if (this.shopDialog) {
+				this.shopDialog.close();
+			}
+			if (this.settingsDialog) {
+				this.settingsDialog.close();
+			}
+			if (this.mapsDialog) {
+				this.mapsDialog.close();
+			}
+			this.updateVisibility();
+		});
+		t.gameManager.onActiveGameChange((t) => {
+			this.updateInstallButtonVisibility();
+			this.updateExitGameVisibility();
+			if (t instanceof OnlineGame) {
+				t.onGameEnd(() => {
+					this.updateExitGameVisibility();
+				});
+			}
+		});
+		this.updateInstallButtonVisibility();
+		this.updateExitGameVisibility();
+		this.cornerProfile.init();
+		const i = () => {
+			const isLoggedIn = getMain().auth.isLoggedIn;
+			this.loginButton.setVisibility(!isLoggedIn);
+		};
+		let s;
+		getMain().auth.onLoggedInAccountChange(i);
+		i();
+		t.network.squadManager.onSquadMembersChange(() => {
+			this.updateSquadButtonsText();
+		});
+		t.network.squadManager.onUserVisibleSquadIdChange(() => {
+			this.updateSquadButtonsText();
+		});
+		t.network.squadManager.onMySquadLeaderStateChange(() => {
+			this.updateSquadButtonsText();
+		});
+		t.settingsManager.onValueChange("hideUi", (e) => {
+			this.hideUi = e;
+			getMain().mainInfoTextManager.updateText();
+			const activeGame = t.gameManager.activeGame;
+			if (activeGame) {
+				activeGame.updateUiVisible();
+			}
+		});
+		t.dialogManager.onCurtainVisibilityChange((t) => {
+			this.el.inert = t;
+		});
+		setTimeout(() => {
+			this.makeContentVisible();
+		}, 1500);
+		s = () => {
+			this.installAvailable = true;
+			this.updateInstallButtonVisibility();
+		};
+		if (Vs) {
+			s();
+		} else {
+			Bs.add(s);
+		}
+		getMain().gameManager.onIsInGamesLoopChange(() => {
+			this.updateInstallButtonVisibility();
+		});
+	}
+	loop(t, e) {
+		if (this.shopDialog) {
+			this.shopDialog.loop(t, e);
+		}
+	}
+	updateLoadingImageVisibility() {
+		const t = getMain();
+		const activeGame = t.gameManager.activeGame;
+		if (
+			!this.loadScreenHidden &&
+			activeGame &&
+			activeGame.gameIsVisible &&
+			!t.renderer.webglCreationFailed
+		) {
+			t.poki.gameLoadingFinished();
+			this.loadingImageContainer.classList.add("hidden");
+			setTimeout(() => {
+				this.loadingImageContainer.remove();
+			}, 1000);
+			this.loadScreenHidden = true;
+		}
+	}
+	setJoinState(t) {
+		this.currentJoinState = t;
+		getMain().mainInfoTextManager.updateText();
+		this.updateVisibility();
+		this.updatePlayingMusic();
+	}
+	updateSquadButtonsText() {
+		let t = "Squad";
+		let e = "Exit Round";
+		const squadManager = getMain().network.squadManager;
+		if (squadManager.isInSquad) {
+			t += ` (${squadManager.totalSquadMemberCount})`;
+			if (!squadManager.myClientIsSquadLeader) {
+				e = "Exit Squad";
+			}
+		}
+		this.squadButton.setText(t);
+		this.exitButton.setText(e);
+	}
+	onGameStartGesture() {
+		if (getMain().renderer.webglCreationFailed) {
+			return;
+		}
+		const { didShowSquadDialog } = getMain().gameManager.joinIfNotJoined(true);
+		if (!didShowSquadDialog) {
+			this.toggledVisibilityState = false;
+			this.updateVisibility();
+		}
+	}
+	updateFullScreenButtonVisibility() {
+		const t = getMain().fullScreenManager.shouldShowButton();
+		const e = getMain().fullScreenManager.isFullScreen();
+		this.fullScreenButton.setVisibility(!e && t);
+		this.exitFullScreenButton.setVisibility(e && t);
+	}
+	updateInstallButtonVisibility() {
+		const t =
+			this.installAvailable && !getMain().gameManager.isInGamesLoop && !this.installPromptAccepted;
+		this.installButton.setVisibility(t);
+	}
+	updateExitGameVisibility() {
+		let t = false;
+		const activeGame = getMain().gameManager.activeGame;
+		if (activeGame && activeGame instanceof OnlineGame && !activeGame.gameEnded) {
+			t = true;
+		}
+		this.exitButton.setVisibility(t);
+		if (this.closeGameButton) {
+			this.closeGameButton.setVisibility(!t);
+		}
+	}
+	makeMainMenuVisibleFromUserGesture() {
+		this.toggledVisibilityState = true;
+		this.makeContentVisible();
+		this.updateVisibility();
+		getMain().playerAvatarManager.setGameLoaded();
+	}
+	makeContentVisible() {
+		if (this.contentVisible) {
+			return;
+		}
+		this.contentVisible = true;
+		this.menuButtonsContainer.classList.remove("hidden");
+		const t = getMain();
+		this.promoBanner = new Me(
+			t.config,
+			this,
+			t.gameManager,
+			t.shopState,
+			t.poki,
+			t.dialogManager,
+			t.skins,
+			t.indexedDb,
+		);
+		this.el.appendChild(this.promoBanner.el);
+		this.promoBanner.init();
+	}
+	updateVisibility() {
+		let t = true;
+		const activeGame = getMain().gameManager.activeGame;
+		if (getMain().input.pointerLocked) {
+			t = false;
+		} else if (activeGame instanceof OnlineGame && activeGame.usedForCameraShotsOnly) {
+			t = true;
+		} else if (activeGame && activeGame.gameEnded) {
+			t = false;
+		} else if (this.toggledVisibilityState) {
+			t = true;
+		} else if (activeGame && activeGame.gameIsVisible && activeGame.getMyPlayer()) {
+			t = false;
+		}
+		if (t != this.visible) {
+			this.visible = t;
+			this.el.style.display = t ? "" : "none";
+			const e = getMain();
+			e.gameManager.updateSdkGameplayStarted();
+			e.mainInfoTextManager.updateText();
+			e.fullScreenManager.updateAutoFullScreen();
+			this.cornerProfile.setMainMenuVisibility(t);
+			this.updateToggleMenuVisible();
+			for (const e of this.onVisibilityChangeCbs) {
+				e(t);
+			}
+		}
+	}
+	updateToggleMenuVisible() {
+		const t = getMain();
+		this.toggleMenuButton.visible =
+			!this.visible &&
+			(t.input.touch.touchSupported || !t.input.desiredPointerLockedState) &&
+			!(t.gameManager.activeGame && t.gameManager.activeGame.gameEnded);
+	}
+	onVisibilityChange(t) {
+		this.onVisibilityChangeCbs.add(t);
+	}
+	removeOnVisibilityChange(t) {
+		this.onVisibilityChangeCbs.delete(t);
+	}
+	get shouldPlayMusic() {
+		return this.currentJoinState != "joined";
+	}
+	async updatePlayingMusic() {
+		if (this.shouldPlayMusic != !!this.currentMusicSfx) {
+			if (this.shouldPlayMusic) {
+				const t = await getMain().sfx.playSound("music/mainMenu");
+				if (!t || (!this.currentMusicSfx && this.shouldPlayMusic)) {
+					this.currentMusicSfx = t || null;
+				} else {
+					t.stop();
+				}
+			} else {
+				if (this.currentMusicSfx) {
+					this.currentMusicSfx.stop();
+					this.currentMusicSfx = null;
+				}
+			}
+		}
+	}
+	openShopDialog() {
+		if (!this.shopDialog) {
+			this.shopDialog = new ke(this.gameWrapper);
+			getMain().dialogManager.addDialog(this.shopDialog);
+			this.shopDialog.addOnCloseCb(() => {
+				this.shopDialog = null;
+			});
+		}
+		return this.shopDialog;
+	}
+	openUserProfileDialog(t) {
+		if (!this.userProfileDialog) {
+			this.userProfileDialog = new Pe(this.gameWrapper, t);
+			getMain().dialogManager.addDialog(this.userProfileDialog);
+			this.userProfileDialog.addOnCloseCb(() => {
+				this.userProfileDialog = null;
+			});
+		}
+	}
+	openSquadDialog() {
+		if (!this.squadDialog) {
+			this.makeMainMenuVisibleFromUserGesture();
+			this.squadDialog = new Ss(
+				this.gameWrapper,
+				getMain().network,
+				getMain().network.squadManager,
+				getMain().gameManager,
+				getMain().avatars,
+				getMain().skins,
+			);
+			getMain().dialogManager.addDialog(this.squadDialog);
+			this.squadDialog.addOnCloseCb(() => {
+				this.squadDialog = null;
+			});
+		}
+	}
+	openMapsDialog() {
+		if (this.mapsDialog) {
+			return this.mapsDialog;
+		}
+		const t = getMain();
+		this.mapsDialog = new Cs(this.gameWrapper, t.config, t.preferredMapManager, t.gameManager);
+		getMain().dialogManager.addDialog(this.mapsDialog);
+		this.mapsDialog.addOnCloseCb(() => {
+			this.mapsDialog = null;
+		});
+		return this.mapsDialog;
+	}
+}
+class qs {
+	pokiSize;
+	el = document.createElement("div");
+	visible;
+	adEl;
+	constructor(t, e) {
+		this.pokiSize = e;
+		this.el.classList.add("game-ad-wrapper", t, "hidden");
+		this.visible = false;
+		const i = document.createElement("button");
+		i.textContent = "Don't want to see ads?";
+		i.classList.add("remove-ads-button", "hidden");
+		this.el.append(i);
+		(async () => {
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				i.classList.remove("hidden");
+				i.addEventListener("click", () => {
+					t.subscription.showSubscribeModal({
+						flow: "removeAds",
+					});
+				});
+			}
+		})();
+		this.adEl = document.createElement("div");
+		this.adEl.classList.add("game-ad");
+		this.el.append(this.adEl);
+		getMain().dialogManager.onCurtainZIndexChange((t) => {
+			const e = Math.max(100, t + 1);
+			this.el.style.zIndex = String(e);
+		});
+	}
+	setVisibility(t) {
+		this.el.classList.toggle("hidden", !t);
+		this.adEl.classList.toggle("hidden", !t);
+		this.visible = t;
+	}
+	getIsVisible() {
+		return window.getComputedStyle(this.el).display != "none";
+	}
+}
+class AdBanners {
+	visiblePages = new Set();
+	desktopBanner = null;
+	mobileBanner = null;
+	hasRemoveAdsEntitlement = false;
+	constructor(public gameWrapper: HTMLElement) {}
+	async init() {
+		this.desktopBanner = new qs("desktop", "728x90");
+		this.gameWrapper.append(this.desktopBanner.el);
+		this.mobileBanner = new qs("mobile", "320x50");
+		this.gameWrapper.append(this.mobileBanner.el);
+		getMain().mainMenu.onVisibilityChange((t) => {
+			this.setPageVisibility("mainMenu", t && getMain().gameManager.joinedOnce);
+		});
+		{
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				t.entitlements.onChange(() => {
+					this.hasRemoveAdsEntitlement = t.entitlements.has("removeAds");
+					this.updateVisibilities();
+				});
+				this.hasRemoveAdsEntitlement = t.entitlements.has("removeAds");
+				this.updateVisibilities();
+			}
+		}
+	}
+	*getBanners() {
+		if (this.desktopBanner) {
+			yield this.desktopBanner;
+		}
+		if (this.mobileBanner) {
+			yield this.mobileBanner;
+		}
+	}
+	setPageVisibility(t, e) {
+		if (e) {
+			this.visiblePages.add(t);
+		} else {
+			this.visiblePages.delete(t);
+		}
+		this.updateVisibilities();
+	}
+	updateVisibilities() {
+		if (!this.desktopBanner || !this.mobileBanner) {
+			return;
+		}
+		const t = !this.hasRemoveAdsEntitlement && this.visiblePages.size > 0 && !isSteam();
+		this.desktopBanner.setVisibility(t);
+		this.mobileBanner.setVisibility(t);
+		getMain().poki.updateBannerVisibility();
+	}
+}
+class Ws extends Dialog {
+	indexPriority = 3;
+	closeOnButtonClick;
+	titleEl = document.createElement("h2");
+	textEl;
+	createdButtons;
+	constructor(
+		t,
+		{
+			title = "",
+			text = "",
+			buttons = [
+				{
+					text: "ok",
+					testLabel: "ok",
+					onClick: undefined,
+				},
+			],
+			closeOnButtonClick = true,
+			extraArgs,
+		} = {},
+	) {
+		super(t, {
+			testLabel: "alert",
+			...extraArgs,
+		});
+		this.closeOnButtonClick = closeOnButtonClick;
+		this.titleEl.classList.add("dialogTitle", "blueNight");
+		if (title) {
+			this.titleEl.textContent = title;
+		}
+		this.el.appendChild(this.titleEl);
+		this.textEl = document.createElement("div");
+		this.textEl.classList.add("dialogText");
+		if (text) {
+			this.textEl.textContent = text;
+		}
+		this.el.appendChild(this.textEl);
+		this.addButtonsContainer();
+		this.createdButtons = [];
+		this.setButtons(buttons);
+	}
+	setButtons(t) {
+		for (const t of this.createdButtons) {
+			this.removeButton(t);
+		}
+		this.createdButtons = [];
+		for (const e of t) {
+			const t = this.addButton({
+				text: e.text,
+				testLabel: e.testLabel,
+				onClick: async () => {
+					this.setButtonsEnabled(false);
+					if (e.onClick) {
+						try {
+							await e.onClick();
+						} catch (error) {
+							console.error(error);
+						}
+					}
+					if (this.closeOnButtonClick) {
+						this.close();
+					} else {
+						this.setButtonsEnabled(true);
+					}
+				},
+			});
+			t.enabled = e.enabled ?? true;
+			this.createdButtons.push(t);
+		}
+	}
+	setButtonsEnabled(t) {
+		for (const e of this.createdButtons) {
+			e.enabled = t;
+		}
+	}
+	async waitForButton() {
+		return await new Promise((resolve) => {
+			for (const [e, i] of this.createdButtons.entries()) {
+				i.onClick(() => {
+					resolve(e);
+				});
+			}
+		});
+	}
+}
+class DialogManager {
+	gameWrapper: HTMLElement;
+	curtainEl = document.createElement("div");
+	_curtainElVisible;
+	onCurtainVisibilityChangeCbs;
+	onNeedsUnlockedPointerChangeCbs;
+	needsUnlockedPointer;
+	lastDialogAddTime;
+	currentDialogStack;
+	onCurtainZIndexChangeCbs;
+	onAnyDialogVisibilityChangeCbs;
+	constructor(public gameWrapper: HTMLElement) {
+		this.curtainEl.classList.add("dialogCurtain", "fullScreen", "hidden");
+		gameWrapper.appendChild(this.curtainEl);
+		this._curtainElVisible = false;
+		this.onCurtainVisibilityChangeCbs = new Set();
+		this.onNeedsUnlockedPointerChangeCbs = new Set();
+		this.needsUnlockedPointer = false;
+		this.curtainEl.addEventListener("click", (t) => {
+			this.closeTopMostDialog();
+		});
+		document.body.addEventListener("keydown", (t) => {
+			if (t.code == "Escape") {
+				this.closeTopMostDialog();
+			}
+		});
+		this.lastDialogAddTime = 0;
+		this.currentDialogStack = [];
+		this.onCurtainZIndexChangeCbs = new Set();
+		this.onAnyDialogVisibilityChangeCbs = new Set();
+		this.onAnyDialogVisibilityChange(() => {
+			this.updateZIndices();
+			this.updateInertDialogs();
+			this.updateFrontDialogProperties();
+		});
+	}
+	addDialog(t) {
+		this.lastDialogAddTime = performance.now();
+		this.currentDialogStack.push(t);
+		this.sortStack();
+		t.addOnVisibilityChangeCb((t) => {
+			this.fireAnyDialogVisibilityChangeCbs();
+		});
+		t.addOnCloseCb(() => {
+			const e = this.currentDialogStack.indexOf(t);
+			this.currentDialogStack.splice(e, 1);
+			this.fireAnyDialogVisibilityChangeCbs();
+		});
+		this.fireAnyDialogVisibilityChangeCbs();
+	}
+	getDialogForEl(t) {
+		for (const e of this.currentDialogStack) {
+			if (e.el == t) {
+				return e;
+			}
+		}
+		return null;
+	}
+	get frontDialog() {
+		if (this.currentDialogStack.length <= 0) {
+			return null;
+		}
+		for (let t = this.currentDialogStack.length - 1; t >= 0; t--) {
+			const e = this.currentDialogStack[t];
+			if (e.visible) {
+				return e;
+			}
+		}
+		return null;
+	}
+	get firstClosableDialog() {
+		for (let t = this.currentDialogStack.length - 1; t >= 0; t--) {
+			const e = this.currentDialogStack[t];
+			if (e.visible && e.allowCurtainClose) {
+				return e;
+			}
+		}
+		return null;
+	}
+	get hasAnyDialogs() {
+		return this.currentDialogStack.some((t) => t.visible);
+	}
+	get curtainElVisible() {
+		return this._curtainElVisible;
+	}
+	closeTopMostDialog() {
+		if (performance.now() - this.lastDialogAddTime < 300) {
+			return;
+		}
+		const firstClosableDialog = this.firstClosableDialog;
+		if (firstClosableDialog) {
+			if (firstClosableDialog.customOnCurtainClickCb) {
+				if (!firstClosableDialog.customOnCurtainClickCb()) {
+					return;
+				}
+			}
+			firstClosableDialog.close();
+		}
+	}
+	showAlert(t) {
+		const e = new Ws(this.gameWrapper, t);
+		this.addDialog(e);
+		return e;
+	}
+	onAnyDialogVisibilityChange(t) {
+		this.onAnyDialogVisibilityChangeCbs.add(t);
+	}
+	fireAnyDialogVisibilityChangeCbs() {
+		for (const t of this.onAnyDialogVisibilityChangeCbs) {
+			t();
+		}
+	}
+	sortStack() {
+		this.currentDialogStack.sort((t, e) => {
+			const t_indexPriority = t.indexPriority;
+			const e_indexPriority = e.indexPriority;
+			if (t_indexPriority > e_indexPriority) {
+				return 1;
+			}
+			if (t_indexPriority < e_indexPriority) {
+				return -1;
+			}
+			const n = this.currentDialogStack.indexOf(t);
+			const o = this.currentDialogStack.indexOf(e);
+			if (n > o) {
+				return 1;
+			}
+			if (n < o) {
+				return -1;
+			}
+			return 0;
+		});
+	}
+	updateZIndices() {
+		let t = false;
+		let e = 0;
+		for (const [i, s] of this.currentDialogStack.entries()) {
+			const n = 100 + 2 * i;
+			s.setZIndex(n);
+			if (s.visible && s.needsCurtain) {
+				t = true;
+				e = n - 1;
+			}
+		}
+		if (t) {
+			this.setCurtainZIndex(e);
+		}
+		if (t != this._curtainElVisible) {
+			this._curtainElVisible = t;
+			this.curtainEl.classList.toggle("hidden", !t);
+			this.onCurtainVisibilityChangeCbs.forEach((e) => e(t));
+		}
+	}
+	updateInertDialogs() {
+		const t = this.currentDialogStack.filter((t) => t.visible);
+		let e = null;
+		if (t.length > 0) {
+			e = t[t.length - 1];
+		}
+		for (const t of this.currentDialogStack) {
+			t.setInert(t != e);
+		}
+	}
+	setCurtainZIndex(t) {
+		this.curtainEl.style.zIndex = String(t);
+		for (const e of this.onCurtainZIndexChangeCbs) {
+			e(t);
+		}
+	}
+	onCurtainZIndexChange(t) {
+		this.onCurtainZIndexChangeCbs.add(t);
+	}
+	onCurtainVisibilityChange(t) {
+		this.onCurtainVisibilityChangeCbs.add(t);
+	}
+	removeOnCurtainVisibilityChange(t) {
+		this.onCurtainVisibilityChangeCbs.delete(t);
+	}
+	onNeedsUnlockedPointerChange(t) {
+		this.onNeedsUnlockedPointerChangeCbs.add(t);
+	}
+	removeOnNeedsUnlockedPointerChange(t) {
+		this.onNeedsUnlockedPointerChangeCbs.delete(t);
+	}
+	updateFrontDialogProperties() {
+		const frontDialog = this.frontDialog;
+		let e = false;
+		if (frontDialog) {
+			e = frontDialog.needsUnlockedPointer;
+		}
+		if (e != this.needsUnlockedPointer) {
+			this.needsUnlockedPointer = e;
+			this.onNeedsUnlockedPointerChangeCbs.forEach((t) => t());
+		}
+	}
+}
+class js {
+	keyCodes;
+	mouseButtons;
+	gamepadButtons;
+	pressed = false;
+	pressedGamepad = false;
+	onPressedChangeCbs = new Set();
+	onPressedDownCbs = new Set();
+	onPressedUpCbs = new Set();
+	constructor({ keyCodes = [], mouseButtons = [], gamepadButtons = [] } = {}) {
+		this.keyCodes = keyCodes;
+		this.mouseButtons = mouseButtons;
+		this.gamepadButtons = gamepadButtons;
+	}
+	setKeyCodePressed(t, e, i) {
+		let needsPreventDefault = false;
+		let preventOthers = false;
+		if (this.keyCodes.includes(t)) {
+			preventOthers = this.setKeyPressed(e, i);
+			needsPreventDefault = true;
+		}
+		return {
+			needsPreventDefault,
+			preventOthers,
+		};
+	}
+	setMouseButtonPressed(t, e, i) {
+		return !!this.mouseButtons.includes(t) && this.setKeyPressed(e, i);
+	}
+	setPressedGamepadButtons(t, e) {
+		let i = false;
+		for (const e of this.gamepadButtons) {
+			if (t.includes(e)) {
+				i = true;
+				break;
+			}
+		}
+		return this.pressedGamepad != i && ((this.pressedGamepad = i), this.setKeyPressed(i, e));
+	}
+	setKeyPressed(
+		t,
+		e,
+		i = {
+			fromTouchButton: false,
+		},
+	) {
+		let s = false;
+		if (t != this.pressed && ((this.pressed = t), !e)) {
+			for (const e of this.onPressedChangeCbs) {
+				if (e(t)) {
+					s = true;
+				}
+			}
+			if (t) {
+				for (const t of this.onPressedDownCbs) {
+					if (t(i)) {
+						s = true;
+					}
+				}
+			} else {
+				for (const t of this.onPressedUpCbs) {
+					if (t(i)) {
+						s = true;
+					}
+				}
+			}
+		}
+		return s;
+	}
+	onPressedChange(t) {
+		this.onPressedChangeCbs.add(t);
+	}
+	onPressedDown(t) {
+		this.onPressedDownCbs.add(t);
+	}
+	onPressedUp(t) {
+		this.onPressedUpCbs.add(t);
+	}
+	removeCb(t) {
+		const e = t;
+		this.onPressedChangeCbs.delete(e);
+		this.onPressedDownCbs.delete(e);
+		this.onPressedUpCbs.delete(e);
+	}
+}
+class Gs {
+	el = document.createElement("div");
+	visible = true;
+	currentUsingTouchId = null;
+	didUpdateTouchLastLoop = false;
+	responsiveArea;
+	cancelOthers;
+	constructor({ responsiveArea = null, cancelOthers = true } = {}) {
+		this.responsiveArea = responsiveArea;
+		this.cancelOthers = cancelOthers;
+	}
+	updateTouch(t) {
+		if (
+			this.responsiveArea &&
+			(this.currentUsingTouchId == null || this.responsiveArea.cancelWhenLeaving) &&
+			!this.responsiveArea.testTouchInResponsiveArea(t)
+		) {
+			return {
+				didHit: false,
+			};
+		}
+		const didHit = this.onUpdateTouch(t);
+		if (didHit) {
+			this.currentUsingTouchId = t.identifier;
+			this.didUpdateTouchLastLoop = true;
+		}
+		return {
+			didHit,
+			cancelOthers: didHit && this.cancelOthers,
+		};
+	}
+	onUpdateTouch(t) {
+		return false;
+	}
+	endTouchLoop() {
+		if (!this.didUpdateTouchLastLoop) {
+			this.currentUsingTouchId = null;
+			this.onEndTouch();
+		}
+		this.didUpdateTouchLastLoop = false;
+	}
+	onEndTouch() {}
+	setVisibility(t) {
+		this.visible = t;
+		this.el.style.display = t ? "" : "none";
+	}
+}
+class zs {
+	cancelWhenLeaving;
+	constructor(t = false) {
+		this.cancelWhenLeaving = t;
+	}
+	testTouchInResponsiveArea(t) {
+		return false;
+	}
+}
+class $s extends zs {
+	pos;
+	radius;
+	constructor(t, e, i) {
+		super(i);
+		this.pos = t || new Vector2();
+		this.radius = e;
+	}
+	testTouchInResponsiveArea(t) {
+		return new Vector2(t.clientX, t.clientY).distanceTo(this.pos) < this.radius;
+	}
+}
+class _s extends Gs {
+	currentValue = new Vector2();
+	hideWhenUsed;
+	containerPos = new Vector2();
+	defaultPos = new Vector2();
+	stickEl;
+	lastIsTouchingValue;
+	lastIsTouchingToggleTime;
+	doubleTapped;
+	constructor({
+		defaultPos = new Vector2(0, 0),
+		hideWhenUsed = true,
+		responsiveArea = null,
+		lockPosAtEnd = true,
+	} = {}) {
+		super({
+			responsiveArea,
+		});
+		this.hideWhenUsed = hideWhenUsed;
+		this.el.classList.add("touchInputJoyStickContainer", "touchInputWhiteBorder");
+		this.stickEl = document.createElement("div");
+		this.stickEl.classList.add("touchInputJoyStick");
+		this.el.appendChild(this.stickEl);
+		this.lastIsTouchingValue = false;
+		this.lastIsTouchingToggleTime = 0;
+		this.doubleTapped = false;
+		this.setDefaultPos(defaultPos);
+	}
+	onUpdateTouch(t) {
+		const e = new Vector2(t.clientX, t.clientY);
+		if (this.currentUsingTouchId == null) {
+			this.onIsTouchingChange(true);
+			this.setPos(e);
+			return true;
+		}
+		return (
+			this.currentUsingTouchId == t.identifier && (this.setStickPos(e), this.setOpacity(0.1), true)
+		);
+	}
+	onEndTouch() {
+		this.onIsTouchingChange(false);
+		this.resetPos();
+		this.setOpacity(1);
+	}
+	onIsTouchingChange(t) {
+		this.doubleTapped = false;
+		if (t != this.lastIsTouchingValue) {
+			this.lastIsTouchingValue = t;
+			if (getMain().now - this.lastIsTouchingToggleTime < 200 && t) {
+				this.doubleTapped = true;
+			}
+			this.lastIsTouchingToggleTime = getMain().now;
+		}
+	}
+	setOpacity(t) {
+		this.el.style.opacity = String(t);
+	}
+	setDefaultPos(t) {
+		this.defaultPos = t.clone();
+		if (this.responsiveArea instanceof $s) {
+			this.responsiveArea.pos.copy(this.defaultPos);
+		}
+		this.resetPos();
+	}
+	resetPos() {
+		this.setPos(this.defaultPos);
+		this.setStickPos(this.defaultPos);
+	}
+	setPos(t) {
+		t = t.clone();
+		this.containerPos = t;
+		this.el.style.transform = `translate(${t.x}px, ${t.y}px) translate(-50%, -50%)`;
+	}
+	setStickPos(e) {
+		const i = e.clone();
+		i.sub(this.containerPos);
+		const s = i.clone();
+		i.clampLength(0, 40);
+		this.currentValue = i.clone();
+		this.currentValue.divideScalar(40);
+		const n = s.sub(i);
+		const o = this.containerPos.clone().add(n);
+		o.x = clamp(o.x, 75, window.innerWidth - 75);
+		o.y = clamp(o.y, 75, window.innerHeight - 75);
+		this.stickEl.style.transform = `translate(${i.x}px, ${i.y}px) translate(-50%, -50%)`;
+	}
+}
+class Js extends Gs {
+	currentTouchId = null;
+	prevTouchPos = new Vector2();
+	lastDeltaPos = new Vector2();
+	constructor() {
+		super();
+	}
+	onUpdateTouch(t) {
+		if (this.currentTouchId == null) {
+			this.currentTouchId = t.identifier;
+		}
+		if (this.currentTouchId != t.identifier) {
+			return false;
+		}
+		const e = new Vector2(t.clientX, t.clientY);
+		if (this.currentUsingTouchId == null) {
+			this.prevTouchPos.copy(e);
+		}
+		this.lastDeltaPos = e.clone().sub(this.prevTouchPos);
+		this.prevTouchPos.copy(e);
+		return true;
+	}
+	onEndTouch() {
+		this.lastDeltaPos = new Vector2();
+		this.currentTouchId = null;
+	}
+}
+class Ks extends Gs {
+	left;
+	right;
+	top;
+	bottom;
+	radius;
+	linkedInputKeys;
+	pressed;
+	constructor({
+		left = null,
+		right = null,
+		top = null,
+		bottom = null,
+		radius = 35,
+		responsiveArea = null,
+		img = null,
+		cancelOthers = false,
+	} = {}) {
+		super({
+			responsiveArea,
+			cancelOthers,
+		});
+		this.el.classList.add("touchInputButton", "touchInputWhiteBorder");
+		this.el.style.width = `${2 * radius}px`;
+		this.el.style.height = `${2 * radius}px`;
+		this.left = left;
+		this.right = right;
+		this.top = top;
+		this.bottom = bottom;
+		this.radius = radius;
+		if (img) {
+			this.el.style.backgroundImage = `url(${img})`;
+		}
+		this.updatePosition();
+		observeResize(() => {
+			this.updatePosition();
+		});
+		this.linkedInputKeys = new Set();
+		this.pressed = false;
+	}
+	updatePosition() {
+		if (this.left != null) {
+			this.el.style.left = `${this.left}px`;
+		}
+		if (this.right != null) {
+			this.el.style.right = `${this.right}px`;
+		}
+		if (this.top != null) {
+			this.el.style.top = `${this.top}px`;
+		}
+		if (this.bottom != null) {
+			this.el.style.bottom = `${this.bottom}px`;
+		}
+		this.updateResponsiveAreaPos();
+	}
+	updateResponsiveAreaPos() {
+		if (this.responsiveArea instanceof $s) {
+			let t = 0;
+			let e = 0;
+			if (this.left) {
+				t = this.left + this.radius;
+			}
+			if (this.top) {
+				e = this.top + this.radius;
+			}
+			if (this.right) {
+				t = window.innerWidth - this.right - this.radius;
+			}
+			if (this.bottom) {
+				e = window.innerHeight - this.bottom - this.radius;
+			}
+			this.responsiveArea.pos.set(t, e);
+		}
+	}
+	onUpdateTouch(t) {
+		this.setPressed(true);
+		return true;
+	}
+	onEndTouch() {
+		this.setPressed(false);
+	}
+	setPressed(t) {
+		this.pressed = t;
+		this.setPressedClass();
+		for (const e of this.linkedInputKeys) {
+			e.setKeyPressed(t, false, {
+				fromTouchButton: true,
+			});
+		}
+	}
+	setPressedClass() {
+		this.el.classList.toggle("touching", this.pressed);
+	}
+	setVisibility(t) {
+		this.el.classList.toggle("hidden", !t);
+	}
+	addInputKey(t) {
+		this.linkedInputKeys.add(t);
+	}
+}
+class Ys extends zs {
+	left;
+	right;
+	top;
+	bottom;
+	constructor(t, e, i, s, n = false) {
+		super(n);
+		this.left = t;
+		this.right = e;
+		this.top = i;
+		this.bottom = s;
+	}
+	testTouchInResponsiveArea(t) {
+		const e = t.clientX / window.innerWidth;
+		const i = t.clientY / window.innerHeight;
+		return e > this.left && e < this.right && i > this.top && i < this.bottom;
+	}
+}
+class Xs {
+	touchListener = document.createElement("div");
+	uiContainer;
+	joyStick;
+	lookInput;
+	jumpButton;
+	fireButton;
+	toggleWeaponButton;
+	chatButton;
+	playerListButton;
+	thirdPersonButton;
+	touchElements;
+	smallCornerButtons;
+	lastDeltaLook;
+	lastUpdateTouchesTime;
+	touchSupported;
+	onTouchSupportedChangeCbs;
+	onTouchListenerClickCbs;
+	constructor(t) {
+		this.touchListener.classList.add("touchListener", "fullScreen");
+		t.appendChild(this.touchListener);
+		this.uiContainer = document.createElement("div");
+		this.uiContainer.classList.add("touch-ui-container");
+		t.appendChild(this.uiContainer);
+		this.joyStick = null;
+		this.lookInput = null;
+		this.jumpButton = null;
+		this.fireButton = null;
+		this.toggleWeaponButton = null;
+		this.chatButton = null;
+		this.playerListButton = null;
+		this.thirdPersonButton = null;
+		this.touchElements = [];
+		this.smallCornerButtons = [];
+		this.lastDeltaLook = new Vector2();
+		this.lastUpdateTouchesTime = 0;
+		this.touchSupported = false;
+		document.body.addEventListener(
+			"touchend",
+			(t) => {
+				if (!this.touchSupported) {
+					this.touchSupported = true;
+					this.joyStick = new _s({
+						responsiveArea: new Ys(0, 0.5, 0, 1),
+					});
+					this.uiContainer.append(this.joyStick.el);
+					this.lookInput = new Js();
+					this.uiContainer.append(this.lookInput.el);
+					this.jumpButton = new Ks({
+						right: 150,
+						bottom: 30,
+						responsiveArea: new $s(null, 50, false),
+						img: "static/img/touchUI/jump.svg",
+					});
+					this.jumpButton.addInputKey(getMain().input.getKey("jump"));
+					this.uiContainer.append(this.jumpButton.el);
+					this.fireButton = new Ks({
+						right: 80,
+						bottom: 100,
+						radius: 50,
+						responsiveArea: new $s(null, 70, false),
+						img: "static/img/touchUI/shoot.svg",
+					});
+					this.fireButton.addInputKey(getMain().input.getKey("fire"));
+					this.uiContainer.append(this.fireButton.el);
+					this.toggleWeaponButton = new Ks({
+						right: 30,
+						bottom: 200,
+						responsiveArea: new $s(null, 40, false),
+						img: "static/img/touchUI/toggleWeapon.svg",
+					});
+					this.toggleWeaponButton.addInputKey(getMain().input.getKey("toggleWeapon"));
+					this.toggleWeaponButton.setVisibility(false);
+					this.uiContainer.append(this.toggleWeaponButton.el);
+					this.playerListButton = new Ks({
+						left: 20,
+						top: 100,
+						radius: 15,
+						responsiveArea: new $s(null, 20, false),
+						img: "static/img/touchUI/playerList.svg",
+						cancelOthers: true,
+					});
+					this.playerListButton.addInputKey(getMain().input.getKey("playerListTouch"));
+					this.uiContainer.append(this.playerListButton.el);
+					this.thirdPersonButton = new Ks({
+						left: 60,
+						top: 100,
+						radius: 15,
+						responsiveArea: new $s(null, 20, false),
+						img: "static/img/touchUI/view.svg",
+						cancelOthers: true,
+					});
+					this.thirdPersonButton.addInputKey(getMain().input.getKey("toggleThirdPerson"));
+					this.uiContainer.append(this.thirdPersonButton.el);
+					this.chatButton = new Ks({
+						left: 100,
+						top: 100,
+						radius: 15,
+						responsiveArea: new $s(null, 20, false),
+						img: "static/img/touchUI/chat.svg",
+						cancelOthers: true,
+					});
+					this.chatButton.setVisibility(false);
+					this.chatButton.addInputKey(getMain().input.getKey("toggleChatVisibility"));
+					this.uiContainer.append(this.chatButton.el);
+					this.smallCornerButtons = [
+						this.playerListButton,
+						this.thirdPersonButton,
+						this.chatButton,
+					];
+					this.touchElements.push(
+						this.playerListButton,
+						this.thirdPersonButton,
+						this.chatButton,
+						this.joyStick,
+						this.jumpButton,
+						this.fireButton,
+						this.toggleWeaponButton,
+						this.lookInput,
+					);
+					this.onResize();
+				}
+			},
+			{
+				once: true,
+			},
+		);
+		document.body.addEventListener(
+			"touchend",
+			() => {
+				setTimeout(() => {
+					for (const t of this.onTouchSupportedChangeCbs) {
+						t();
+					}
+				}, 300);
+			},
+			{
+				once: true,
+			},
+		);
+		this.onTouchSupportedChangeCbs = new Set();
+		this.onTouchListenerClickCbs = new Set();
+		this.touchListener.addEventListener("click", () => {
+			for (const t of this.onTouchListenerClickCbs) {
+				t();
+			}
+		});
+		this.touchListener.addEventListener(
+			"touchstart",
+			(t) => {
+				this.updateTouches(t);
+			},
+			{
+				passive: false,
+			},
+		);
+		this.touchListener.addEventListener(
+			"touchmove",
+			(t) => {
+				this.updateTouches(t);
+			},
+			{
+				passive: false,
+			},
+		);
+		this.touchListener.addEventListener(
+			"touchend",
+			(t) => {
+				this.updateTouches(t);
+			},
+			{
+				passive: false,
+			},
+		);
+		window.addEventListener("focus", () => {
+			this.updateCursorVisibility();
+		});
+		window.addEventListener("blur", () => {
+			this.updateCursorVisibility();
+		});
+		this.updateCursorVisibility();
+		observeResize(() => {
+			this.onResize();
+		});
+		this.onResize();
+	}
+	init() {
+		bi((t) => {
+			this.touchListener.style.display = t ? "none" : "";
+			this.updateUiVisibility();
+		});
+		getMain().mainMenu.onVisibilityChange((t) => {
+			this.updateUiVisibility();
+		});
+	}
+	updateUiVisibility() {
+		const t = !yi() && !getMain().mainMenu.visible;
+		this.uiContainer.style.display = t ? "" : "none";
+	}
+	get joyStickValue() {
+		if (this.joyStick) {
+			return this.joyStick.currentValue.clone();
+		}
+		return new Vector2();
+	}
+	onResize() {
+		if (!this.touchSupported) {
+			return;
+		}
+		const t = getComputedStyle(document.documentElement);
+		const e = parseInt(t.getPropertyValue("--safe-area-inset-top"), 10);
+		const i = parseInt(t.getPropertyValue("--safe-area-inset-bottom"), 10);
+		const s = parseInt(t.getPropertyValue("--safe-area-inset-left"), 10);
+		const n = parseInt(t.getPropertyValue("--safe-area-inset-right"), 10);
+		if (this.joyStick) {
+			const t = new Vector2(s + 100, window.innerHeight - 100 - i);
+			this.joyStick.setDefaultPos(t);
+		}
+		const o = window.innerWidth < 500;
+		if (this.jumpButton) {
+			this.jumpButton.right = (o ? 60 : 170) + n;
+			this.jumpButton.updatePosition();
+		}
+		if (this.fireButton) {
+			this.fireButton.right = (o ? 20 : 80) + n;
+			this.fireButton.updatePosition();
+		}
+		if (this.toggleWeaponButton) {
+			this.toggleWeaponButton.right = (o ? 10 : 30) + n;
+			this.toggleWeaponButton.updatePosition();
+		}
+		const a = getComputedStyle(document.body).getPropertyValue("--game-ui-state").includes("small");
+		for (const [t, i] of this.smallCornerButtons.entries()) {
+			i.top = (a ? 50 : 100) + e;
+			i.left = s + 20 + 40 * t;
+			i.updatePosition();
+		}
+	}
+	onTouchSupportedChange(t) {
+		this.onTouchSupportedChangeCbs.add(t);
+	}
+	removeOnTouchSupportedChange(t) {
+		this.onTouchSupportedChangeCbs.delete(t);
+	}
+	*visibileTouchElements() {
+		for (const t of this.touchElements) {
+			if (t.visible) {
+				yield t;
+			}
+		}
+	}
+	updateTouches(e) {
+		if (e.cancelable) {
+			e.preventDefault();
+		}
+		for (const t of e.touches) {
+			let e = false;
+			for (const i of this.visibileTouchElements()) {
+				if (i.currentUsingTouchId == t.identifier) {
+					const { didHit, cancelOthers } = i.updateTouch(t);
+					if (didHit) {
+						e = true;
+					}
+					if (cancelOthers) {
+						break;
+					}
+				}
+			}
+			if (!e) {
+				for (const e of this.visibileTouchElements()) {
+					const { cancelOthers } = e.updateTouch(t);
+					if (cancelOthers) {
+						break;
+					}
+				}
+			}
+		}
+		for (const t of this.touchElements) {
+			t.endTouchLoop();
+		}
+		if (this.lookInput) {
+			const e = this.lookInput.lastDeltaPos.clone();
+			if (getMain().settingsManager.getValue("touchLookAcceleration")) {
+				const i = 1;
+				const s = 5;
+				const n = clamp(performance.now() - this.lastUpdateTouchesTime, 0.000001, 100);
+				const o = clamp(Math.abs(e.x / n), i, s);
+				const a = clamp(Math.abs(e.y / n), i, s);
+				e.x *= o;
+				e.y *= a;
+			}
+			e.x *= 2;
+			e.y *= 2;
+			this.lastDeltaLook.add(e);
+		}
+		this.lastUpdateTouchesTime = performance.now();
+	}
+	loop(t, e) {}
+	afterLoop() {
+		this.lastDeltaLook.set(0, 0);
+	}
+	onTouchListenerClick(t) {
+		this.onTouchListenerClickCbs.add(t);
+	}
+	updateCursorVisibility() {
+		this.touchListener.classList.toggle("focus", document.hasFocus());
+	}
+}
+class InputManager {
+	keys = new Map();
+	desiredPointerLockedState;
+	forceUnlockedPointer;
+	currentLockedKeys;
+	mouseIsOnDocument;
+	lastWheelEventTime;
+	wheelMoveAmount;
+	lastFiredWheelButtonTime;
+	recentWheelButtonCount;
+	onPointerLockChangeCbs;
+	onDesiredPointerLockChangeCbs;
+	_lastPointerLockChangeByApplicationTime;
+	stickDeadZone;
+	gamepadLookSensivity;
+	touch;
+	mouseMove;
+	walkInput;
+	lookInput;
+	gamepadAxes;
+	constructor(t) {
+		this.keys.set(
+			"left",
+			new js({
+				keyCodes: ["KeyA", "ArrowLeft"],
+			}),
+		);
+		this.keys.set(
+			"right",
+			new js({
+				keyCodes: ["KeyD", "ArrowRight"],
+			}),
+		);
+		this.keys.set(
+			"up",
+			new js({
+				keyCodes: ["KeyW", "ArrowUp"],
+			}),
+		);
+		this.keys.set(
+			"down",
+			new js({
+				keyCodes: ["KeyS", "ArrowDown"],
+			}),
+		);
+		this.keys.set(
+			"flyUp",
+			new js({
+				keyCodes: ["KeyE", "Space"],
+			}),
+		);
+		this.keys.set(
+			"flyDown",
+			new js({
+				keyCodes: ["KeyQ", "ShiftLeft"],
+			}),
+		);
+		this.keys.set(
+			"jump",
+			new js({
+				keyCodes: ["Space"],
+				gamepadButtons: [0],
+			}),
+		);
+		this.keys.set(
+			"fire",
+			new js({
+				keyCodes: [],
+				gamepadButtons: [7],
+				mouseButtons: [0],
+			}),
+		);
+		this.keys.set(
+			"prevWeapon",
+			new js({
+				keyCodes: ["wheelUp"],
+				gamepadButtons: [4],
+			}),
+		);
+		this.keys.set(
+			"nextWeapon",
+			new js({
+				keyCodes: ["wheelDown"],
+				gamepadButtons: [5],
+			}),
+		);
+		this.keys.set(
+			"toggleWeapon",
+			new js({
+				keyCodes: ["KeyQ", "wheelUp", "wheelDown"],
+				gamepadButtons: [4, 5],
+			}),
+		);
+		this.keys.set(
+			"playerList",
+			new js({
+				keyCodes: ["Tab"],
+				gamepadButtons: [8],
+			}),
+		);
+		this.keys.set(
+			"mainMenu",
+			new js({
+				keyCodes: ["Escape"],
+				gamepadButtons: [9],
+			}),
+		);
+		this.keys.set("playerListTouch", new js());
+		this.keys.set(
+			"toggleThirdPerson",
+			new js({
+				keyCodes: ["KeyY"],
+				gamepadButtons: [3],
+			}),
+		);
+		this.keys.set(
+			"chat",
+			new js({
+				keyCodes: ["KeyT"],
+			}),
+		);
+		this.keys.set("toggleChatVisibility", new js());
+		this.desiredPointerLockedState = false;
+		this.forceUnlockedPointer = false;
+		this.currentLockedKeys = "";
+		window.addEventListener("keydown", (t) => {
+			this.setKeyCodePressed(t, true);
+			this._updatePointerLockedState();
+			this.updateKeyboardLock();
+		});
+		window.addEventListener("keyup", (t) => {
+			this.setKeyCodePressed(t, false);
+		});
+		const e = (t) =>
+			t.target == document.body ||
+			t.target == this.touch.touchListener ||
+			t.target == getMain().mainMenu.el;
+		this.mouseIsOnDocument = false;
+		document.body.addEventListener("mouseenter", () => {
+			this.mouseIsOnDocument = true;
+		});
+		document.body.addEventListener("mouseleave", () => {
+			this.mouseIsOnDocument = false;
+		});
+		window.addEventListener("mousedown", (t) => {
+			if (e(t)) {
+				this.setMouseButtonPressed(t.button, true);
+				this.mouseIsOnDocument = true;
+				this._updatePointerLockedState();
+				this.updateKeyboardLock();
+			}
+		});
+		window.addEventListener("mouseup", (t) => {
+			if (e(t)) {
+				this.setMouseButtonPressed(t.button, false);
+			}
+		});
+		window.addEventListener("mousemove", (t) => {
+			this.mouseIsOnDocument = true;
+			this.mouseMove.x += t.movementX || 0;
+			this.mouseMove.y += t.movementY || 0;
+		});
+		this.lastWheelEventTime = 0;
+		this.wheelMoveAmount = 0;
+		this.lastFiredWheelButtonTime = 0;
+		this.recentWheelButtonCount = 0;
+		window.addEventListener(
+			"wheel",
+			(t) => {
+				if (getMain().mainMenu.visible) {
+					return;
+				}
+				t.preventDefault();
+				if (performance.now() - this.lastWheelEventTime > 200) {
+					this.wheelMoveAmount = 0;
+					if (t.deltaY > 0) {
+						this.fireWheelButton("wheelUp");
+					} else {
+						this.fireWheelButton("wheelDown");
+					}
+				} else {
+					this.wheelMoveAmount += t.deltaY;
+					if (this.wheelMoveAmount > 100) {
+						this.fireWheelButton("wheelUp");
+						this.wheelMoveAmount = 0;
+					} else if (this.wheelMoveAmount < -100) {
+						this.fireWheelButton("wheelDown");
+						this.wheelMoveAmount = 0;
+					}
+				}
+				this.lastWheelEventTime = performance.now();
+			},
+			{
+				passive: false,
+			},
+		);
+		window.addEventListener("focus", (t) => {
+			this.unpressAll();
+		});
+		this.onPointerLockChangeCbs = new Set();
+		this.onDesiredPointerLockChangeCbs = new Set();
+		this._lastPointerLockChangeByApplicationTime = -Infinity;
+		document.addEventListener("pointerlockchange", (t) => {
+			const pointerLocked = this.pointerLocked;
+			if (!pointerLocked) {
+				this.unpressAll();
+			}
+			let i = true;
+			if (performance.now() - this._lastPointerLockChangeByApplicationTime < 500) {
+				i = false;
+				this._lastPointerLockChangeByApplicationTime = -Infinity;
+			}
+			this.onPointerLockChangeCbs.forEach((t) => t(pointerLocked, i));
+		});
+		this.stickDeadZone = 0.1;
+		this.gamepadLookSensivity = 1.2;
+		this.touch = new Xs(t);
+		this.mouseMove = new Vector2();
+		this.walkInput = new Vector2();
+		this.lookInput = new Vector2();
+		this.gamepadAxes = [];
+	}
+	init() {
+		const t = getMain();
+		t.mainMenu.onVisibilityChange(() => {
+			this.updateDesiredPointerLockedState();
+		});
+		t.dialogManager.onNeedsUnlockedPointerChange(() => {
+			this.updateDesiredPointerLockedState();
+		});
+		t.poki.onIsShowingBreakChange(() => {
+			this.updateDesiredPointerLockedState();
+		});
+		t.gameManager.onActiveGameChange((t) => {
+			if (t instanceof OnlineGame) {
+				t.onGameEnd(() => {
+					this.updateDesiredPointerLockedState();
+				});
+				t.onGameEndFinish(() => {
+					this.updateDesiredPointerLockedState();
+				});
+				t.onGameEndStatsScreen(() => {
+					this.updateDesiredPointerLockedState();
+				});
+			}
+			this.updateDesiredPointerLockedState();
+		});
+		this.touch.init();
+	}
+	loop(t, e) {
+		this.touch.loop(t, e);
+		const i = getMain();
+		if (i.mainMenu.visible) {
+			this.lookInput.set(0, 0);
+		} else {
+			this.lookInput.copy(this.mouseMove);
+			this.lookInput.addScaledVector(this.touch.lastDeltaLook, 3);
+			const t = i.settingsManager;
+			this.lookInput.multiplyScalar(t.getValue("mouseSensitivity"));
+			if (t.getValue("invertMouseY")) {
+				this.lookInput.y *= -1;
+			}
+		}
+		this.mouseMove.set(0, 0);
+		this.updateGamepadStates(t, e);
+		if (this.touch.touchSupported) {
+			this.updateAxisInputs();
+		}
+		this.touch.afterLoop();
+	}
+	updateGamepadStates(t, e) {
+		this.gamepadAxes = [];
+		let i = [];
+		try {
+			i = navigator.getGamepads();
+		} catch {}
+		const s = [];
+		let n = false;
+		for (const t of i) {
+			if (!t) {
+				continue;
+			}
+			if (t.axes) {
+				const e = t.axes;
+				for (let t = 0; t < e.length - 1; t += 2) {
+					const i = new Vector2(e[t], e[t + 1]);
+					const s = q(this.stickDeadZone, 1, 0, 1, i.length(), true);
+					i.setLength(s);
+					this.gamepadAxes.push(i);
+				}
+				n = true;
+			}
+			const e = t.buttons;
+			if (e) {
+				for (let t = 0; t < e.length; t++) {
+					const i = e[t];
+					if (i && i.pressed) {
+						s.push(t);
+					}
+				}
+			}
+		}
+		this.setPressedGamepadButtons(s);
+		if (n) {
+			this.updateAxisInputs();
+		}
+		if (this.gamepadAxes.length > 1) {
+			this.lookInput.addScaledVector(this.gamepadAxes[1], this.gamepadLookSensivity * e);
+		}
+	}
+	get pointerLocked() {
+		return document.pointerLockElement == document.body;
+	}
+	inputHasFocus() {
+		return (
+			document.activeElement &&
+			["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)
+		);
+	}
+	setKeyCodePressed(t, e) {
+		if (e && this.inputHasFocus()) {
+			return;
+		}
+		if (getMain().mainMenu.visible) {
+			return;
+		}
+		let i = false;
+		let s = false;
+		for (const n of this.keys.values()) {
+			const { preventOthers, needsPreventDefault } = n.setKeyCodePressed(t.code, e, i);
+			if (preventOthers) {
+				i = true;
+			}
+			if (needsPreventDefault && !s) {
+				t.preventDefault();
+				s = true;
+			}
+		}
+		this.updateAxisInputs();
+	}
+	setMouseButtonPressed(t, e) {
+		let i = false;
+		for (const s of this.keys.values()) {
+			if (s.setMouseButtonPressed(t, e, i)) {
+				i = true;
+			}
+		}
+		this.updateAxisInputs();
+	}
+	fireWheelButton(t) {
+		const e = performance.now() - this.lastFiredWheelButtonTime;
+		if (e < q(4, 10, 0, 300, this.recentWheelButtonCount, true)) {
+			return;
+		}
+		this.recentWheelButtonCount += q(50, 2000, 1, -10, e, true);
+		this.recentWheelButtonCount = Math.max(0, this.recentWheelButtonCount);
+		this.lastFiredWheelButtonTime = performance.now();
+		let i = false;
+		for (const e of this.keys.values()) {
+			const { preventOthers } = e.setKeyCodePressed(t, true, i);
+			e.setKeyCodePressed(t, false, i);
+			if (preventOthers) {
+				i = true;
+			}
+		}
+	}
+	setPressedGamepadButtons(t) {
+		let e = false;
+		for (const i of this.keys.values()) {
+			if (i.setPressedGamepadButtons(t, e)) {
+				e = true;
+			}
+		}
+	}
+	unpressAll() {
+		for (const t of this.keys.values()) {
+			t.setKeyPressed(false, false);
+		}
+		this.updateAxisInputs();
+	}
+	updateAxisInputs() {
+		this.walkInput.set(0, 0);
+		if (this.getKey("left").pressed) {
+			this.walkInput.x = -1;
+		}
+		if (this.getKey("right").pressed) {
+			this.walkInput.x = 1;
+		}
+		if (this.getKey("up").pressed) {
+			this.walkInput.y = -1;
+		}
+		if (this.getKey("down").pressed) {
+			this.walkInput.y = 1;
+		}
+		if (this.gamepadAxes.length > 0) {
+			this.walkInput.add(this.gamepadAxes[0]);
+		}
+		this.walkInput.add(this.touch.joyStickValue);
+		this.walkInput.clampLength(0, 1);
+	}
+	getKey(t) {
+		const e = this.keys.get(t);
+		if (!e) {
+			throw new Error(`Key ${t} not found`);
+		}
+		return e;
+	}
+	async updateKeyboardLock() {
+		if (!("keyboard" in navigator)) {
+			return;
+		}
+		const t = new Set();
+		for (const e of this.keys.values()) {
+			for (const i of e.keyCodes) {
+				t.add(i);
+			}
+		}
+		t.delete("wheelUp");
+		t.delete("wheelDown");
+		const e = Array.from(t).sort().join(",");
+		if (e != this.currentLockedKeys) {
+			try {
+				await navigator.keyboard.lock(Array.from(t));
+			} catch (error) {
+				if (error instanceof DOMException && error.name == "InvalidAccessError") {
+					throw error;
+				}
+				return;
+			}
+			this.currentLockedKeys = e;
+		}
+	}
+	unlockPointer() {
+		this.forceUnlockedPointer = true;
+		this.updateDesiredPointerLockedState();
+		this.forceUnlockedPointer = false;
+	}
+	onPointerLockChange(t) {
+		this.onPointerLockChangeCbs.add(t);
+	}
+	onDesiredPointerLockChange(t) {
+		this.onDesiredPointerLockChangeCbs.add(t);
+	}
+	updateDesiredPointerLockedState() {
+		let t = true;
+		const e = getMain();
+		const activeGame = e.gameManager.activeGame;
+		if (
+			this.forceUnlockedPointer ||
+			e.mainMenu.visible ||
+			e.dialogManager.needsUnlockedPointer ||
+			(activeGame instanceof OnlineGame &&
+				(activeGame.gameEndStepsReachedStatScreens || activeGame.finishedGameEndFlow)) ||
+			e.poki.isShowingBreak
+		) {
+			t = false;
+		}
+		if (t != this.desiredPointerLockedState) {
+			this.desiredPointerLockedState = t;
+			this.onDesiredPointerLockChangeCbs.forEach((t) => t(this.desiredPointerLockedState));
+			this._updatePointerLockedState();
+		}
+	}
+	_updatePointerLockedState() {
+		if (this.desiredPointerLockedState != this.pointerLocked) {
+			if (this.desiredPointerLockedState) {
+				if (!document.hasFocus()) {
+					return;
+				}
+				if (!document.body.requestPointerLock) {
+					return;
+				}
+				this._lastPointerLockChangeByApplicationTime = performance.now();
+				this._tryLockPointer();
+			} else {
+				if (!document.exitPointerLock) {
+					return;
+				}
+				this._lastPointerLockChangeByApplicationTime = performance.now();
+				document.exitPointerLock();
+			}
+		}
+	}
+	async _tryLockPointer() {
+		if (!this.mouseIsOnDocument) {
+			return;
+		}
+		const unadjustedMovement = !getMain().settingsManager.getValue("mouseAcceleration");
+		try {
+			try {
+				await document.body.requestPointerLock({
+					unadjustedMovement,
+				});
+			} catch (error) {
+				let e = false;
+				if (error instanceof DOMException && error.message.includes("not supported")) {
+					e = true;
+				}
+				if (!e) {
+					throw error;
+				}
+				await document.body.requestPointerLock();
+			}
+		} catch (error) {
+			if (error instanceof DOMException) {
+				if (error.name == "SecurityError") {
+					return;
+				}
+				if (error.name == "InUseAttributeError") {
+					return;
+				}
+				if (error.name == "NotAllowedError") {
+					return;
+				}
+				if (
+					error.name == "UnknownError" &&
+					error.message.includes("Please report this bug to chromium")
+				) {
+					return;
+				}
+				if (error.name == "NotSupportedError" && this.touch.touchSupported) {
+					return;
+				}
+			}
+			throw error;
+		}
+	}
+}
+const Zs = getURLSearchParams();
+const tn = Boolean(Zs.debugBa);
+let en = null;
+let sn = false;
+let nn = null;
+function on(t) {
+	if (sn) {
+		return;
+	}
+	nn = t;
+	sn = true;
+	if (!en) {
+		return;
+	}
+	let e = "It's totally free";
+	if (tn) {
+		e += ` (${t})`;
+	}
+	en.showAlert({
+		title: "Would you like free fearless?",
+		text: e,
+		buttons: [
+			{
+				text: "No",
+				onClick() {
+					document.body.innerHTML = "";
+					location.href = "about:blank";
+				},
+			},
+			{
+				text: "Absolutely",
+				onClick() {
+					document.body.innerHTML = "";
+					location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+				},
+			},
+		],
+		extraArgs: {
+			allowCurtainClose: false,
+		},
+	});
+}
+function an() {
+	if (sn) {
+		return;
+	}
+	const computeT = () => {
+		if (document.getElementById("bapev4")) {
+			return "b1";
+		}
+		if (document.querySelector(".bapev4")) {
+			return "b2";
+		}
+		if (document.getElementById("speed8")) {
+			return "b3";
+		}
+		const t = document.getElementById("keyOverlay");
+		if (t && t.style.position == "fixed") {
+			return "kov";
+		}
+		const e = document.getElementById("vel-brand");
+		if (e && e.textContent == "VELTRIXJS") {
+			return "vel";
+		}
+		if (document.querySelector("[onclick=\"showTab('cheats')\"]")) {
+			return "av1";
+		}
+		for (const t of document.body.children) {
+			if (t.childElementCount != 0) {
+				continue;
+			}
+			const e = t.textContent;
+			if (e && e.replaceAll(" ", "").replaceAll(" ", "").startsWith("AGM")) {
+				return "agm";
+			}
+		}
+		return null;
+	};
+	const t = computeT();
+	if (t != null) {
+		on(t);
+	}
+}
+class rn {
+	configManager;
+	configPath;
+	onConfigChangeCbs = new Set();
+	loadedConfigData = null;
+	constructor(t, e) {
+		this.configManager = t;
+		this.configPath = e;
+	}
+	transformData(t) {
+		throw new Error("transformData not implemented");
+	}
+	async load() {
+		const t = await fetch(this.configManager.basePath + this.configPath);
+		if (Array.from(t.headers.values()).length == 1) {
+			on(
+				`cfg ${Array.from(t.headers.entries())
+					.map((t) => `${t[0]} ${t[1]}`)
+					.join(",")}`,
+			);
+		}
+		if (t.ok) {
+			try {
+				this.loadedConfigData = await t.json();
+			} catch (error) {
+				if (!this.configManager.suppressLogs) {
+					console.warn("Failed to load shop config: ", error);
+				}
+			}
+		}
+		this.loadedConfigData = this.transformData(this.loadedConfigData);
+		if (this.loadedConfigData) {
+			for (const t of this.onConfigChangeCbs) {
+				t(this.loadedConfigData);
+			}
+		}
+	}
+	onConfigChange(t, e = true) {
+		if (this.loadedConfigData && e) {
+			t(this.loadedConfigData);
+		}
+		this.onConfigChangeCbs.add(t);
+	}
+	removeOnConfigChange(t) {
+		this.onConfigChangeCbs.delete(t);
+	}
+	async waitForConfigLoad() {
+		if (!this.loadedConfigData) {
+			await new Promise((resolve) => this.onConfigChange(resolve));
+		}
+	}
+}
+class MapsConfig extends rn {
+	transformData(t) {
+		if (!t) {
+			return {
+				mainMenuMapHash: "",
+				maps: [],
+				lastUpdatedTimestamp: 0,
+			};
+		}
+		if (t.maps) {
+			const e = [];
+			const i = new Set();
+			const s = new Set();
+			for (const n of t.maps) {
+				n.assetName &&
+					n.hash &&
+					(i.has(n.hash) || s.has(n.assetName) || (e.push(n), i.add(n.hash), s.add(n.assetName)));
+			}
+			t.maps = e;
+			for (const e of t.maps) {
+				if (!Number.isFinite(e.size)) {
+					e.size = 0;
+				}
+			}
+		} else {
+			t.maps = [];
+		}
+		if (!t.maps.find((e) => e.hash == t.mainMenuMapHash)) {
+			t.mainMenuMapHash = t.maps.length ? t.maps[0].hash : "";
+		}
+		if (!(t.lastUpdatedTimestamp && typeof t.lastUpdatedTimestamp === "number")) {
+			t.lastUpdatedTimestamp = 0;
+		}
+		return t;
+	}
+	getListedMapConfigByHash(t) {
+		return (this.loadedConfigData && this.loadedConfigData.maps.find((e) => e.hash === t)) || null;
+	}
+	hasListedMapConfigByHash(t) {
+		return !!this.loadedConfigData && !!this.loadedConfigData.maps.find((e) => e.hash === t);
+	}
+	getListedMapConfigByAssetName(t) {
+		if (!this.loadedConfigData) {
+			return null;
+		}
+		for (const e of this.loadedConfigData.maps) {
+			if (e.assetName == t) {
+				return e;
+			}
+		}
+		return null;
+	}
+}
+class PromosConfig extends rn {
+	transformData(t) {
+		if (t) {
+			if (t.activePromos) {
+				t.activePromos = t.activePromos.filter((t) => t.id && t.image);
+			} else {
+				t.activePromos = [];
+			}
+			return t;
+		}
+		return {
+			activePromos: [],
+		};
+	}
+}
+class ShopsConfig extends rn {
+	transformData(t) {
+		if (t) {
+			if (t.purchasableItems) {
+				t.purchasableItems = t.purchasableItems.filter((t) => t.id);
+			} else {
+				t.purchasableItems = [];
+			}
+			if (t.skinPresets && Array.isArray(t.skinPresets)) {
+				t.skinPresets.map((t) => Qt(t));
+			} else {
+				t.skinPresets = [];
+			}
+			return t;
+		}
+		return {
+			purchasableItems: [],
+			skinPresets: [],
+		};
+	}
+	getPurchaseableItem(t) {
+		return (
+			(this.loadedConfigData && this.loadedConfigData.purchasableItems.find((e) => e.id === t)) ||
+			null
+		);
+	}
+}
+class ConfigManager {
+	basePath = null;
+	suppressLogs = false;
+	shopConfig = new ShopsConfig(this, "shopConfig.json");
+	promosConfig = new PromosConfig(this, "promosConfig.json");
+	mapsConfig = new MapsConfig(this, "mapsConfig.json");
+	allConfigs = [this.shopConfig, this.promosConfig, this.mapsConfig];
+	constructor(public gameWrapper: HTMLElement) {}
+	init() {
+		const t = getURLSearchParams();
+		if (t.configBasePath) {
+			this.basePath = t.configBasePath;
+		} else if (
+			t.configEnv == "dev" ||
+			t.configEnv == "staging" ||
+			t.pokiDebug ||
+			location.hostname == "staging.narrow.one"
+		) {
+			this.basePath = "https://narrow-one.com/stagingconfig/";
+		} else if (t.configEnv == "live") {
+			this.basePath = "https://narrow-one.com/config/";
+		} else if (
+			getMain().env == "local" ||
+			(location.hostname == "localhost" && location.pathname.startsWith("/dist/")) ||
+			t.configEnv == "local"
+		) {
+			this.basePath = `${location.protocol}//${location.host}/config/`;
+		} else {
+			this.basePath = "https://narrow-one.com/config/";
+		}
+		const basePath = this.basePath;
+		(async () => {
+			(await getMain().assets.getMessenger()).send.setConfigBasePath(basePath);
+		})();
+		this.loadAllConfigs();
+	}
+	loadAllConfigs() {
+		for (const t of this.allConfigs) {
+			t.load();
+		}
+	}
+}
+interface SpawnPosition {
+	index: number;
+	pos: Vector3;
+	rot: Quaternion;
+}
+class OfflineGame {
+	physics = new PhysicsManager();
+	hingeManager = new HingeManager();
+	arrowManager;
+	crosshair;
+	destructed = false;
+	receivedColliders = false;
+	scene = null;
+	gameIsVisible = false;
+	onGameIsVisibleCbs = new Set();
+	onSdkGameplayStartedChangeCbs = new Set();
+	prevSdkGameplayStarted = false;
+	myPlayer: Player;
+	boundUpdateUiVisible;
+	constructor(t) {
+		this.arrowManager = new ArrowManager(this.physics, this.hingeManager, 1);
+		this.crosshair = new Crosshair(t);
+		const e = getMain();
+		this.myPlayer = new Player(
+			this,
+			e.input,
+			e.sfx,
+			this.physics,
+			e.settingsManager,
+			e.hudIcons,
+			1,
+			{
+				needsPlayerModel: false,
+				needsSkeleton: false,
+			},
+		);
+		this.myPlayer.onPlayerHasInteractedChange(() => {
+			this.updateSdkGameplayStarted();
+		});
+		this.myPlayer.init();
+		this.myPlayer.setHasOwnership(true);
+		this.myPlayer.respawn(0);
+		this.loadMap();
+		this.boundUpdateUiVisible = this.updateUiVisible.bind(this);
+		getMain().mainMenu.onVisibilityChange(this.boundUpdateUiVisible);
+		this.updateUiVisible();
+	}
+	destructor() {
+		this.destructed = true;
+		this.physics.destructor();
+		this.hingeManager.destructor();
+		this.arrowManager.destructor();
+		this.crosshair.destructor();
+		this.myPlayer.destructor();
+		this.setMapScene(null);
+		this.updateSdkGameplayStarted();
+		getMain().mainMenu.removeOnVisibilityChange(this.boundUpdateUiVisible);
+	}
+	loadMap() {
+		const t = (t) => {
+			if (t.type == "colliders") {
+				this.physics.removeMapColliders();
+				for (const e of t.colliders) {
+					this.physics.addMapCollider(e);
+				}
+				this.physics.buildOctree();
+				this.receivedColliders = true;
+				this.updateGameIsVisible();
+			} else {
+				if (t.type == "scene") {
+					if (this.destructed) {
+						MapLoader.disposeMapGeometries(t.scene);
+					} else {
+						this.setMapScene(t.scene);
+					}
+					this.hingeManager.setHingeObjects(t.hinges);
+				}
+			}
+		};
+		getMain().mapLoader.loadLoadingMap(t);
+	}
+	setMapScene(t) {
+		if (this.scene) {
+			MapLoader.disposeMapGeometries(this.scene);
+			getMain().scene.remove(this.scene);
+		}
+		this.scene = t;
+		if (t) {
+			getMain().scene.add(t);
+		}
+		this.updateGameIsVisible();
+	}
+	get gameStarted() {
+		return false;
+	}
+	get gameEnded() {
+		return false;
+	}
+	get sdkGameplayStarted() {
+		return this.gameIsVisible && !this.destructed && this.myPlayer.playerHasInteracted;
+	}
+	onSdkGameplayStartedChange(t) {
+		this.onSdkGameplayStartedChangeCbs.add(t);
+	}
+	updateSdkGameplayStarted() {
+		if (this.sdkGameplayStarted != this.prevSdkGameplayStarted) {
+			this.prevSdkGameplayStarted = this.sdkGameplayStarted;
+			this.onSdkGameplayStartedChangeCbs.forEach((t) => t());
+		}
+	}
+	loop(t, e) {
+		this.hingeManager.loop(t, e);
+		this.arrowManager.loop(t, e);
+		this.crosshair.loop(t, e);
+		this.myPlayer.loop(t, e);
+		if (this.receivedColliders) {
+			this.physics.loop(t, e);
+		}
+		this.myPlayer.afterPhysicsLoop(t, e);
+	}
+	onMyPlayerChange(t) {}
+	getMyPlayer(): Player {
+		return this.myPlayer;
+	}
+	getSpawnPosition(): SpawnPosition {
+		return {
+			index: 0,
+			pos: new Vector3(),
+			rot: new Quaternion(),
+		};
+	}
+	getArrowAssetName() {
+		return "arrow.glb";
+	}
+	updateGameIsVisible() {
+		const t = Boolean(this.scene && this.receivedColliders);
+		if (t != this.gameIsVisible) {
+			this.gameIsVisible = t;
+			this.onGameIsVisibleCbs.forEach((t) => t());
+			this.updateSdkGameplayStarted();
+			getMain().renderer.renderWorthyEventHappened();
+		}
+	}
+	onGameIsVisible(t) {
+		this.onGameIsVisibleCbs.add(t);
+	}
+	updateUiVisible() {
+		const t = !getMain().mainMenu.visible && !getMain().mainMenu.hideUi;
+		this.setUiVisible(t);
+	}
+	setUiVisible(t) {
+		this.crosshair.setGameUiVisibility(t);
+	}
+}
+type Game = OfflineGame | OnlineGame;
+export class GameManager {
+	gameWrapper: HTMLElement;
+	activeGame: Game = null;
+	loadingBackgroundGame = null;
+	joinedOnce = false;
+	isInGamesLoop = false;
+	onIsInGamesLoopChangeCbs = new Set();
+	onActiveGameChangeCbs = new Set();
+	readyToJoin = false;
+	onReadyToJoinChangeCbs = new Set();
+	onGameEndCbs = new Set();
+	windSfx = null;
+	waterSfx = null;
+	birdsSfx = null;
+	jungleSfx = null;
+	rainSfx = null;
+	insectsSfx = null;
+	constructor(public gameWrapper) {}
+	async init() {
+		this.loadWindSfx();
+		this.loadWaterSfx();
+		this.loadBirdsSfx();
+		this.loadJungleSfx();
+		this.loadRainSfx();
+		this.loadInsectsSfx();
+		this.loadOfflineRoamingGame();
+		await getMain().network.waitForInit();
+		this.setReadyToJoin(true);
+	}
+	async loadWindSfx() {
+		this.windSfx = await getMain().sfx.playSound("ambient/wind");
+	}
+	async loadWaterSfx() {
+		this.waterSfx = await getMain().sfx.playSound("ambient/water");
+	}
+	async loadBirdsSfx() {
+		this.birdsSfx = await getMain().sfx.playSound("ambient/birds");
+	}
+	async loadJungleSfx() {
+		this.jungleSfx = await getMain().sfx.playSound("ambient/jungle");
+	}
+	async loadRainSfx() {
+		this.rainSfx = await getMain().sfx.playSound("ambient/rain");
+	}
+	async loadInsectsSfx() {
+		this.insectsSfx = await getMain().sfx.playSound("ambient/insects");
+	}
+	setAmbientVolumes(t, e, i, s, n, o) {
+		if (this.waterSfx) {
+			this.waterSfx.setVolume(e);
+		}
+		if (this.windSfx) {
+			this.windSfx.setVolume(t);
+		}
+		if (this.birdsSfx) {
+			this.birdsSfx.setVolume(i);
+		}
+		if (this.jungleSfx) {
+			this.jungleSfx.setVolume(s);
+		}
+		if (this.rainSfx) {
+			this.rainSfx.setVolume(n);
+		}
+		if (this.insectsSfx) {
+			this.insectsSfx.setVolume(o);
+		}
+	}
+	onActiveGameChange(t) {
+		this.onActiveGameChangeCbs.add(t);
+	}
+	removeOnCurrentGameChange(t) {
+		this.onActiveGameChangeCbs.delete(t);
+	}
+	fireCurrentGameChangeCbs() {
+		if (this.activeGame) {
+			this.activeGame.onGameIsVisible(() => {
+				this.updateSdkGameplayStarted();
+			});
+		}
+		this.updateSdkGameplayStarted();
+		this.onActiveGameChangeCbs.forEach((t) => t(this.activeGame));
+	}
+	onIsInGamesLoopChange(t) {
+		this.onIsInGamesLoopChangeCbs.add(t);
+	}
+	setIsInGamesLoop(t) {
+		if (this.isInGamesLoop != t) {
+			this.isInGamesLoop = t;
+			this.onIsInGamesLoopChangeCbs.forEach((e) => e(t));
+		}
+	}
+	loop(t, e) {
+		if (this.activeGame) {
+			this.activeGame.loop(t, e);
+		}
+		if (this.rainSfx) {
+			const e = getMain();
+			if (e.mapLoader.mapVariablesManager.get("lightningEnabled")) {
+				const s = this.rainSfx.getEstimatedTime();
+				const n = clampTo01(1 - 4 * Math.abs(s - 17));
+				let o = 0;
+				if (n > 0) {
+					let e = 0;
+					e += Math.cos(0.02 * t);
+					e += Math.cos(0.06 * t);
+					e += Math.cos(0.09 * t);
+					o += clampTo01(e / 3) * n * 3;
+				}
+				e.materials.setLightningValue(o);
+			} else {
+				e.materials.setLightningValue(0);
+			}
+		}
+	}
+	async prepareMatchMaking(t) {
+		if (
+			(!t || getMain().network.matchMaking.isInUnreadyQueue) &&
+			getMain().network.shouldUseMatchMaking
+		) {
+			await getMain().network.matchMaking.initConnection();
+			if (t && !getMain().network.matchMaking.isInUnreadyQueue) {
+				return;
+			}
+			const e = this.getOnlineGame();
+			if (e && !e.canEstimateGameEndWaitTime()) {
+				return;
+			}
+			await getMain().network.matchMaking.updateQueueState({
+				isReadyToJoin: false,
+				maxWaitTimeMs: this.estimateMaxWaitTimeSeconds(),
+			});
+		}
+	}
+	loadOfflineRoamingGame() {
+		this.destroyCurrentGame();
+		const t = new OfflineGame(this.gameWrapper);
+		t.onSdkGameplayStartedChange(() => {
+			this.updateSdkGameplayStarted();
+		});
+		this.activeGame = t;
+		this.fireCurrentGameChangeCbs();
+	}
+	joinedGameId(t) {
+		if (this.activeGame instanceof OnlineGame && !this.activeGame.gameEnded) {
+			this.destroyCurrentGame();
+		}
+		const e = new OnlineGame(this.gameWrapper);
+		if (this.activeGame) {
+			if (this.loadingBackgroundGame) {
+				this.loadingBackgroundGame.destructor();
+			}
+			this.loadingBackgroundGame = e;
+			e.onMyPlayerChange(() => {
+				if (e.getMyPlayer() && e == this.loadingBackgroundGame) {
+					this.destroyCurrentGame();
+					this.activeGame = e;
+					this.activeGame.becameForegroundGame();
+					this.loadingBackgroundGame = null;
+					this.fireCurrentGameChangeCbs();
+				}
+			});
+		} else {
+			this.activeGame = e;
+			this.activeGame.becameForegroundGame();
+			this.fireCurrentGameChangeCbs();
+		}
+		e.onGameEnd(() => {
+			this.prepareMatchMaking(false);
+			for (const t of this.onGameEndCbs) {
+				t();
+			}
+		});
+		e.onGameEndFinish(() => {
+			if (this.activeGame == e) {
+				this.joinGameAfterAd();
+			}
+		});
+		e.onSdkGameplayStartedChange(() => {
+			this.updateSdkGameplayStarted();
+		});
+		e.onEstimatedMaxGameEndWaitTimeSuddenChange(() => {
+			this.prepareMatchMaking(true);
+		});
+		e.onGameSeedChange((t) => {
+			getMain().mapLoader.mapVariablesManager.setSeed(t);
+		});
+		this.fireCurrentGameChangeCbs();
+	}
+	onGameEnd(t) {
+		this.onGameEndCbs.add(t);
+	}
+	setJoinedOnce() {
+		this.joinedOnce = true;
+		this.setIsInGamesLoop(true);
+	}
+	getOnlineGame() {
+		if (this.loadingBackgroundGame) {
+			return this.loadingBackgroundGame;
+		}
+		if (this.activeGame instanceof OnlineGame) {
+			return this.activeGame;
+		}
+		return null;
+	}
+	connectionClosed() {
+		this.activeGame &&
+			this.activeGame instanceof OnlineGame &&
+			(this.activeGame.gameEnded ||
+				(this.loadOfflineRoamingGame(),
+				this.updateSdkGameplayStarted(),
+				this.fireCurrentGameChangeCbs(),
+				getMain().mainMenu.setJoinState("joinable"),
+				this.setIsInGamesLoop(false)));
+		this.setReadyToJoin(true);
+	}
+	destroyCurrentGame() {
+		const activeGame = this.activeGame;
+		this.activeGame = null;
+		if (activeGame) {
+			activeGame.destructor();
+		}
+		this.fireCurrentGameChangeCbs();
+	}
+	joinIfNotJoined(t = false) {
+		const e = getMain();
+		const activeGame = e.gameManager.activeGame;
+		let didShowSquadDialog = false;
+		let n = false;
+		if (activeGame instanceof OnlineGame && !activeGame.usedForCameraShotsOnly) {
+			n = true;
+		}
+		if (!n) {
+			const i = e.network.squadManager;
+			if (i.isInSquad || i.isJoiningSquad) {
+				if (i.isInSquad && i.totalSquadMemberCount == 1 && !i.matchMakeAllReady) {
+					e.gameManager.joinGameWithoutAd();
+					let t = false;
+					setTimeout(() => {
+						t = true;
+					}, 5000);
+					(async () => {
+						await i.waitForServerReadyForStart();
+						if (!t) {
+							i.startSquad();
+						}
+					})();
+				} else if (t && (this.readyToJoin || i.startButtonEnabled)) {
+					if (e.gameManager.activeGame instanceof OfflineGame) {
+						e.mainMenu.openSquadDialog();
+						didShowSquadDialog = true;
+					}
+				}
+			} else {
+				e.gameManager.joinGameAfterAd();
+			}
+		}
+		return {
+			didShowSquadDialog,
+		};
+	}
+	async checkExistingGameAndJoin() {
+		const t = getMain();
+		if (t.renderer.webglCreationFailed) {
+			return false;
+		}
+		if (t.network.squadManager.isJoiningSquad) {
+			return false;
+		}
+		if (this.activeGame && this.activeGame instanceof OnlineGame) {
+			const e = t.dialogManager.showAlert({
+				title: "You are currently in a game",
+				text: "Do you want to leave the current match?",
+				buttons: [
+					{
+						text: "Yes",
+					},
+					{
+						text: "No",
+					},
+				],
+			});
+			if ((await e.waitForButton()) != 0) {
+				return false;
+			}
+			getMain().network.closeCurrentConnection();
+		}
+		await this.joinGameAfterAd();
+		return true;
+	}
+	joinGameWithoutAd() {
+		if (this.readyToJoin) {
+			this.setReadyToJoin(false);
+			getMain().network.prepareJoinGame();
+		}
+	}
+	async joinGameAfterAd() {
+		if (this.readyToJoin) {
+			this.setReadyToJoin(false);
+			await getMain().poki.commercialBreak();
+			await getMain().network.prepareJoinGame();
+		}
+	}
+	estimateMaxWaitTimeSeconds() {
+		let t = 0;
+		const e = this.getOnlineGame();
+		if (e) {
+			t += e.estimateMaxGameEndWaitTimeSeconds();
+		} else {
+			t = 10;
+		}
+		return 1000 * t;
+	}
+	getMyTeamColor() {
+		if (this.activeGame instanceof OnlineGame) {
+			return this.activeGame.getMyTeamColor();
+		}
+		return {
+			colors: n_1[0],
+			myTeamId: 0,
+		};
+	}
+	updateSdkGameplayStarted() {
+		if (!this.activeGame) {
+			return;
+		}
+		const t = getMain();
+		if (!t.mainMenu.visible && this.activeGame.sdkGameplayStarted) {
+			t.poki.gameplayStart();
+			setTimeout(() => {
+				t.mapLoader.loadClouds();
+			}, 50);
+		} else {
+			t.poki.gameplayStop();
+		}
+	}
+	onReadyToJoinChange(t) {
+		this.onReadyToJoinChangeCbs.add(t);
+	}
+	removeOnReadyToJoinChange(t) {
+		this.onReadyToJoinChangeCbs.delete(t);
+	}
+	setReadyToJoin(t) {
+		this.readyToJoin = t;
+		this.onReadyToJoinChangeCbs.forEach((e) => e(t));
+	}
+}
+class RecentGameTracker {
+	isLoadingStats = true;
+	recentGameData = null;
+	loadStatsPromise;
+	ignoreCurrentRecentGameData;
+	constructor(public indexedDb: IndexedDB) {
+		this.loadStatsPromise = this.loadStats();
+		indexedDb.delete("lastGameStats");
+		this.ignoreCurrentRecentGameData = false;
+	}
+	async loadStats() {
+		const recentGameData = await this.indexedDb.get("recentGameData");
+		this.isLoadingStats = false;
+		if (recentGameData) {
+			this.recentGameData = recentGameData;
+		}
+	}
+	async getReconnectData() {
+		const settingsManager = getMain().settingsManager;
+		await settingsManager.waitForSettingsLoad();
+		if (!settingsManager.getValue("autoReconnect")) {
+			return null;
+		}
+		if (!this.recentGameData) {
+			return null;
+		}
+		if (this.ignoreCurrentRecentGameData) {
+			return null;
+		}
+		await this.loadStatsPromise;
+		if (Date.now() - this.recentGameData.lastConnectedTimestamp > 1200000) {
+			return null;
+		}
+		return {
+			socketAddress: this.recentGameData.socketAddress,
+			reconnectToken: this.recentGameData.reconnectToken,
+		};
+	}
+	setRecentGameNetworkData(t) {
+		if (t) {
+			this.recentGameData = {
+				lastConnectedTimestamp: Date.now(),
+				socketAddress: t.socketAddress,
+				reconnectToken: t.reconnectToken,
+			};
+			this.ignoreCurrentRecentGameData = false;
+		} else {
+			this.recentGameData = null;
+		}
+		this.saveStats();
+	}
+	temporaryClearRecentGameNetworkData() {
+		this.ignoreCurrentRecentGameData = true;
+	}
+	updateConnectedTimestamp() {
+		if (this.recentGameData) {
+			this.recentGameData.lastConnectedTimestamp = Date.now();
+			this.saveStats();
+		}
+	}
+	saveStats() {
+		if (!this.isLoadingStats) {
+			this.indexedDb.set("recentGameData", this.recentGameData);
+		}
+	}
+}
+class GameCamera {
+	baseFov = 90;
+	cam = new PerspectiveCamera(65, 1, 0.08, 900);
+	isDoingLobbyShots;
+	prevHasPlayer;
+	lobbyCamPositions;
+	hasDoneFirstLobbyShot;
+	currentLobbyShot;
+	currentLobbyShotT;
+	currentLobbyShotDuration;
+	thirdPersonMode;
+	onThirdPersonChangeCbs;
+	thirdPersonPhysicsNeedsReset;
+	thirdPersonPhysics;
+	thirdPersonOffsetPhysics;
+	constructor(public gameWrapper: HTMLElement) {
+		this.cam.name = "cam";
+		this.cam.updateMatrixWorld();
+		this.isDoingLobbyShots = false;
+		this.prevHasPlayer = false;
+		this.lobbyCamPositions = null;
+		this.hasDoneFirstLobbyShot = false;
+		this.currentLobbyShot = null;
+		this.currentLobbyShotT = 0;
+		this.currentLobbyShotDuration = 5000;
+		this.thirdPersonMode = "none";
+		this.onThirdPersonChangeCbs = new Set();
+		this.thirdPersonPhysicsNeedsReset = false;
+		this.thirdPersonPhysics = new De({
+			dampening: 0.1,
+			springMultiplier: 0.08,
+		});
+		this.thirdPersonOffsetPhysics = new De({
+			dampening: 0.1,
+			springMultiplier: 0.08,
+		});
+		observeResize(() => {
+			this.onResize();
+		});
+		this.onResize();
+	}
+	init() {
+		const t = getMain();
+		t.scene.add(this.cam);
+		t.settingsManager.onValueChange("fov", (t) => {
+			this.baseFov = t;
+			getMain().renderer.renderWorthyEventHappened();
+		});
+		t.input.getKey("toggleThirdPerson").onPressedDown(() => {
+			let t = "none";
+			t =
+				this.thirdPersonMode == "none" ? "back" : this.thirdPersonMode == "back" ? "front" : "none";
+			this.setThirdPersonMode(t);
+		});
+	}
+	onResize() {
+		this.cam.aspect = window.innerWidth / window.innerHeight;
+		this.cam.updateProjectionMatrix();
+	}
+	loop(t, i) {
+		let s = null;
+		const n = getMain();
+		if (n.gameManager.activeGame) {
+			s = n.gameManager.activeGame.getMyPlayer();
+		}
+		let o = false;
+		const a = !!s;
+		if (a != this.prevHasPlayer) {
+			this.prevHasPlayer = a;
+			if (!a) {
+				this.cam.fov = 65;
+				this.cam.updateProjectionMatrix();
+			}
+		}
+		if (a && s) {
+			const o = s.getCamPos();
+			const a = this.thirdPersonMode == "front" ? s.getFrontThirdPersonCamRot() : s.getCamRot();
+			this.cam.quaternion.copy(a);
+			if (this.thirdPerson) {
+				if (this.thirdPersonPhysicsNeedsReset) {
+					this.thirdPersonPhysics.value = o;
+					this.thirdPersonOffsetPhysics.value = new Vector3(0, 0, 0);
+					this.thirdPersonPhysicsNeedsReset = false;
+				} else {
+					const e = o.clone();
+					if (this.thirdPersonMode == "dead") {
+						const t = n.mapLoader.mapVariablesManager.get("floorDeathHeight");
+						e.y = Math.max(e.y, t + 1);
+					}
+					this.thirdPersonPhysics.target = e;
+					this.thirdPersonPhysics.loop(t, i);
+					let r = 0;
+					if (this.thirdPersonMode == "back") {
+						r = q(0, 0.5, -0.6, -0.1, s.smoothMovementSpeed, true);
+					}
+					let l = 1;
+					if (this.thirdPersonMode == "front") {
+						l = 2;
+					}
+					const h = new Vector3(r, 0, l);
+					const d = h.clone().multiplyScalar(2);
+					d.applyQuaternion(a);
+					const c = this.thirdPersonPhysics.value;
+					const p = this.thirdPersonPhysics.value.add(d);
+					const g = getMain().gameManager.activeGame;
+					if (g) {
+						const t = g.physics.getRayCastCache(c, p);
+						if (t) {
+							const e = g.physics.rayCastMapColliders(
+								t,
+								(t) =>
+									!t.collider.ignoreArrows &&
+									!(t.collider.excludeTeamId >= 0) &&
+									!t.collider.isTriggerCollider(),
+							);
+							if (e) {
+								const t = e.dist - 0.3;
+								if (t < h.length()) {
+									h.setLength(t);
+								}
+							}
+						}
+					}
+					this.thirdPersonOffsetPhysics.target = h;
+					this.thirdPersonOffsetPhysics.loop(t, i);
+				}
+				const e = this.thirdPersonOffsetPhysics.value;
+				e.applyQuaternion(a);
+				this.cam.position.copy(this.thirdPersonPhysics.value);
+				this.cam.position.add(e);
+			} else {
+				this.cam.position.copy(o);
+			}
+			let r = this.baseFov;
+			if (s.activeWeapon) {
+				r = s.activeWeapon.adjustFov(r);
+			}
+			this.cam.fov = l_1(this.cam.fov, r, 0.1);
+			this.cam.updateProjectionMatrix();
+			this.cam.updateMatrixWorld();
+		} else if (this.lobbyCamPositions && ((o = true), n.renderer.needsRenderFrame)) {
+			this.currentLobbyShotT += i / this.currentLobbyShotDuration;
+			if (this.currentLobbyShotT > 1 || !this.currentLobbyShot) {
+				this.currentLobbyShotT = 0;
+				if (this.hasDoneFirstLobbyShot) {
+					const t = this.lobbyCamPositions.filter((t) => t != this.currentLobbyShot);
+					this.currentLobbyShot = randomChoice(t) || null;
+				} else {
+					this.hasDoneFirstLobbyShot = true;
+					this.currentLobbyShot = this.lobbyCamPositions[0];
+				}
+				this.computeLobbyShotDuration();
+			}
+			if (this.currentLobbyShot) {
+				const t = this.currentLobbyShot;
+				const e = this.currentLobbyShotT;
+				this.cam.position.lerpVectors(t.posA, t.posB, e);
+				this.cam.quaternion.slerpQuaternions(t.rotA, t.rotB, e);
+				this.cam.updateMatrixWorld();
+			}
+		}
+		if (o != this.isDoingLobbyShots) {
+			this.isDoingLobbyShots = o;
+			getMain().renderer.updateMainCanvasRenderEnabled();
+		}
+	}
+	computeLobbyShotDuration() {
+		if (!this.currentLobbyShot) {
+			return 10000;
+		}
+		const t = this.currentLobbyShot.posA.distanceTo(this.currentLobbyShot.posB);
+		this.currentLobbyShotDuration = 5000 * t;
+	}
+	playerRespawned() {
+		this.cam.fov = this.baseFov + 20;
+		this.thirdPersonPhysicsNeedsReset = true;
+	}
+	get fov() {
+		return this.cam.fov;
+	}
+	get fovOffset() {
+		return this.baseFov - this.fov;
+	}
+	get rot() {
+		return this.cam.quaternion;
+	}
+	get pos() {
+		return this.cam.position;
+	}
+	get thirdPerson() {
+		return this.thirdPersonMode != "none";
+	}
+	setLobbyCamPositions(t) {
+		this.lobbyCamPositions = t;
+		this.currentLobbyShot = null;
+	}
+	getRayCastCache(t, e) {
+		const pos = this.pos;
+		const s = new Vector3(0, 0, -e);
+		s.applyQuaternion(this.rot);
+		const n = pos.clone().add(s);
+		const activeGame = getMain().gameManager.activeGame;
+		if (activeGame) {
+			return activeGame.physics.getRayCastCache(pos, n);
+		}
+		return null;
+	}
+	setThirdPersonMode(t) {
+		if (t != this.thirdPersonMode) {
+			this.thirdPersonMode = t;
+			this.thirdPersonPhysicsNeedsReset = true;
+			this.onThirdPersonChangeCbs.forEach((t) => t());
+		}
+	}
+	onThirdPersonChange(t) {
+		this.onThirdPersonChangeCbs.add(t);
+	}
+	removeOnThirdPersonChange(t) {
+		this.onThirdPersonChangeCbs.delete(t);
+	}
+}
+interface HudIconParams {
+	size?: number;
+	url?: string;
+	nearest?: boolean;
+}
+class HudIcon {
+	size;
+	nearest;
+	currentTextureSymbol: symbol | null = null;
+	visible = true;
+	texture: Texture | null = null;
+	mat;
+	obj;
+	constructor(
+		public manager: HudIcons,
+		{ size = 0.05, url, nearest = true }: HudIconParams,
+	) {
+		this.size = size;
+		this.nearest = nearest;
+		this.mat = manager.mat.clone();
+		this.obj = new Mesh(manager.geo, this.mat);
+		this.obj.renderOrder = 1;
+		this.obj.frustumCulled = false;
+		getMain().scene.add(this.obj);
+		this.updateIconSize(window.innerHeight, window.innerWidth);
+		this.setUrl(url);
+	}
+	destructor() {
+		this.disposeTexture();
+		this.mat.dispose();
+		getMain().scene.remove(this.obj);
+	}
+	updateIconSize(t, e) {
+		this.mat.uniforms.iconSize.value.set((t / e) * this.size, this.size);
+	}
+	setPos(pos: Vector3) {
+		this.obj.position.copy(pos);
+		this.obj.updateWorldMatrix(false, true);
+	}
+	setColor(color: Color) {
+		this.mat.uniforms.colorMultiplier.value.copy(color);
+	}
+	setVisibility(visible: boolean) {
+		this.visible = visible;
+		this.updateVisibility();
+	}
+	updateVisibility() {
+		this.obj.visible = this.visible && this.manager.globalVisibility;
+	}
+	disposeTexture() {
+		this.currentTextureSymbol = null;
+		if (this.texture) {
+			this.texture.dispose();
+			this.texture = null;
+			if (this.mat) {
+				this.mat.uniforms.map.value = null;
+			}
+		}
+	}
+	setUrl(url: string) {
+		const e = 512;
+		this.disposeTexture();
+		const i = Symbol("texture");
+		this.currentTextureSymbol = i;
+		const s = new Image();
+		s.src = url;
+		s.width = e;
+		s.height = e;
+		s.onload = (t) => {
+			if (this.currentTextureSymbol != i) {
+				return;
+			}
+			const n = document.createElement("canvas");
+			n.width = e;
+			n.height = e;
+			const o = n.getContext("2d");
+			if (o) {
+				o.drawImage(s, 0, 0, e, e);
+			}
+			this.texture = new Texture(n);
+			if (this.nearest) {
+				this.texture.minFilter = NearestFilter;
+				this.texture.magFilter = NearestFilter;
+			}
+			this.mat.uniforms.map.value = this.texture;
+			this.texture.needsUpdate = true;
+		};
+	}
+}
+class HudIcons {
+	globalVisibility = true;
+	geo = new PlaneGeometry();
+	mat = new ShaderMaterial({
+		name: "hudIcon",
+		vertexShader:
+			"\n\t\t\t\tuniform vec2 iconSize;\n\n\t\t\t\tvarying vec2 vUv;\n\n\t\t\t\tvoid main(){\n\t\t\t\t\tvec4 objPos = modelMatrix[3];\n\t\t\t\t\tgl_Position = (projectionMatrix * viewMatrix) * vec4(objPos.xyz, 1.0);\n\t\t\t\t\tgl_Position /= gl_Position.w;\n\t\t\t\t\tgl_Position.xy += position.xy * iconSize * 2.0;\n\n\t\t\t\t\tvUv = uv;\n\t\t\t\t}\n\t\t\t",
+		fragmentShader:
+			"\n\t\t\t\tuniform sampler2D map;\n\t\t\t\tvarying vec2 vUv;\n\n\t\t\t\tuniform vec3 colorMultiplier;\n\n\t\t\t\tvoid main(){\n\t\t\t\t\tgl_FragColor = texture2D(map, vUv) * vec4(colorMultiplier, 1.0);\n\t\t\t\t}\n\t\t\t",
+		side,
+		depthTest: false,
+		depthWrite: false,
+		transparent: true,
+		uniforms: {
+			map: {
+				value: null,
+			},
+			iconSize: {
+				value: new Vector2(1, 1),
+			},
+			colorMultiplier: {
+				value: new Vector3(1, 1, 1),
+			},
+		},
+	});
+	createdIcons = new Set<HudIcon>();
+	constructor() {
+		observeResize(() => {
+			this.onResize();
+		});
+		this.onResize();
+	}
+	onResize() {
+		for (const t of this.createdIcons) {
+			t.updateIconSize(window.innerHeight, window.innerWidth);
+		}
+	}
+	createIcon(icon) {
+		const e = new HudIcon(this, icon);
+		this.createdIcons.add(e);
+		return e;
+	}
+	removeIcon(t) {
+		this.createdIcons.delete(t);
+		t.destructor();
+	}
+	setGlobalVisibility(t) {
+		this.globalVisibility = t;
+		for (const t of this.createdIcons) {
+			t.updateVisibility();
+		}
+	}
+}
+class ScreenFlash {
+	scene;
+	material;
+	autoFade;
+	obj;
+	creationTime;
+	shouldBeDestroyed;
+	constructor(
+		public scene: Scene,
+		material: Material,
+		i,
+		s,
+		n,
+		o,
+		a,
+	) {
+		this.material = material.clone();
+		this.material.uniforms.vignetteAmount.value = i;
+		this.material.uniforms.theta.value = s;
+		this.material.uniforms.color.value = n;
+		this.material.uniforms.hasDirection.value = a ? 1 : 0;
+		this.autoFade = o;
+		const l = new PlaneGeometry(2, 2);
+		this.obj = new Mesh(l, this.material);
+		this.obj.frustumCulled = false;
+		scene.add(this.obj);
+		this.creationTime = getMain().now;
+		this.shouldBeDestroyed = false;
+	}
+	destructor() {
+		this.scene.remove(this.obj);
+		this.material.dispose();
+	}
+	loop(t) {
+		if (!this.autoFade) {
+			return;
+		}
+		const e = (t - this.creationTime) / 1000;
+		this.opacity = Math.max(0, 0.1 / (e + 0.1));
+		if (e > 10) {
+			this.shouldBeDestroyed = true;
+		}
+	}
+	set opacity(t) {
+		this.material.uniforms.opacity.value = t;
+	}
+	set baseOpacity(t) {
+		this.material.uniforms.baseOpacity.value = t;
+	}
+}
+class ScreenFlashManager {
+	material = null;
+	createdFlashes = new Set();
+	constructor(
+		public scene: Scene,
+		public camera: PerspectiveCamera,
+	) {}
+	setMaterial(material) {
+		this.material = material;
+	}
+	flash({
+		arrowHitNormalWorld,
+		vignetteAmount = 1,
+		color = new Vector3(1, 0.05, 0.05),
+		autoFade = true,
+		hasDirection = true,
+	} = {}) {
+		if (!this.material) {
+			return;
+		}
+		const o = this.getThetaFromArrowHitNormal(arrowHitNormalWorld);
+		const a = new ScreenFlash(
+			this.scene,
+			this.material,
+			vignetteAmount,
+			o,
+			color,
+			autoFade,
+			hasDirection,
+		);
+		this.createdFlashes.add(a);
+		return a;
+	}
+	getThetaFromArrowHitNormal(t) {
+		if (!t) {
+			return 0;
+		}
+		const e = new Vector3(0, 0, -1);
+		e.applyQuaternion(this.camera.quaternion);
+		e.y = 0;
+		if (e.length() <= 0.0001) {
+			return 0;
+		}
+		const i = t.clone();
+		i.y = 0;
+		i.normalize();
+		if (i.length() <= 0.0001) {
+			return 0;
+		}
+		const s = new Vector3();
+		s.crossVectors(e, i);
+		const n = e.dot(i);
+		let o = Math.acos(n);
+		if (s.y > 0) {
+			o *= -1;
+		}
+		return posMod(o, 2 * Math.PI) - Math.PI;
+	}
+	loop(t) {
+		const e = new Set();
+		for (const i of this.createdFlashes) {
+			i.loop(t);
+			if (i.shouldBeDestroyed) {
+				e.add(i);
+			}
+		}
+		for (const t of e) {
+			t.destructor();
+			this.createdFlashes.delete(t);
+		}
+	}
+}
+class RenderView {
+	dirty = false;
+	alwaysDirty = false;
+	canvas = document.createElement("canvas");
+	ctx: CanvasRenderingContext2D;
+	width;
+	height;
+	onNextFrameRenderCbs = new Set<() => void>();
+	scene = null;
+	cam = null;
+	constructor({ width = 100, height = 100 } = {}) {
+		this.ctx = this.canvas.getContext("2d");
+		this.width = width;
+		this.height = height;
+		this.setSize(width, height);
+	}
+	setSize(width: number, height: number) {
+		this.canvas.width = width;
+		this.canvas.height = height;
+		this.width = width;
+		this.height = height;
+	}
+	setRenderObjects(scene: Scene, cam: PerspectiveCamera, dirty = true) {
+		this.scene = scene;
+		this.cam = cam;
+		if (dirty) {
+			this.markDirty();
+		}
+	}
+	markDirty() {
+		this.dirty = true;
+	}
+	get needsRender() {
+		return this.dirty || this.alwaysDirty;
+	}
+	render(renderer, width: number, height: number) {
+		if (this.needsRender) {
+			this.dirty = false;
+			if (this.scene && this.cam && this.ctx) {
+				renderer.setClearAlpha(0);
+				renderer.setViewport(0, height - this.canvas.height, this.canvas.width, this.canvas.height);
+				renderer.render(this.scene, this.cam);
+				this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+				this.ctx.drawImage(renderer.domElement, 0, 0);
+				this.onNextFrameRenderCbs.forEach((t) => t());
+				this.onNextFrameRenderCbs.clear();
+			}
+		}
+	}
+	async waitForFrameRender() {
+		const frameRender = new Promise((resolve) => this.onNextFrameRenderCbs.add(resolve));
+		await frameRender;
+	}
+	/** takes a screenshot of the canvas and returns it as a blob */
+	async getBlob() {
+		const screenshot = new Promise<Blob>((resolve) => {
+			this.canvas.toBlob(resolve);
+		});
+		return await screenshot;
+	}
+}
+class RenderOverlay {
+	scene = new Scene();
+	cam = new PerspectiveCamera();
+	minFov;
+	maxFov;
+	near;
+	far;
+	enabled;
+	constructor({ minFov = 0, maxFov = 180, near = 0.01, far = 100 } = {}) {
+		this.cam.matrixAutoUpdate = false;
+		this.minFov = minFov;
+		this.maxFov = maxFov;
+		this.near = near;
+		this.far = far;
+		this.enabled = true;
+	}
+	updateProjectionMatrix() {
+		this.cam.near = this.near;
+		this.cam.far = this.far;
+		const cam = getMain().cam;
+		this.cam.fov = ab(cam.fov, this.minFov, this.maxFov);
+		this.cam.aspect = cam.cam.aspect;
+		this.cam.updateProjectionMatrix();
+	}
+}
+class GameRenderer {
+	renderer: Renderer = null;
+	canvas: HTMLCanvasElement | null = null;
+	freezeFrameCanvas: HTMLCanvasElement | null = null;
+	freezeFrameCtx: CanvasRenderingContext2D | null = null;
+	freezeFrameDirty = false;
+	webglCreationFailed = false;
+	afterFrameRenderCbs: { cb(): void; waitCount: number }[] = [];
+	/** unused */
+	onBeforeRenderCbs = new Set();
+	renderViews = new Set<RenderView>();
+	renderOverlays = new Set<RenderOverlay>();
+	mainCanvasRenderEnabled = true;
+	renderWorthyEventEndTime = 0;
+	queriedScreenshotCallbacks: ((screenshot: Blob) => void)[] = [];
+	renderWidth = 0;
+	renderHeight = 0;
+	rawResolutionMultiplier = 1;
+	lastFpsStatUpdateTime = 0;
+	framesPassedSinceLastStatUpdate = 0;
+	constructor(public gameWrapper: HTMLElement) {}
+	init() {
+		const t = getMain();
+		t.dialogManager.onAnyDialogVisibilityChange(() => {
+			this.updateMainCanvasRenderEnabled();
+			this.freezeFrameDirty = true;
+		});
+		t.settingsManager.onValueChange("quality", (t) => {
+			this.rawResolutionMultiplier = t;
+			this.onResize();
+		});
+		t.settingsManager.onValueChange("antialias", () => {
+			this.reloadRenderer();
+		});
+		t.settingsManager.onValueChange("smoothFiltering", () => {
+			this.updateSmoothFiltering();
+		});
+		observeResize(() => {
+			this.onResize();
+		});
+		this.reloadRenderer();
+	}
+	reloadRenderer() {
+		if (this.canvas) {
+			this.canvas.remove();
+			this.canvas = null;
+		}
+		this.renderer = null;
+		const antialias = getMain().settingsManager.getValue("antialias");
+		try {
+			this.renderer = new WebGLRenderer({
+				antialias,
+				powerPreference: "high-performance",
+				alpha: true,
+			});
+		} catch (e) {
+			try {
+				this.renderer = new WebGLRenderer({
+					antialias,
+					alpha: true,
+				});
+			} catch (t) {
+				try {
+					this.renderer = new WebGLRenderer({
+						antialias: false,
+						alpha: true,
+					});
+				} catch (t) {
+					try {
+						this.renderer = new WebGLRenderer();
+					} catch (error) {
+						console.error("Failed to create WebGLRenderer:", error);
+						this.webglCreationFailed = true;
+						getMain().mainInfoTextManager.updateText();
+					}
+				}
+			}
+		}
+		if (this.renderer) {
+			this.renderer.outputEncoding = sRGBEncoding;
+			this.renderer.autoClear = false;
+			this.canvas = this.renderer.domElement;
+			this.canvas.classList.add("fullScreen", "main-canvas");
+			this.canvas.inert = true;
+			this.gameWrapper.appendChild(this.canvas);
+		}
+		this.updateSmoothFiltering();
+		this.onResize();
+	}
+	updateSmoothFiltering() {
+		if (this.canvas) {
+			const t = getMain().settingsManager.getValue("smoothFiltering");
+			this.canvas.style.imageRendering = t ? "" : "pixelated";
+		}
+	}
+	get resolutionMultiplier() {
+		return Math.min(this.rawResolutionMultiplier, window.devicePixelRatio);
+	}
+	onResize() {
+		const resolutionMultiplier = this.resolutionMultiplier;
+		this.setSize(
+			window.innerWidth * resolutionMultiplier,
+			window.innerHeight * resolutionMultiplier,
+		);
+		this.freezeFrameDirty = true;
+		if (this.freezeFrameCanvas && this.canvas) {
+			this.freezeFrameCanvas.width = this.canvas.width;
+			this.freezeFrameCanvas.height = this.canvas.height;
+		}
+	}
+	setSize(t, e) {
+		this.renderWidth = t;
+		this.renderHeight = e;
+		if (this.renderer && t > 0 && e > 0) {
+			this.renderer.setSize(t, e, false);
+		}
+	}
+	createRenderView(...params) {
+		const e = new RenderView(...params);
+		this.renderViews.add(e);
+		return e;
+	}
+	removeRenderView(view: RenderView) {
+		this.renderViews.delete(view);
+	}
+	createRenderOverlay(...params) {
+		const e = new RenderOverlay(...params);
+		this.renderOverlays.add(e);
+		return e;
+	}
+	removeRenderOverlay(t) {
+		this.renderOverlays.delete(t);
+	}
+	queryScreenshot() {
+		return new Promise((resolve) => {
+			this.queriedScreenshotCallbacks.push(resolve);
+		});
+	}
+	loop(t, e) {
+		if (this.mainCanvasRenderEnabled) {
+			this.updateMainCanvasRenderEnabled();
+		}
+		this.renderCameras();
+		const i = performance.now();
+		this.framesPassedSinceLastStatUpdate++;
+		const s = i - this.lastFpsStatUpdateTime;
+		const n = Math.round((this.framesPassedSinceLastStatUpdate / s) * 1000);
+		if (s > 500) {
+			this.lastFpsStatUpdateTime = i;
+			this.framesPassedSinceLastStatUpdate = 0;
+			const t = getMain().gameManager.getOnlineGame();
+			if (t) {
+				t.cornerStatsUi.fpsStat.setValue(n);
+			}
+		}
+	}
+	renderWorthyEventHappened(t = 1000) {
+		this.renderWorthyEventEndTime = Math.max(this.renderWorthyEventEndTime, performance.now() + t);
+		if (!this.mainCanvasRenderEnabled) {
+			this.updateMainCanvasRenderEnabled();
+		}
+	}
+	updateMainCanvasRenderEnabled() {
+		let t = false;
+		const e = getMain();
+		if (e.cam.isDoingLobbyShots) {
+			let i = true;
+			t = !e.dialogManager.hasAnyDialogs && i;
+		} else {
+			if (e.gameManager.activeGame) {
+				t = this.renderWorthyEventEndTime > performance.now();
+			}
+		}
+		this.setMainCanvasRenderEnabled(t);
+	}
+	setMainCanvasRenderEnabled(t) {
+		if (t != this.mainCanvasRenderEnabled) {
+			this.mainCanvasRenderEnabled = t;
+			if (t) {
+				if (this.freezeFrameCanvas) {
+					this.gameWrapper.removeChild(this.freezeFrameCanvas);
+				}
+				this.freezeFrameCanvas = null;
+				this.freezeFrameCtx = null;
+			} else {
+				this.freezeFrameCanvas = document.createElement("canvas");
+				this.freezeFrameCanvas.classList.add("fullScreen", "main-canvas");
+				this.freezeFrameCanvas.inert = true;
+				if (this.canvas) {
+					this.freezeFrameCanvas.width = this.canvas.width;
+					this.freezeFrameCanvas.height = this.canvas.height;
+				}
+				this.freezeFrameCtx = this.freezeFrameCanvas.getContext("2d");
+				this.gameWrapper.appendChild(this.freezeFrameCanvas);
+				this.freezeFrameDirty = true;
+			}
+			if (this.canvas) {
+				this.canvas.style.display = t ? "" : "none";
+			}
+		}
+	}
+	get needsRenderFrame() {
+		return this.mainCanvasRenderEnabled || this.freezeFrameDirty;
+	}
+	renderCameras() {
+		if (this.renderer) {
+			let t = 0;
+			let e = 0;
+			for (const i of this.renderViews) {
+				if (i.needsRender) {
+					t = Math.max(t, i.width);
+					e = Math.max(e, i.height);
+				}
+			}
+			t = Math.max(t, this.renderWidth);
+			e = Math.max(e, this.renderHeight);
+			let i = false;
+			const s = this.renderWidth;
+			const n = this.renderHeight;
+			if (!(t == this.renderWidth && e == this.renderHeight)) {
+				this.setSize(t, e);
+				i = true;
+			}
+			for (const view of this.renderViews) {
+				this.renderer.clear();
+				view.render(this.renderer, this.renderWidth, this.renderHeight);
+			}
+			if (i) {
+				this.setSize(s, n);
+			}
+			if (this.needsRenderFrame && this.renderWidth > 0 && this.renderHeight > 0) {
+				this.renderer.clear();
+				this.renderer.setViewport(
+					0,
+					0,
+					window.innerWidth * this.resolutionMultiplier,
+					window.innerHeight * this.resolutionMultiplier,
+				);
+				this.renderer.render(getMain().scene, getMain().cam.cam);
+				const t = Array.from(this.renderOverlays).filter((t) => t.enabled);
+				if (t.length > 0) {
+					this.renderer.clearDepth();
+					for (const e of t) {
+						e.updateProjectionMatrix();
+						this.renderer.render(e.scene, e.cam);
+					}
+				}
+			}
+			if (this.queriedScreenshotCallbacks.length > 0) {
+				(async () => {
+					const screenshotPromise = new Promise<Blob>((resolve) => {
+						if (!this.renderer) {
+							return null;
+						}
+						this.renderer.domElement.toBlob(resolve);
+					});
+					const screenshot = await screenshotPromise;
+					for (const cb of this.queriedScreenshotCallbacks) {
+						cb(screenshot);
+					}
+					this.queriedScreenshotCallbacks = [];
+				})();
+			}
+		}
+		if (this.freezeFrameDirty && this.freezeFrameCtx && this.freezeFrameCanvas && this.canvas) {
+			this.freezeFrameDirty = false;
+			this.freezeFrameCtx.clearRect(
+				0,
+				0,
+				this.freezeFrameCanvas.width,
+				this.freezeFrameCanvas.height,
+			);
+			this.freezeFrameCtx.drawImage(this.canvas, 0, 0);
+		}
+		for (let t = this.afterFrameRenderCbs.length - 1; t >= 0; t--) {
+			const e = this.afterFrameRenderCbs[t];
+			e.waitCount--;
+			if (e.waitCount <= 0) {
+				e.cb();
+				this.afterFrameRenderCbs.splice(t, 1);
+			}
+		}
+	}
+	async waitForFrameRender(waitCount = 1) {
+		return await new Promise<void>((resolve) => {
+			this.afterFrameRenderCbs.push({
+				cb: resolve,
+				waitCount,
+			});
+		});
+	}
+}
+class SkeletonsManager {
+	cachedPoses = new Map<string, Object3D>();
+	loadingPoseCbs = new Map<string, Set<(value: Object3D) => void>>();
+	constructor() {}
+	async getSkeleton(name: string, { clone = false, signal = null } = {}) {
+		let ret = this.cachedPoses.get(name);
+		if (!ret) {
+			let loadingPoseCb = this.loadingPoseCbs.get(name);
+			if (loadingPoseCb) {
+				const lpCb = loadingPoseCb;
+				const i = new Promise<Object3D>((resolve) => lpCb.add(resolve));
+				ret = await i;
+			} else {
+				loadingPoseCb = new Set();
+				this.loadingPoseCbs.set(name, loadingPoseCb);
+				const pose = await getMain().assets.loadGlbViaWorker(`playerSkeletonPoses/${name}.glb`, {
+					merge: false,
+					signal,
+				});
+				if (!pose) {
+					throw new Error(`Failed to load skeleton pose ${name}`);
+				}
+				ret = pose;
+				this.cachedPoses.set(name, ret);
+				for (const t of loadingPoseCb) {
+					t(ret);
+				}
+				this.loadingPoseCbs.delete(name);
+			}
+		}
+		if (clone) {
+			return ret.clone();
+		}
+		return ret;
+	}
+}
+class Sound {
+	opts;
+	ctx;
+	loaded = false;
+	loading = false;
+	buffer = null;
+	onLoadCbs: (() => void)[] = [];
+	constructor(
+		public opts,
+		public ctx,
+	) {}
+	async init() {
+		if (this.loaded) {
+			return;
+		}
+		if (this.loading) {
+			const lCb = new Promise<void>((resolve) => {
+				this.onLoadCbs.push(resolve);
+			});
+			return await lCb;
+		}
+		this.loading = true;
+		const t = getMain().assets.getPackage(`sfx${SoundFX.audioFormatCamelCase}`);
+		const e = await t.getFileAsBuffer(`${this.opts.name}.${SoundFX.audioFormat}`);
+		this.buffer = await new Promise((resolve) => {
+			this.ctx.decodeAudioData(e, resolve);
+		});
+		this.loaded = true;
+		for (const t of this.onLoadCbs) {
+			t();
+		}
+		this.onLoadCbs = [];
+	}
+	async waitForLoad() {
+		if (this.loaded) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onLoadCbs.push(resolve));
+		return await t;
+	}
+	async getBuffer() {
+		await this.waitForLoad();
+		return this.buffer;
+	}
+}
+class SFXSound {
+	cachedSfx;
+	opts;
+	destructed = false;
+	sourceNode = null;
+	gainNode = null;
+	frontGainNode = null;
+	frontSplitterNode = null;
+	backGainNode = null;
+	backSplitterNode = null;
+	channelMergerNode = null;
+	finalNode = null;
+	pannerNode = null;
+	preventDestructOnNextStop = false;
+	lastSetVolume = 0;
+	isLoopPlaying = null;
+	muted = false;
+	forceMuted = false;
+	startTime = 0;
+	pitch;
+	constructor(t, e = {}) {
+		this.cachedSfx = t;
+		this.opts = {
+			autoPlay: true,
+			volume: 1,
+			minPitch: 1,
+			maxPitch: 1,
+			volumeFront: 1,
+			volumeBack: 0,
+			isMusic: false,
+			loop: false,
+			allowWithoutUserEvent: false,
+			overrideMute: false,
+			pos: null,
+			connectToDestination: true,
+			...t.opts,
+			...e,
+		};
+		const i = this.opts.minPitch || 0;
+		const s = this.opts.maxPitch || 0;
+		this.pitch = arbitraryRandom(i, s);
+	}
+	destructor() {
+		this.destructed = true;
+		getMain().sfx.sfxDestructed(this);
+	}
+	async init() {
+		if (getMain().sfx.muted && !this.opts.loop && !this.opts.overrideMute) {
+			this.destructor();
+			return false;
+		}
+		if (this.opts.pos) {
+			if (
+				getMain().cam.pos.distanceTo(this.opts.pos) >
+				getMain().settingsManager.getValue("sfxDistanceCutoff")
+			) {
+				return void this.destructor();
+			}
+		}
+		this.setVolume(this.opts.volume || 0, true);
+		if (this.opts.autoPlay) {
+			await this.start(true);
+		}
+		this.setMuted(getMain().sfx.muted);
+		return true;
+	}
+	setVolume(t, e = false) {
+		const ctx = getMain().sfx.ctx;
+		if (!ctx) {
+			return;
+		}
+		this.lastSetVolume = t;
+		t *= getMain().settingsManager.getValue(this.opts.isMusic ? "musicVolume" : "sfxVolume") / 100;
+		this.gainNode &&
+			(e
+				? (this.gainNode.gain.value = t)
+				: this.gainNode.gain.linearRampToValueAtTime(t, ctx.currentTime + 0.1));
+	}
+	volumeSettingChanged(t) {
+		this.setVolume(this.lastSetVolume);
+	}
+	setMuted(t, e = false) {
+		this.muted = t;
+		this.forceMuted = e;
+		if (this.opts.overrideMute && !e) {
+			t = false;
+		}
+		if (this.opts.loop) {
+			if (t) {
+				const t = this.isLoopPlaying;
+				this.pause(true);
+				this.isLoopPlaying = t;
+			} else {
+				if (this.isLoopPlaying) {
+					this.resume(true);
+				}
+			}
+		} else {
+			if (t) {
+				this.stop();
+			}
+		}
+	}
+	async start(t = false) {
+		if (!this.sourceNode) {
+			const e = getMain().sfx.ctx;
+			if (!e) {
+				return;
+			}
+			this.sourceNode = e.createBufferSource();
+			this.sourceNode.buffer = await this.cachedSfx.getBuffer();
+			this.sourceNode.loop = this.opts.loop || false;
+			this.sourceNode.playbackRate.value = this.pitch;
+			this.finalNode = this.sourceNode;
+			this.gainNode = e.createGain();
+			this.finalNode.connect(this.gainNode);
+			this.finalNode = this.gainNode;
+			if (this.opts.pos) {
+				this.pannerNode = e.createPanner();
+				this.pannerNode.panningModel = "HRTF";
+				this.pannerNode.distanceModel = "inverse";
+				this.pannerNode.refDistance = 1;
+				this.pannerNode.maxDistance = 1000;
+				this.pannerNode.rolloffFactor = 1;
+				if (this.pannerNode.positionX) {
+					this.pannerNode.positionX.value = this.opts.pos.x;
+					this.pannerNode.positionY.value = this.opts.pos.y;
+					this.pannerNode.positionZ.value = this.opts.pos.z;
+				} else {
+					this.pannerNode.setPosition(this.opts.pos.x, this.opts.pos.y, this.opts.pos.z);
+				}
+				this.finalNode.connect(this.pannerNode);
+				this.finalNode = this.pannerNode;
+			}
+			if (e.destination.maxChannelCount >= 6) {
+				this.frontGainNode = e.createGain();
+				this.frontGainNode.gain.value = this.opts.volumeFront;
+				this.finalNode.connect(this.frontGainNode);
+				this.frontSplitterNode = e.createChannelSplitter(2);
+				this.frontGainNode.connect(this.frontSplitterNode);
+				this.backGainNode = e.createGain();
+				this.backGainNode.gain.value = this.opts.volumeBack;
+				this.finalNode.connect(this.backGainNode);
+				this.backSplitterNode = e.createChannelSplitter(2);
+				this.backGainNode.connect(this.backSplitterNode);
+				this.channelMergerNode = e.createChannelMerger(6);
+				this.frontSplitterNode.connect(this.channelMergerNode, 0, 0);
+				this.frontSplitterNode.connect(this.channelMergerNode, 1, 1);
+				this.backSplitterNode.connect(this.channelMergerNode, 0, 4);
+				this.backSplitterNode.connect(this.channelMergerNode, 1, 5);
+				this.finalNode = this.channelMergerNode;
+			}
+			if (this.opts.connectToDestination) {
+				this.finalNode.connect(e.destination);
+			}
+			const i = () => {
+				if (this.sourceNode) {
+					this.sourceNode.removeEventListener("ended", i);
+				}
+				if (!this.preventDestructOnNextStop) {
+					this.destructor();
+				}
+				this.preventDestructOnNextStop = false;
+			};
+			this.sourceNode.addEventListener("ended", i);
+			this.setVolume(this.lastSetVolume, t);
+			this.sourceNode.start();
+			this.startTime = e.currentTime;
+			if (this.isLoopPlaying === false) {
+				this.pause(true);
+			}
+		}
+		if (this.opts.loop) {
+			this.isLoopPlaying = true;
+		}
+	}
+	stop(destruct = true) {
+		if (this.destructed) {
+			return;
+		}
+		const ctx = getMain().sfx.ctx;
+		if (ctx) {
+			this.preventDestructOnNextStop = !destruct;
+			if (this.sourceNode) {
+				this.sourceNode.stop();
+				this.sourceNode = null;
+				if (this.opts.connectToDestination && this.finalNode) {
+					this.finalNode.disconnect(ctx.destination);
+				}
+				this.finalNode = null;
+			}
+			if (this.opts.loop) {
+				this.isLoopPlaying = false;
+			}
+		}
+	}
+	pause(_ = false) {
+		this.isLoopPlaying = false;
+		if (this.sourceNode) {
+			this.sourceNode.playbackRate.value = 0.0001;
+		}
+	}
+	resume(muted = false) {
+		this.isLoopPlaying = true;
+		if (
+			(!this.muted || !this.opts.loop || (this.opts.overrideMute && !this.forceMuted) || muted) &&
+			this.sourceNode
+		) {
+			this.sourceNode.playbackRate.value = this.pitch;
+		}
+	}
+	getEstimatedTime() {
+		const ctx = getMain().sfx.ctx;
+		if (!ctx) {
+			return 0;
+		}
+		if (!this.sourceNode) {
+			return 0;
+		}
+		if (!this.sourceNode.buffer) {
+			return 0;
+		}
+		const diff = ctx.currentTime - this.startTime;
+		return posMod(diff, this.sourceNode.buffer.duration);
+	}
+}
+class SoundFX {
+	supported: boolean;
+	packageName: `sfx${string}`;
+	cachedSfx: {
+		[k: string]: Pn;
+	} = {};
+	createdSfx: SFXSound[] = [];
+	settingsMuted = true;
+	adsMuted = false;
+	muted = true;
+	constructor() {
+		window.AudioContext = window.AudioContext || window.webkitAudioContext;
+		this.supported = !!AudioContext;
+		this.packageName = `sfx${SoundFX.audioFormatCamelCase}`;
+		if (this.supported) {
+			this.ctx = new AudioContext();
+			if (this.ctx.destination.maxChannelCount >= 6) {
+				this.ctx.destination.channelCount = 6;
+			}
+			this.ctx.onstatechange = () => {
+				this.onCtxStatechange();
+			};
+			this.boundUserEvent = this.userEvent.bind(this);
+			this.addedUserEventListeners = false;
+			this.onCtxStatechange();
+			this.soundsConfig = [
+				{
+					name: "weapon/bow/pull",
+					volume: 0.04,
+				},
+				{
+					name: "weapon/bow/pullHeavy",
+					volume: 0.02,
+				},
+				{
+					name: "weapon/bow/shoot",
+					volume: 0.22,
+				},
+				{
+					name: "weapon/bow/arrowReady",
+					volume: 0.015,
+				},
+				{
+					name: "weapon/largeBow/shoot",
+					volume: 0.45,
+				},
+				{
+					name: "weapon/largeCrossbow/shoot",
+					volume: 0.45,
+				},
+				{
+					name: "weapon/smallCrossbow/shoot",
+					volume: 0.35,
+				},
+				{
+					name: "weapon/bow/environmentImpact/1",
+					volume: 0.42,
+					minPitch: 0.8,
+					maxPitch: 1.2,
+				},
+				{
+					name: "weapon/bow/environmentImpact/2",
+					volume: 0.42,
+					minPitch: 0.8,
+					maxPitch: 1.2,
+				},
+				{
+					name: "weapon/bow/environmentImpact/3",
+					volume: 0.42,
+					minPitch: 0.8,
+					maxPitch: 1.2,
+				},
+				{
+					name: "weapon/melee/bladedHit",
+					volume: 0.28,
+					minPitch: 0.9,
+					maxPitch: 1.2,
+				},
+				{
+					name: "weapon/melee/bladedSwing",
+					volume: 0.065,
+				},
+				{
+					name: "weapon/melee/bluntHit",
+					volume: 0.32,
+					minPitch: 0.95,
+					maxPitch: 1.2,
+				},
+				{
+					name: "weapon/melee/bluntSwing",
+					volume: 0.06,
+				},
+				{
+					name: "weapon/melee/pokeHit",
+					volume: 0.25,
+					minPitch: 0.9,
+					maxPitch: 1.3,
+				},
+				{
+					name: "weapon/melee/pokeSwing",
+					volume: 0.045,
+				},
+				{
+					name: "weapon/equipBow",
+					volume: 0.075,
+				},
+				{
+					name: "weapon/equipMelee",
+					volume: 0.075,
+				},
+				{
+					name: "gameEnd/win",
+					volume: 0.4,
+					isMusic: true,
+				},
+				{
+					name: "gameEnd/lose",
+					volume: 0.4,
+					isMusic: true,
+				},
+				{
+					name: "player/spawn",
+					volume: 0.25,
+				},
+				{
+					name: "player/takeDamage/male/1",
+					volume: 0.15,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/takeDamage/male/2",
+					volume: 0.15,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/takeDamage/male/3",
+					volume: 0.15,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/takeDamage/female/1",
+					volume: 0.02,
+					minPitch: 0.9,
+					maxPitch: 1.05,
+				},
+				{
+					name: "player/takeDamage/female/2",
+					volume: 0.02,
+					minPitch: 0.9,
+					maxPitch: 1.05,
+				},
+				{
+					name: "player/takeDamage/female/3",
+					volume: 0.02,
+					minPitch: 0.9,
+					maxPitch: 1.05,
+				},
+				{
+					name: "player/walkL",
+					volume: 0.032,
+				},
+				{
+					name: "player/walkR",
+					volume: 0.032,
+				},
+				{
+					name: "player/jump/male/1",
+					volume: 0.077,
+					minPitch: 0.8,
+					maxPitch: 0.9,
+				},
+				{
+					name: "player/jump/male/2",
+					volume: 0.077,
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/jump/male/3",
+					volume: 0.077,
+					minPitch: 0.9,
+					maxPitch: 1,
+				},
+				{
+					name: "player/jump/female/1",
+					volume: 0.03,
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/jump/female/2",
+					volume: 0.03,
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/jump/female/3",
+					volume: 0.03,
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+				{
+					name: "player/land",
+					volume: 0.22,
+					minPitch: 0.9,
+					maxPitch: 1,
+				},
+				{
+					name: "player/fall",
+					volume: 0.14,
+				},
+				{
+					name: "feedback/hitPlayer",
+					volume: 0.45,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "feedback/headShot",
+					volume: 0.45,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "feedback/die",
+					volume: 0.3,
+				},
+				{
+					name: "feedback/kill",
+					volume: 0.4,
+				},
+				{
+					name: "feedback/healthRegen",
+					volume: 0.002,
+				},
+				{
+					name: "flag/grab",
+					volume: 0.4,
+				},
+				{
+					name: "flag/drop",
+					volume: 0.4,
+				},
+				{
+					name: "flag/positive",
+					volume: 0.3,
+				},
+				{
+					name: "flag/negative",
+					volume: 0.3,
+				},
+				{
+					name: "flag/positiveImportant",
+					volume: 0.4,
+				},
+				{
+					name: "flag/negativeImportant",
+					volume: 0.4,
+				},
+				{
+					name: "ui/coin/0",
+					volume: 0.4,
+				},
+				{
+					name: "ui/coin/1",
+					volume: 0.4,
+				},
+				{
+					name: "ui/coin/2",
+					volume: 0.4,
+				},
+				{
+					name: "ui/coin/3",
+					volume: 0.4,
+				},
+				{
+					name: "ui/coin/pile",
+					volume: 0.4,
+					minPitch: 0.8,
+					maxPitch: 1.1,
+				},
+				{
+					name: "ui/purchaseShopItem",
+					volume: 0.3,
+					minPitch: 0.95,
+					maxPitch: 1.05,
+				},
+				{
+					name: "music/mainMenu",
+					volume: 0.1,
+					loop: true,
+					isMusic: true,
+				},
+				{
+					name: "music/finalFlag",
+					volume: 0.1,
+					loop: true,
+					isMusic: true,
+				},
+				{
+					name: "music/waiting",
+					volume: 0.1,
+					loop: true,
+					isMusic: true,
+				},
+				{
+					name: "ambient/wind",
+					volume: 0.01,
+					loop: true,
+				},
+				{
+					name: "ambient/water",
+					volume: 0,
+					loop: true,
+				},
+				{
+					name: "ambient/birds",
+					volume: 0,
+					loop: true,
+				},
+				{
+					name: "ambient/jungle",
+					volume: 0,
+					loop: true,
+				},
+				{
+					name: "ambient/rain",
+					volume: 0,
+					loop: true,
+				},
+				{
+					name: "ambient/insects",
+					volume: 0,
+					loop: true,
+				},
+				{
+					name: "environment/churchBellHit",
+					volume: 0.45,
+					minPitch: 0.98,
+					maxPitch: 1.02,
+				},
+				{
+					name: "environment/gongHit",
+					volume: 0.4,
+					minPitch: 0.96,
+					maxPitch: 1.1,
+				},
+				{
+					name: "environment/chineseWarDrumHit",
+					volume: 0.52,
+					minPitch: 0.9,
+					maxPitch: 1.1,
+				},
+				{
+					name: "environment/kotoHit",
+					volume: 0.34,
+					minPitch: 0.7,
+					maxPitch: 1.8,
+				},
+			];
+			for (const t of this.soundsConfig) {
+				this.cachedSfx[t.name] = new Sound(t, this.ctx);
+			}
+			this.ctxStatePossiblyInvalid = false;
+			document.addEventListener(
+				"visibilitychange",
+				(t) => {
+					if (document.hidden) {
+						if (this.ctx) {
+							this.ctx.suspend();
+						}
+					} else {
+						this.ctxStatePossiblyInvalid = true;
+						window.setTimeout(() => {
+							if (this.ctx) {
+								this.ctx.resume();
+							}
+						}, 300);
+					}
+				},
+				false,
+			);
+			this.setMutedSettings(false);
+		}
+	}
+	static _audioFormat: string | null;
+	static _audioFormatSet = false;
+	static get audioFormat(): string {
+		if (!this._audioFormatSet) {
+			const dummy = document.createElement("audio");
+			if (dummy.canPlayType("audio/webm;codecs=opus")) {
+				this._audioFormat = "webm";
+			} else if (dummy.canPlayType("audio/mp3")) {
+				this._audioFormat = "mp3";
+			} else {
+				this._audioFormat = null;
+				this.supported = false;
+			}
+			this._audioFormatSet = true;
+		}
+		return this._audioFormat;
+	}
+	static get audioFormatCamelCase() {
+		const audioFormat = this.audioFormat;
+		if (audioFormat) {
+			return audioFormat.charAt(0).toUpperCase() + audioFormat.substring(1);
+		}
+		return null;
+	}
+	init() {
+		if (this.supported) {
+			this.downloadPackage();
+			for (const t of Object.values(this.cachedSfx)) {
+				t.init();
+			}
+			getMain().settingsManager.onValueChange("musicVolume", (t) => {
+				for (const e of this.createdSfx) {
+					if (e.opts.isMusic) {
+						e.volumeSettingChanged(t);
+					}
+				}
+			});
+			getMain().settingsManager.onValueChange("sfxVolume", (t) => {
+				for (const e of this.createdSfx) {
+					if (!e.opts.isMusic) {
+						e.volumeSettingChanged(t);
+					}
+				}
+			});
+		}
+	}
+	async downloadPackage() {
+		const t = getMain().assets.addPackage(this.packageName, {
+			manualDownload: true,
+		});
+		await getMain().mapLoader.waitForFirstMapDownload();
+		t.startDownloading();
+	}
+	loop(t, e) {
+		if (this.supported && this.ctx && this.ctx.state == "running" && this.ctx.listener) {
+			const t = getMain().cam.pos;
+			const e = getMain().cam.rot;
+			if (this.ctx.listener.positionX) {
+				this.ctx.listener.positionX.value = t.x;
+				this.ctx.listener.positionY.value = t.y;
+				this.ctx.listener.positionZ.value = t.z;
+			} else {
+				this.ctx.listener.setPosition(t.x, t.y, t.z);
+			}
+			const i = new Vector3(0, 0, -1);
+			i.applyQuaternion(e);
+			const s = new Vector3(0, 1, 0);
+			s.applyQuaternion(e);
+			if (this.ctx.listener.forwardX) {
+				this.ctx.listener.forwardX.value = i.x;
+				this.ctx.listener.forwardY.value = i.y;
+				this.ctx.listener.forwardZ.value = i.z;
+				this.ctx.listener.upX.value = s.x;
+				this.ctx.listener.upY.value = s.y;
+				this.ctx.listener.upZ.value = s.z;
+			} else {
+				this.ctx.listener.setOrientation(i.x, i.y, i.z, s.x, s.y, s.z);
+			}
+		}
+	}
+	onCtxStatechange() {
+		this.supported &&
+			this.ctx &&
+			(this.ctx.state != "running" || this.ctxStatePossiblyInvalid
+				? this.addUserEventListeners()
+				: this.removeUserEventListeners());
+	}
+	addUserEventListeners() {
+		this.supported &&
+			this.boundUserEvent &&
+			(this.addedUserEventListeners ||
+				(window.addEventListener("touchstart", this.boundUserEvent),
+				window.addEventListener("touchend", this.boundUserEvent),
+				window.addEventListener("click", this.boundUserEvent),
+				window.addEventListener("keydown", this.boundUserEvent),
+				(this.addedUserEventListeners = true)));
+	}
+	removeUserEventListeners() {
+		if (this.supported && this.boundUserEvent && this.addedUserEventListeners) {
+			window.removeEventListener("touchstart", this.boundUserEvent);
+			window.removeEventListener("touchend", this.boundUserEvent);
+			window.removeEventListener("click", this.boundUserEvent);
+			window.removeEventListener("keydown", this.boundUserEvent);
+			this.addedUserEventListeners = false;
+		}
+	}
+	async userEvent() {
+		if (this.supported && this.ctx) {
+			if (this.ctxStatePossiblyInvalid) {
+				await this.ctx.suspend();
+			}
+			await this.ctx.resume();
+			this.ctxStatePossiblyInvalid = false;
+		}
+	}
+	async playSound(t, e) {
+		const i = this.cachedSfx[t];
+		if (!i) {
+			return void console.warn(`attempted to play sound ${t} but it doesn't exist`);
+		}
+		const sfx = new SFXSound(i, e);
+		if (await sfx.init()) {
+			this.createdSfx.push(sfx);
+			return sfx;
+		}
+		return null;
+	}
+	setMutedSettings(t) {
+		this.settingsMuted = t;
+		this.updateMuted();
+	}
+	setMutedAds(t) {
+		this.adsMuted = t;
+		this.updateMuted();
+	}
+	updateMuted() {
+		this.muted = this.settingsMuted || this.adsMuted;
+		for (let t = this.createdSfx.length - 1; t >= 0; t--) {
+			this.createdSfx[t].setMuted(this.muted, this.adsMuted);
+		}
+	}
+	sfxDestructed(t) {
+		const e = this.createdSfx.indexOf(t);
+		if (e >= 0) {
+			this.createdSfx.splice(e, 1);
+		}
+	}
+}
+class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unknown[], const R> {
+	once: boolean;
+	promiseFn: F;
+	_queue: {
+		resolve(): void;
+		args: Args;
+	} = [];
+	_isEmptyingQueue = false;
+	hasRun = false;
+	_onceReturnValue: R | undefined = undefined;
+	_onFinishCbs = new Set<() => void>();
+	constructor(
+		public promiseFn: F,
+		{ once = false } = {},
+	) {
+		this.once = once;
+	}
+	async run(...args: Args) {
+		if (this.hasRun && this.once) {
+			return this._onceReturnValue;
+		}
+		const e = new Promise((resolve) =>
+			this._queue.push({
+				resolve,
+				args,
+			}),
+		);
+		this._emptyQueue();
+		return await e;
+	}
+	async _emptyQueue() {
+		if (!this._isEmptyingQueue) {
+			for (this._isEmptyingQueue = true; this._queue.length > 0;) {
+				if (this.once && this.hasRun) {
+					const t = this._onceReturnValue;
+					this._queue.forEach((e) => e.resolve(t));
+					this._queue = [];
+					break;
+				}
+				const queue = this._queue;
+				this._queue = [];
+				const e = queue[queue.length - 1];
+				if (!e) {
+					throw new Error("Assertion failed, queue is empty.");
+				}
+				this._isEmptyingQueue = true;
+				const ret = await this.promiseFn(...e.args);
+				this._isEmptyingQueue = false;
+				this.hasRun = true;
+				this._onFinishCbs.forEach((t) => t());
+				this._onFinishCbs.clear();
+				if (this.once) {
+					this._onceReturnValue = ret;
+				}
+				for (const { resolve } of queue) {
+					resolve(ret);
+				}
+			}
+			this._isEmptyingQueue = false;
+		}
+	}
+	async waitForFinish() {
+		if (this.hasRun) {
+			return;
+		}
+		const promise = new Promise((resolve) => this._onFinishCbs.add(resolve));
+		await promise;
+	}
+	async waitForFinishIfRunning() {
+		if (!this._isEmptyingQueue) {
+			return;
+		}
+		const promise = new Promise((resolve) => this._onFinishCbs.add(resolve));
+		await promise;
+	}
+}
+class MatchMaking {
+	matchMakingSocketUrl = "";
+	ws = null;
+	onJoinServerReceivedCbs = new Set();
+	nextCloseIsIntentional = false;
+	onConnectionCloseCbs = new Set();
+	onConnectionOpenCbs = new Set();
+	onConnectionCloseDuringMatchMakingCbs = new Set();
+	onSquadMessageCbs = new Set();
+	onIsMatchMakingChangeCbs = new Set();
+	matchMakingLoadingText = null;
+	isMatchMaking = false;
+	shouldApplyLoadingText = true;
+	isInUnreadyQueue = false;
+	lastSentElo = 0;
+	initConnectionInstance;
+	constructor() {
+		this.initConnectionInstance = new Waiter(async () => {
+			if (this.connected) {
+				return true;
+			}
+			for (let t = 0; t < 3; t++) {
+				if (t > 0) {
+					await Te.promise(2000 * t);
+				}
+				const e = await this.attemptSingleWsConnection();
+				if (e) {
+					this.send({
+						op: "myClientVersion",
+						version: "1790709288",
+					});
+					this.sendDownloadedMapHashes();
+					this.sendEntitlementsProof();
+					this.lastSentElo = 0;
+					this.sendElo();
+					this.sendPreferredGamemodes();
+					this.onConnectionOpenCbs.forEach((t) => t());
+					e.addEventListener("close", () => {
+						if (e == this.ws) {
+							this.fireOnCloseCbs();
+						}
+					});
+					return true;
+				}
+			}
+			return false;
+		});
+	}
+	init() {
+		this.matchMakingLoadingText = getMain().mainInfoTextManager.requestInfoText(
+			"Searching for players...",
+		);
+		const t = getURLSearchParams();
+		if (getMain().env != "local" || t.useProductionServers) {
+			this.matchMakingSocketUrl = "wss://matchmaking.narrow-one.com/";
+		} else {
+			let t = "wss";
+			if (location.protocol == "http:") {
+				t = "ws";
+			}
+			this.matchMakingSocketUrl = `${t}://${window.location.host}/matchmaking`;
+		}
+		getMain().preferredMapManager.onMatchMakeDataChange(() => {
+			this.sendDownloadedMapHashes();
+		});
+		getMain().config.mapsConfig.onConfigChange(() => {
+			this.sendDownloadedMapHashes();
+		});
+		getMain().profileState.onStateChanged(() => {
+			this.sendElo();
+		});
+		getMain().settingsManager.onValueChange("gamemodeMatchmaking", () => {
+			this.sendPreferredGamemodes();
+		});
+		getMain().indexedDb.delete("matchMakeSavedValues");
+	}
+	setIsMatchMaking(t) {
+		this.isMatchMaking = t;
+		this.onIsMatchMakingChangeCbs.forEach((t) => t());
+		this.updateLoadingText();
+	}
+	setShouldApplyLoadingText(t) {
+		this.shouldApplyLoadingText = t;
+		this.updateLoadingText();
+	}
+	updateLoadingText() {
+		if (this.matchMakingLoadingText) {
+			this.matchMakingLoadingText.setIsLoading(this.isMatchMaking && this.shouldApplyLoadingText);
+		}
+	}
+	async initConnection() {
+		this.nextCloseIsIntentional = false;
+		return await this.initConnectionInstance.run();
+	}
+	async assertInitConnection() {
+		if (!(await this.initConnection())) {
+			throw new Ie();
+		}
+	}
+	get connected() {
+		return this.ws && this.ws.readyState == WebSocket.OPEN;
+	}
+	async attemptSingleWsConnection() {
+		const t = new WebSocket(this.matchMakingSocketUrl);
+		this.ws = t;
+		const e = [
+			"squadId",
+			"squadJoinError",
+			"fullSquadMembersList",
+			"squadMemberUpdated",
+			"squadMemberRemoved",
+			"squadStartedState",
+			"squadSettings",
+			"squadSettingChanged",
+			"yourSquadLeaderState",
+			"squadReadyForStartState",
+		];
+		this.ws.addEventListener("message", (i) => {
+			if (t != this.ws) {
+				return;
+			}
+			const s = JSON.parse(i.data);
+			if (s.op == "joinGame") {
+				this.setIsMatchMaking(false);
+				for (const t of this.onJoinServerReceivedCbs) {
+					t(s.game);
+				}
+			} else {
+				if (s.op == "reloadMapsConfig") {
+					getMain().config.mapsConfig.load();
+				} else if (e.includes(s.op)) {
+					this.onSquadMessageCbs.forEach((t) => t(s));
+				}
+			}
+		});
+		return await new Promise((resolve) => {
+			t.addEventListener("close", (t) => {
+				resolve(null);
+			});
+			t.addEventListener("open", (i) => {
+				resolve(t);
+			});
+		});
+	}
+	closeMatchMakingConnection() {
+		if (!this.ws) {
+			return;
+		}
+		this.markNextCloseAsIntentional();
+		const t = this.ws;
+		this.ws = null;
+		t.close();
+		this.fireOnCloseCbs();
+	}
+	markNextCloseAsIntentional() {
+		this.nextCloseIsIntentional = true;
+	}
+	fireOnCloseCbs() {
+		if (this.isMatchMaking) {
+			this.onConnectionCloseDuringMatchMakingCbs.forEach((t) => t());
+			this.setIsMatchMaking(false);
+		}
+		this.onConnectionCloseCbs.forEach((t) => t(this.nextCloseIsIntentional));
+	}
+	async updateQueueState({ isReadyToJoin = true, maxWaitTimeMs } = {}) {
+		this.setIsMatchMaking(true);
+		this.isInUnreadyQueue = !isReadyToJoin;
+		try {
+			await this.assertInitConnection();
+		} catch (error) {
+			this.setIsMatchMaking(false);
+			throw error;
+		}
+		const i = getMain();
+		const isFirstGame = !i.gameManager.joinedOnce;
+		const maxWaitTimeMs_1 =
+			maxWaitTimeMs ?? (isFirstGame || i.preferredMapManager.isForcingSoloMap ? 0 : 5000);
+		this.send({
+			op: "updateQueueState",
+			maxWaitTimeMs: maxWaitTimeMs_1,
+			isFirstGame,
+			isReadyToJoin,
+		});
+	}
+	async leaveQueue() {
+		this.isInUnreadyQueue = false;
+		await this.initConnection();
+		if (this.connected) {
+			this.setIsMatchMaking(false);
+			this.isInUnreadyQueue = false;
+			this.send({
+				op: "leaveQueue",
+			});
+		}
+	}
+	onConnectionOpen(t) {
+		this.onConnectionOpenCbs.add(t);
+	}
+	onConnectionClose(t) {
+		this.onConnectionCloseCbs.add(t);
+	}
+	onConnectionCloseDuringMatchMaking(t) {
+		this.onConnectionCloseDuringMatchMakingCbs.add(t);
+	}
+	onIsMatchMakingChange(t) {
+		this.onIsMatchMakingChangeCbs.add(t);
+	}
+	send(t) {
+		if (!this.connected || !this.ws) {
+			return;
+		}
+		const e = JSON.stringify(t);
+		this.ws.send(e);
+	}
+	sendDownloadedMapHashes() {
+		const t = getMain().preferredMapManager.getMatchMakeData();
+		if (t) {
+			this.send(t);
+		}
+	}
+	async sendEntitlementsProof() {
+		const t = await getMain().getPeliSdkAsync();
+		if (t && (await t.entitlements.ready, t.entitlements.has("plusRewards"))) {
+			const proof = await t.entitlements.getProof();
+			this.send({
+				op: "peliEntitlementsProof",
+				proof,
+			});
+		}
+	}
+	sendElo() {
+		if (!this.connected || !this.ws) {
+			return;
+		}
+		const elo = getMain().profileState.getElo();
+		if (elo != this.lastSentElo) {
+			this.lastSentElo = elo;
+			this.send({
+				op: "elo",
+				elo,
+			});
+		}
+	}
+	sendPreferredGamemodes() {
+		if (!this.connected || !this.ws) {
+			return;
+		}
+		const t = getMain().settingsManager.getValue("gamemodeMatchmaking");
+		const gamemodes = [];
+		if (t == "ctf") {
+			gamemodes.push("ctf");
+		} else if (t == "ctfPlusWeekly") {
+			gamemodes.push("ctf");
+			gamemodes.push("weekly");
+		} else if (t == "weekly") {
+			gamemodes.push("weekly");
+		}
+		this.send({
+			op: "gamemodes",
+			gamemodes,
+		});
+	}
+	onJoinServerReceived(t) {
+		this.onJoinServerReceivedCbs.add(t);
+	}
+	async sendRequestSquadId() {
+		await this.assertInitConnection();
+		this.send({
+			op: "requestSquadId",
+		});
+	}
+	async sendJoinSquad(t, allowJoinExistingGame, allowCreate) {
+		await this.assertInitConnection();
+		this.send({
+			op: "joinSquad",
+			squadId: t,
+			allowJoinExistingGame,
+			allowCreate,
+		});
+	}
+	onSquadMessage(t) {
+		this.onSquadMessageCbs.add(t);
+	}
+	sendSquadSettingChange(setting, value) {
+		this.send({
+			op: "changeSquadSetting",
+			setting,
+			value,
+		});
+	}
+	sendAllSquadSettings(settings) {
+		this.send({
+			op: "allSquadSettings",
+			settings,
+		});
+	}
+	sendSquadTeamColor(memberId, teamColorId) {
+		this.send({
+			op: "configureSquadTeamColor",
+			memberId,
+			teamColorId,
+		});
+	}
+	sendUsername(username) {
+		this.send({
+			op: "username",
+			username,
+		});
+	}
+	sendStartSquad() {
+		this.send({
+			op: "startSquad",
+		});
+	}
+	sendAllowAutoStartSquad() {
+		this.send({
+			op: "allowAutoStartSquad",
+		});
+	}
+	sendRequestSquadLeadership(token) {
+		this.send({
+			op: "requestSquadLeadership",
+			token,
+		});
+	}
+	sendMySkinData(skinData) {
+		this.send({
+			op: "mySkinData",
+			skinData,
+		});
+	}
+}
+interface SquadPlayer {
+	id: e.id;
+	squadPlayerId: e.squadPlayerId;
+	name: e.playerName;
+	teamId: e.teamId;
+	skinData: e.equippedSkinData;
+	leader: e.isSquadLeader;
+}
+class SquadManager {
+	isJoiningSquad = false;
+	matchmakeServerSquadId: string | null = null;
+	gameServerSquadId: string | null = null;
+	onBeforeJoinFired = false;
+	lastSentUsername = null;
+	lastSentSkinDataStr = null;
+	shouldShowSquadDialogForCurrentSquadId = false;
+	matchMakeSquadMembers = new Map();
+	matchMakeSquadMembersOnGameJoin = new Map();
+	includeUnjoinedMembers = false;
+	includeUnjoinedMembersTimeout;
+	gameSquadPlayers: SquadPlayer[] = [];
+	mySquadPlayerId = 0;
+	matchMakeAllReady = false;
+	serverReadyForStartState = false;
+	onServerReadyForStartStateChangeCbs = new Set<() => void>();
+	onServerReadyForStartTrueCbs = new Set<() => void>();
+	clientStartClicked = false;
+	clientStartClickedTimeout;
+	serverStartClicked = false;
+	startClicked = false;
+	onStartClickedChangeCbs = new Set<() => void>();
+	prevUserVisibleSquadId = null;
+	onUserVisibleSquadIdChangeCbs = new Set<() => string>();
+	onIsJoiningSquadChangeCbs = new Set<() => void>();
+	onSquadMembersChangeCbs = new Set<() => void>();
+	currentSquadSettings = null;
+	beforeMatchmakeConnectSquadSettings = null;
+	myClientIsSquadLeader = false;
+	lastSquadLeaderToken = null;
+	onSquadSettingChangeCbs = new Set<(setting: string, value) => void>();
+	onMySquadLeaderStateChangeCbs = new Set<() => void>();
+	boundUpdateGameSquadPlayers;
+	constructor(
+		public networkManager: NetworkManager,
+		public matchMakeManager,
+		public gameManager: GameManager,
+	) {
+		this.matchMakeManager = matchMakeManager;
+		this.includeUnjoinedMembersTimeout = new Te(() => {
+			this.includeUnjoinedMembers = false;
+			this.updateSquadMembersData();
+		}, 30000);
+		this.clientStartClickedTimeout = new Te(() => {
+			this.clientStartClicked = false;
+			this.updateStartClicked();
+		}, 2000);
+		this.matchMakeManager.onSquadMessage((t) => {
+			if (t.op == "squadId") {
+				this.setIsJoiningSquad(false);
+				this.setMatchmakeServerSquadId(t.squadId);
+				this.sendCurrentUsername();
+				this.sendMySkinIds();
+				this.setMyClientIsSquadLeader(false);
+				if (this.shouldShowSquadDialogForCurrentSquadId) {
+					this.shouldShowSquadDialogForCurrentSquadId = false;
+					if (!t.willJoinImmediately) {
+						getMain().mainMenu.openSquadDialog();
+					}
+				}
+				if (this.lastSquadLeaderToken) {
+					this.matchMakeManager.sendRequestSquadLeadership(this.lastSquadLeaderToken);
+				}
+			} else if (t.op == "squadJoinError") {
+				this.handleSquadJoinError(t.errorType, t.squadId);
+			} else if (t.op == "squadSettings") {
+				this.currentSquadSettings = t.settings;
+			} else if (t.op == "squadSettingChanged") {
+				if (this.currentSquadSettings) {
+					this.currentSquadSettings[t.setting] = t.value;
+				}
+				this.onSquadSettingChangeCbs.forEach((e) => e(t.setting, t.value));
+			} else if (t.op == "yourSquadLeaderState") {
+				if (t.token) {
+					this.lastSquadLeaderToken = t.token;
+				}
+				this.setMyClientIsSquadLeader(t.isLeader);
+			} else if (t.op == "fullSquadMembersList") {
+				for (const e of t.members) {
+					if (e.myPlayer) {
+						this.mySquadPlayerId = e.id;
+					}
+					this.matchMakeSquadMembers.set(e.id, {
+						name: e.name,
+						skinData: Xt(e.skinDataStr),
+						ready: e.ready,
+						leader: e.leader,
+						configuredTeamColor: e.configuredTeamColor,
+					});
+				}
+				this.updateSquadMembersData();
+			} else if (t.op == "squadMemberUpdated") {
+				let e = this.matchMakeSquadMembers.get(t.member.id);
+				if (!e) {
+					e = {
+						name: "",
+						ready: false,
+						skinData: Qt(),
+						leader: false,
+						configuredTeamColor: -1,
+					};
+					this.matchMakeSquadMembers.set(t.member.id, e);
+				}
+				e.name = t.member.name;
+				e.ready = t.member.ready;
+				e.skinData = Xt(t.member.skinDataStr);
+				e.leader = t.member.leader;
+				e.configuredTeamColor = t.member.configuredTeamColor;
+				this.updateSquadMembersData();
+			} else {
+				if (t.op == "squadMemberRemoved") {
+					this.matchMakeSquadMembers.delete(t.id);
+					this.updateSquadMembersData();
+				} else if (t.op == "squadReadyForStartState") {
+					this.serverReadyForStartState = t.readyForStart;
+					this.onServerReadyForStartStateChangeCbs.forEach((t) => t());
+					if (t.readyForStart) {
+						this.onServerReadyForStartTrueCbs.forEach((t) => t());
+					}
+				} else if (t.op == "squadStartedState") {
+					this.serverStartClicked = t.started;
+					this.updateStartClicked();
+					this.updateLoadingText();
+				}
+			}
+		});
+		networkManager.onBeforeConnectGameServer(() => {
+			this.onBeforeJoinFired = true;
+			this.gameServerSquadId = this.matchmakeServerSquadId;
+			this.matchMakeSquadMembersOnGameJoin = new Map(this.matchMakeSquadMembers);
+			this.includeUnjoinedMembers = true;
+			this.includeUnjoinedMembersTimeout.start();
+			this.updateSquadMembersData();
+			this.updateUserVisibleSquadId();
+		});
+		networkManager.onConnectionOpen(() => {
+			networkManager.sendSquadData(
+				this.userVisibleSquadId || "",
+				this.mySquadPlayerId,
+				this.lastSquadLeaderToken,
+			);
+		});
+		networkManager.onConnectionClosed((t, e) => {
+			this.setIsJoiningSquad(false);
+			const i = [0, 3, 9];
+			if (!t && this.gameServerSquadId && i.includes(e)) {
+				this.joinExistingSquad(this.gameServerSquadId, false);
+			}
+			this.setGameServerSquadId(null);
+		});
+		networkManager.onSquadJoinError((t) => {
+			this.handleSquadJoinError(t);
+		});
+		this.matchMakeManager.onConnectionOpen(() => {
+			this.onBeforeJoinFired = false;
+			this.includeUnjoinedMembersTimeout.stop();
+			this.serverReadyForStartState = false;
+			this.mySquadPlayerId = 0;
+			if (this.currentSquadSettings) {
+				const t = {};
+				for (const [e, i] of Object.entries(this.currentSquadSettings)) {
+					t[e] = i;
+				}
+				this.beforeMatchmakeConnectSquadSettings = t;
+			} else {
+				this.beforeMatchmakeConnectSquadSettings = null;
+			}
+			if (this.gameServerSquadId) {
+				let t = true;
+				const e = gameManager.getOnlineGame();
+				if (e && e.gameEnded) {
+					t = false;
+				}
+				this.joinExistingSquad(this.gameServerSquadId, t, t);
+				this.matchMakeManager.sendAllowAutoStartSquad();
+			}
+			this.serverStartClicked = false;
+			this.updateStartClicked();
+		});
+		this.matchMakeManager.onConnectionClose((t) => {
+			if (t) {
+				this.setMatchmakeServerSquadId(null);
+			} else if (this.matchmakeServerSquadId) {
+				this.joinExistingSquad(this.matchmakeServerSquadId);
+			}
+			this.lastSentUsername = null;
+			this.lastSentSkinDataStr = null;
+			this.matchMakeSquadMembers.clear();
+			this.updateSquadMembersData();
+		});
+		this.matchMakeManager.onIsMatchMakingChange(() => {
+			this.updateLoadingText();
+		});
+		this.boundUpdateGameSquadPlayers = this.updateGameSquadPlayers.bind(this);
+		gameManager.onActiveGameChange((t) => {
+			if (t instanceof OnlineGame) {
+				if (t) {
+					t.onSquadPlayersChange(this.boundUpdateGameSquadPlayers);
+				}
+				this.updateGameSquadPlayers();
+			}
+		});
+		window.addEventListener("hashchange", () => {
+			this.joinSquadFromCurrentHash();
+		});
+	}
+	init() {
+		this.waitingForSquadLoadingText = getMain().mainInfoTextManager.requestInfoText(
+			"Waiting for squad...",
+			{
+				shouldBounce: false,
+			},
+		);
+		this.waitingForSquadStartLoadingText = getMain().mainInfoTextManager.requestInfoText(
+			"Waiting for squad to start",
+			{
+				shouldBounce: false,
+			},
+		);
+		getMain().profileState.onStateChanged(() => {
+			if (this.matchmakeServerSquadId) {
+				this.sendCurrentUsername();
+			}
+		});
+		getMain().skins.onSkinConfigChange(() => {
+			this.sendMySkinIds();
+		});
+		this.joinSquadFromCurrentHash(true);
+	}
+	get userVisibleSquadId() {
+		return this.matchmakeServerSquadId || this.gameServerSquadId;
+	}
+	get isInSquad() {
+		return this.userVisibleSquadId != null;
+	}
+	get startButtonEnabled() {
+		return this.serverReadyForStartState && !this.startClicked;
+	}
+	updateGameSquadPlayers() {
+		this.gameSquadPlayers = [];
+		const t = this.gameManager.getOnlineGame();
+		if (t) {
+			for (const e of t.players.values()) {
+				if (e.sameSquadOrOwned) {
+					this.gameSquadPlayers.push({
+						id: e.id,
+						squadPlayerId: e.squadPlayerId,
+						name: e.playerName,
+						teamId: e.teamId,
+						skinData: e.equippedSkinData,
+						leader: e.isSquadLeader,
+					});
+				}
+			}
+		}
+		this.updateSquadMembersData();
+	}
+	*getSquadMembers() {
+		if (this.onBeforeJoinFired) {
+			const t = new Map(this.matchMakeSquadMembersOnGameJoin);
+			for (const e of this.gameSquadPlayers) {
+				let i;
+				t.delete(e.squadPlayerId);
+				i = e.teamId == Y ? 1 : e.teamId == Z ? 2 : e.teamId == noAttackTeam ? 0 : -1;
+				yield {
+					gameServerId: e.id,
+					matchmakeServerId: null,
+					name: e.name,
+					teamId: i,
+					ready: true,
+					joined: true,
+					skinData: e.skinData,
+					leader: e.leader,
+				};
+			}
+			if (this.includeUnjoinedMembers) {
+				for (const e of t.values()) {
+					yield {
+						gameServerId: null,
+						matchmakeServerId: null,
+						name: e.name,
+						teamId: e.configuredTeamColor,
+						ready: e.ready,
+						joined: false,
+						skinData: Qt(),
+						leader: e.leader,
+					};
+				}
+			}
+		} else {
+			for (const [matchmakeServerId, e] of this.matchMakeSquadMembers) {
+				yield {
+					gameServerId: null,
+					matchmakeServerId,
+					name: e.name,
+					teamId: e.configuredTeamColor,
+					ready: e.ready,
+					joined: false,
+					skinData: e.skinData,
+					leader: e.leader,
+				};
+			}
+		}
+	}
+	get totalSquadMemberCount() {
+		let t = 0;
+		for (const e of this.getSquadMembers()) {
+			t++;
+		}
+		return t;
+	}
+	setSquadSetting(t, e) {
+		if (this.currentSquadSettings && typeof e === "boolean") {
+			this.currentSquadSettings[t] = e;
+		}
+		if (this.matchMakeManager.connected) {
+			this.matchMakeManager.sendSquadSettingChange(t, e);
+		}
+	}
+	onSquadSettingChange(t) {
+		this.onSquadSettingChangeCbs.add(t);
+	}
+	removeOnSquadSettingChange(t) {
+		this.onSquadSettingChangeCbs.delete(t);
+	}
+	setConfiguredTeamColor(t, e) {
+		this.matchMakeManager.sendSquadTeamColor(t, e);
+	}
+	onMySquadLeaderStateChange(t) {
+		this.onMySquadLeaderStateChangeCbs.add(t);
+	}
+	removeOnMySquadLeaderStateChange(t) {
+		this.onMySquadLeaderStateChangeCbs.delete(t);
+	}
+	sendCurrentUsername() {
+		if (!this.matchMakeManager.connected) {
+			return;
+		}
+		const t = getMain().profileState.getUsername();
+		if (t != this.lastSentUsername) {
+			this.lastSentUsername = t;
+			this.matchMakeManager.sendUsername(t);
+		}
+	}
+	sendMySkinIds() {
+		if (!this.matchMakeManager.connected) {
+			return;
+		}
+		const t = getMain().skins.getClassSkinDataWithAppliedPreset("assault");
+		const e = JSON.stringify(t);
+		if (e != this.lastSentSkinDataStr) {
+			this.lastSentSkinDataStr = e;
+			this.matchMakeManager.sendMySkinData(e);
+		}
+	}
+	setMyClientIsSquadLeader(t) {
+		this.myClientIsSquadLeader = t;
+		if (t && this.beforeMatchmakeConnectSquadSettings) {
+			this.matchMakeManager.sendAllSquadSettings(this.beforeMatchmakeConnectSquadSettings);
+			this.beforeMatchmakeConnectSquadSettings = null;
+		}
+		this.onMySquadLeaderStateChangeCbs.forEach((t) => t());
+	}
+	setIsJoiningSquad(t) {
+		if (t != this.isJoiningSquad) {
+			this.isJoiningSquad = t;
+			this.onIsJoiningSquadChangeCbs.forEach((t) => t());
+		}
+	}
+	async requestInitialSquadId() {
+		if (!this.isJoiningSquad && !this.isInSquad) {
+			this.setIsJoiningSquad(true);
+			if (this.networkManager.hasGameServerConnection) {
+				this.networkManager.sendRequestSquadId();
+			} else {
+				try {
+					await this.matchMakeManager.sendRequestSquadId();
+				} catch (error) {
+					this.setIsJoiningSquad(false);
+					throw error;
+				}
+				this.setIsJoiningSquad(false);
+			}
+			this.sendCurrentUsername();
+			this.sendMySkinIds();
+		}
+	}
+	handleSquadJoinError(t, e) {
+		this.setIsJoiningSquad(false);
+		if (t == "squad-not-found") {
+			let t = "The squad you are trying to join does not exist.";
+			if (e != null) {
+				t = `The squad with code "${e}" does not exist.`;
+			}
+			getMain().dialogManager.showAlert({
+				title: "Squad not found",
+				text: t,
+			});
+		} else if (t == "client-version-too-old") {
+			if (Ps && !getMain().poki.isPokiBuild && Ms && Ms.active) {
+				const t = [
+					{
+						text: "Ok",
+					},
+					{
+						text: "Update now",
+						onClick() {
+							Os();
+						},
+						enabled: Ds(),
+					},
+				];
+				const e = getMain().dialogManager.showAlert({
+					title: "Joining squad failed",
+					text: "The version of your game is too old for this squad.",
+					buttons: t,
+				});
+				Es(() => {
+					t[1].enabled = true;
+					e.setButtons(t);
+				});
+			} else {
+				getMain().dialogManager.showAlert({
+					title: "Joining squad failed",
+					text: "Your version is too old to join this squad. Refresh the page to update to the latest version.",
+				});
+			}
+		} else {
+			if (t == "client-version-too-new") {
+				getMain().dialogManager.showAlert({
+					title: "Joining squad failed",
+					text: "Your squadmates have an older version of the game, ask your squadmates to update the game.",
+				});
+			} else if (t == "no-mm-connection") {
+				getMain().dialogManager.showAlert({
+					title: "Joining squad failed",
+					text: "Could not connect to the matchmake server. Please try again later.",
+				});
+			} else if (t == "proxy-create-timed-out") {
+				getMain().dialogManager.showAlert({
+					title: "Failed to create squad id",
+					text: "The matchmake server timed out. Please try again later.",
+				});
+			} else {
+				getMain().dialogManager.showAlert({
+					title: "Joining squad failed",
+					text: "An unknown error occurred. Please try again later.",
+				});
+				console.error(`Squad join error: ${t}`);
+			}
+		}
+		this.updateUserVisibleSquadId();
+	}
+	async joinExistingSquad(t, e = true, i = true) {
+		if (this.isJoiningSquad) {
+			return;
+		}
+		if (i && this.networkManager.hasGameServerConnection) {
+			this.networkManager.closeCurrentConnection();
+		}
+		this.setIsJoiningSquad(true);
+		let s = [];
+		try {
+			s = await getMain().indexedDb.get("recentSquadIds");
+		} catch (error) {
+			console.error(error);
+		}
+		let n = false;
+		if (s && s.includes(t)) {
+			n = true;
+		}
+		try {
+			await this.matchMakeManager.sendJoinSquad(t, e, n);
+		} catch (error) {
+			console.error(error);
+			getMain().dialogManager.showAlert({
+				title: "Failed to join the squad",
+				text: "Couldn't connect to the server. Please try again later.",
+			});
+			this.setIsJoiningSquad(false);
+			return void this.setMatchmakeServerSquadId(null);
+		}
+		this.sendCurrentUsername();
+		this.sendMySkinIds();
+	}
+	setMatchmakeServerSquadId(t) {
+		this.matchmakeServerSquadId = t;
+		this.addRecentSquadId(t);
+		this.updateUserVisibleSquadId();
+	}
+	setGameServerSquadId(t) {
+		this.gameServerSquadId = t;
+		this.addRecentSquadId(t);
+		this.updateUserVisibleSquadId();
+	}
+	addRecentSquadId(t) {
+		if (!t) {
+			return;
+		}
+		getMain().indexedDb.getSet("recentSquadIds", (e) => {
+			if (!e) {
+				e = [];
+			}
+			const i = new Set(e);
+			i.delete(t);
+			i.add(t);
+			if ((e = Array.from(i)).length > 5) {
+				e.splice(0, e.length - 5);
+			}
+			return e;
+		});
+	}
+	squadIdReceivedFromGameServer(t) {
+		this.setIsJoiningSquad(false);
+		this.setGameServerSquadId(t);
+	}
+	onUserVisibleSquadIdChange(t) {
+		this.onUserVisibleSquadIdChangeCbs.add(t);
+	}
+	removeOnUserVisibleSquadIdChange(t) {
+		this.onUserVisibleSquadIdChangeCbs.delete(t);
+	}
+	updateUserVisibleSquadId() {
+		let t = this.userVisibleSquadId || "";
+		if (t) {
+			t = `#${t}`;
+		}
+		t = window.location.pathname + window.location.search + t;
+		history.replaceState(null, "", t);
+		if (this.userVisibleSquadId != this.prevUserVisibleSquadId) {
+			this.prevUserVisibleSquadId = this.userVisibleSquadId;
+			if (this.matchmakeServerSquadId && !this.gameServerSquadId) {
+				this.shouldShowSquadDialogForCurrentSquadId = true;
+			}
+			this.updateLoadingText();
+			this.onUserVisibleSquadIdChangeCbs.forEach((t) => t(this.userVisibleSquadId));
+		}
+	}
+	updateLoadingText() {
+		if (!this.waitingForSquadLoadingText) {
+			return;
+		}
+		if (!this.waitingForSquadStartLoadingText) {
+			return;
+		}
+		const t = !this.isInSquad || this.serverStartClicked;
+		this.matchMakeManager.setShouldApplyLoadingText(t);
+		if (!t && this.matchMakeManager.isMatchMaking) {
+			if (this.matchMakeAllReady) {
+				this.waitingForSquadStartLoadingText.setIsLoading(true);
+				this.waitingForSquadLoadingText.setIsLoading(false);
+			} else {
+				this.waitingForSquadStartLoadingText.setIsLoading(false);
+				this.waitingForSquadLoadingText.setIsLoading(true);
+			}
+		} else {
+			this.waitingForSquadLoadingText.setIsLoading(false);
+			this.waitingForSquadStartLoadingText.setIsLoading(false);
+		}
+	}
+	updateStartClicked() {
+		const t = this.clientStartClicked || this.serverStartClicked;
+		if (t != this.startClicked) {
+			this.startClicked = t;
+			this.onStartClickedChangeCbs.forEach((t) => t());
+		}
+	}
+	joinSquadFromCurrentHash(t = false) {
+		let e = null;
+		const hash = window.location.hash;
+		if (hash.startsWith("#")) {
+			const t = hash.substring(1);
+			if (t) {
+				e = t;
+			}
+		}
+		(t && !e) ||
+			(e != this.matchmakeServerSquadId &&
+				e != this.gameServerSquadId &&
+				(this.isJoiningSquad ||
+					(e && e.length > 7 ? this.updateUserVisibleSquadId() : e && this.joinExistingSquad(e))));
+	}
+	startSquad() {
+		this.matchMakeManager.sendStartSquad();
+		this.clientStartClicked = true;
+		this.updateStartClicked();
+		this.clientStartClickedTimeout.start();
+	}
+	onIsJoiningSquadChange(t) {
+		this.onIsJoiningSquadChangeCbs.add(t);
+	}
+	removeOnIsJoiningSquadChange(t) {
+		this.onIsJoiningSquadChangeCbs.delete(t);
+	}
+	onSquadMembersChange(t) {
+		this.onSquadMembersChangeCbs.add(t);
+	}
+	removeOnSquadMembersChange(t) {
+		this.onSquadMembersChangeCbs.delete(t);
+	}
+	onServerReadyForStartStateChange(t) {
+		this.onServerReadyForStartStateChangeCbs.add(t);
+	}
+	removeOnServerReadyForStartStateChange(t) {
+		this.onServerReadyForStartStateChangeCbs.delete(t);
+	}
+	async waitForServerReadyForStart() {
+		const t = new Promise((resolve) => {
+			this.onServerReadyForStartTrueCbs.add(resolve);
+		});
+		await t;
+	}
+	onStartClickedChange(t) {
+		this.onStartClickedChangeCbs.add(t);
+	}
+	removeOnStartClickedChange(t) {
+		this.onStartClickedChangeCbs.delete(t);
+	}
+	updateSquadMembersData() {
+		let t = true;
+		for (const e of this.matchMakeSquadMembers.values()) {
+			if (!e.ready) {
+				t = false;
+			}
+		}
+		if (this.matchMakeAllReady != t) {
+			this.matchMakeAllReady = t;
+			this.updateLoadingText();
+		}
+		this.onSquadMembersChangeCbs.forEach((t) => t());
+	}
+}
+function Tn(t, e = -1, i = 1, s = 8) {
+	t = q(e, i, 0, 2 ** s - 1, t, true);
+	return (t = Math.round(t));
+}
+function En(t, e = 1) {
+	return Tn(t, 0, e, 32);
+}
+function Dn(t, e, i) {
+	return Tn(t, e, i, 16);
+}
+function On(t, e = 1) {
+	return Tn(t, 0, e, 16);
+}
+function Fn(t, e = -1, i = 1, s = 8) {
+	return (t = q(0, 2 ** s - 1, e, i, t, true));
+}
+function Bn(t, e, i) {
+	return Fn(t, e, i, 16);
+}
+function Vn(t, e = 1) {
+	return Fn(t, 0, e, 16);
+}
+function Rn(t, e = 1) {
+	return Fn(t, -e, e, 8);
+}
+function Un(t, e = 1) {
+	return Fn(t, 0, e, 8);
+}
+function decodeTextPacket(buffer, e = 4) {
+	if (buffer.byteLength < e + 4) {
+		return null;
+	}
+	const i = new Uint32Array(buffer, e, 1)[0];
+	try {
+		const s = new Uint8Array(buffer, e + 4, i);
+		return new TextDecoder().decode(s);
+	} catch (t) {
+		return null;
+	}
+}
+function Hn(buffer) {
+	const e = decodeTextPacket(buffer);
+	if (e) {
+		try {
+			return JSON.parse(e);
+		} catch (t) {
+			return null;
+		}
+	}
+}
+function Wn(t, e) {
+	const i = new TextEncoder().encode(e);
+	n = i.length;
+	const s = 4 * Math.ceil(n / 4);
+	var n;
+	const o = new ArrayBuffer(8 + s);
+	const a = new Uint32Array(o);
+	a[0] = t;
+	a[1] = i.length;
+	new Uint8Array(o, 8).set(i);
+	return o;
+}
+class NetworkManager {
+	ws: WebSocket | null = null;
+	joiningLoadingText: InfoText | null = null;
+	lastReceiveMessageTime = 0;
+	connectionOpenedAndDataSent = false;
+	onConnectionOpenCbs = new Set<() => void>();
+	onNextConnectionOpenCbs = new Set<() => void>();
+	onConnectionClosedCbs = new Set<
+		(nextIsIntentional: boolean, lastDisconnectReason: number) => void
+	>();
+	onSquadJoinErrorCbs = new Set<(err: string | null) => void>();
+	onBeforeConnectGameServerCbs = new Set<() => void>();
+	lastSentSkinData = "";
+	lastSentSessionData = "";
+	lastDisconnectReason = 0;
+	lastDisconnectReasonExtra = [];
+	nextCloseIsIntentional = false;
+	isInitialPageLoadConnection = false;
+	timeoutDialog = null;
+	nextJoinReconnectToken = null;
+	nextJoinGameId = -1;
+	nextJoinRequestId = null;
+	matchMaking = new MatchMaking();
+	squadManager: SquadManager;
+	isInit: boolean = false;
+	onInitCbs = new Set<() => void>();
+	constructor(gameManager: GameManager) {
+		this.matchMaking.onJoinServerReceived(async (t) => {
+			let e;
+			if (this.joiningLoadingText) {
+				this.joiningLoadingText.setIsLoading(true);
+			}
+			this.nextJoinGameId = t.gameId;
+			this.nextJoinRequestId = t.joinRequestId ?? null;
+			if (t.isLocal) {
+				e = NetworkManager.getLocalGameServerUrl();
+			} else {
+				e = `${t.insecure ? "ws" : "wss"}://${t.url4}`;
+			}
+			const i = await getMain().recentGameTracker.getReconnectData();
+			if (i && i.socketAddress == e) {
+				this.nextJoinReconnectToken = i.reconnectToken;
+			}
+			await undefined;
+			this.connect(e);
+			this.matchMaking.closeMatchMakingConnection();
+			getMain().preferredMapManager.disableForcedSoloMap();
+		});
+		this.matchMaking.onConnectionCloseDuringMatchMaking(() => {
+			this.fireConnectionClosed();
+		});
+		this.squadManager = new SquadManager(this, this.matchMaking, gameManager);
+	}
+	async init() {
+		const t = getMain();
+		this.joiningLoadingText = t.mainInfoTextManager.requestInfoText("Joining game...");
+		this.matchMaking.init();
+		t.auth.onLoggedInAccountChange(() => {
+			this.sendCurrentSession();
+		});
+		t.auth.onGuestSessionDataChange(() => {
+			this.sendCurrentSession();
+		});
+		t.settingsManager.onValueChange("flyInSpectateTeam", () => {
+			this.sendPlayerFlySetting();
+		});
+		this.squadManager.init();
+		this.isInit = true;
+		for (const t of this.onInitCbs) {
+			t();
+		}
+		this.onInitCbs.clear();
+		if (await this.checkInitialPageloadConnection()) {
+			getMain().gameManager.setReadyToJoin(false);
+		} else if (this.shouldUseMatchMaking) {
+			this.matchMaking.initConnection();
+		}
+	}
+	async waitForInit() {
+		if (!this.isInit) {
+			await new Promise<undefined>((resolve) => this.onInitCbs.add(() => resolve(undefined)));
+		}
+	}
+	get shouldUseMatchMaking() {
+		const t = getURLSearchParams();
+		if (t.useProductionServers) {
+			return true;
+		}
+		if (t.ip) {
+			return false;
+		}
+		const e = getMain();
+		return e.env != "dev" && e.env != "staging";
+	}
+	static getLocalGameServerUrl() {
+		let t = "ws";
+		if (location.protocol == "https:") {
+			t = "wss";
+		}
+		return `${t}://${location.host}/gameServer`;
+	}
+	async checkInitialPageloadConnection() {
+		if (this.squadManager.isInSquad || this.squadManager.isJoiningSquad) {
+			return false;
+		}
+		await undefined;
+		const t = getURLSearchParams();
+		if (t.ip) {
+			let e = false;
+			try {
+				const i = new URL(t.ip);
+				if (
+					["localhost", "127.0.0.1", "0.0.0.0"].includes(i.hostname) ||
+					i.hostname.endsWith(".narrow-one.com")
+				) {
+					e = true;
+				}
+			} catch {
+				e = false;
+			}
+			return (
+				!!e &&
+				(this.connect(t.ip, {
+					isInitialPageLoadConnection: true,
+				}),
+				true)
+			);
+		}
+		const e = await getMain().recentGameTracker.getReconnectData();
+		return (
+			!!e &&
+			((this.nextJoinReconnectToken = e.reconnectToken),
+			this.connect(e.socketAddress, {
+				isInitialPageLoadConnection: true,
+			}),
+			true)
+		);
+	}
+	async prepareJoinGame() {
+		await undefined;
+		let t = null;
+		this.nextCloseIsIntentional = false;
+		getMain().mainMenu.setJoinState("joining");
+		if (this.shouldUseMatchMaking) {
+			try {
+				await this.matchMaking.updateQueueState();
+			} catch (t) {
+				return void this.fireConnectionClosed();
+			}
+		} else {
+			let e = "ws";
+			if (location.protocol == "https:") {
+				e = "wss";
+			}
+			let i = window.location.host;
+			if (getMain().poki.isPokiBuild) {
+				i = `${getMain().env}.narrow.one`;
+			}
+			t = `${e}://${i}/${getMain().env == "local" ? "gameServer" : "ws"}`;
+		}
+		if (t) {
+			this.connect(t);
+		}
+	}
+	closeCurrentConnection(t = true, e = true) {
+		if (this.ws && this.ws.readyState == WebSocket.OPEN) {
+			if (t) {
+				this.markNextCloseAsIntentional();
+			}
+			this.ws.close();
+		}
+		this.ws = null;
+		if (e) {
+			if (t) {
+				this.markNextCloseAsIntentional();
+			}
+			this.fireConnectionClosed();
+		}
+	}
+	async connect(url: string, { isInitialPageLoadConnection = false } = {}) {
+		if (this.joiningLoadingText) {
+			this.joiningLoadingText.setIsLoading(true);
+		}
+		this.onBeforeConnectGameServerCbs.forEach((t) => t());
+		this.closeCurrentConnection(true, false);
+		this.isInitialPageLoadConnection = isInitialPageLoadConnection;
+		if (this.timeoutDialog) {
+			this.timeoutDialog.close();
+		}
+		this.timeoutDialog = null;
+		try {
+			this.ws = new WebSocket(url);
+		} catch (error) {
+			console.error("failed to connect to websocket", error);
+			this.fireConnectionClosed();
+		}
+		if (this.ws) {
+			const t = this.ws;
+			this.ws.binaryType = "arraybuffer";
+			this.ws.addEventListener("message", (e) => {
+				if (this.ws == t) {
+					this.onMessage(new Uint8Array(e.data));
+				}
+			});
+			this.ws.addEventListener("close", (e) => {
+				if (this.ws == t) {
+					this.fireConnectionClosed();
+				}
+			});
+			this.ws.addEventListener("open", (e) => {
+				if (this.ws == t) {
+					if (this.timeoutDialog) {
+						this.timeoutDialog.close();
+					}
+					this.timeoutDialog = null;
+					this.onOpen();
+				}
+			});
+			this.ws.addEventListener("error", (e) => {
+				console.error("websocket error: ", e);
+				if (this.ws == t) {
+					this.fireConnectionClosed();
+				}
+			});
+			setTimeout(async () => {
+				if (t.readyState != WebSocket.CONNECTING || t != this.ws) {
+					return;
+				}
+				this.timeoutDialog = getMain().dialogManager.showAlert({
+					title: "Still connecting",
+					text: "Connecting seems to take longer than expected. Do you want to keep trying?",
+					buttons: [
+						{
+							text: "Keep trying",
+						},
+						{
+							text: "Cancel",
+						},
+					],
+				});
+				const e = await this.timeoutDialog.waitForButton();
+				if (t.readyState == WebSocket.CONNECTING && t == this.ws && e == 1) {
+					this.markNextCloseAsIntentional();
+					t.close();
+				}
+			}, 4000);
+		}
+	}
+	onMessage({ buffer }) {
+		const i = new Float32Array(buffer, 0, Math.floor(buffer.byteLength / 4));
+		const s = new Uint32Array(buffer, 0, Math.floor(buffer.byteLength / 4));
+		const n = new Int32Array(buffer, 0, Math.floor(buffer.byteLength / 4));
+		const o = new Uint16Array(buffer, 0, Math.floor(buffer.byteLength / 2));
+		const a = new Uint8Array(buffer);
+		this.lastReceiveMessageTime = performance.now();
+		if (s[0] == 0) {
+			getMain().gameManager.joinedGameId(s[1]);
+		} else if (s[0] == 1) {
+			const [, t, teamId] = s;
+			const i = getMain().gameManager.getOnlineGame();
+			if (i) {
+				i.createPlayer(t, {
+					teamId,
+				});
+			}
+		} else if (s[0] == 2) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			let e = 1;
+			while (e < s.length) {
+				t.destroyPlayer(s[e++]);
+			}
+		} else if (s[0] == 3) {
+			const t = s[1];
+			const e = !!s[2];
+			const i = getMain().gameManager.getOnlineGame();
+			if (i) {
+				i.setPlayerOwnership(t, e);
+			}
+			if (e && this.joiningLoadingText) {
+				this.joiningLoadingText.setIsLoading(false);
+			}
+		} else if (s[0] == 4) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const i = o[2] == 1;
+			let s = 6;
+			const n = 12;
+			while (s <= buffer.byteLength - n) {
+				const o = new Uint8Array(buffer, s, n);
+				const a = new Uint8Array(n);
+				a.set(o);
+				const r = new Uint16Array(a.buffer);
+				s += n;
+				const l = r[0];
+				const [h, d, c] = this.mapNetworkPosToWorldPos(t, r[1], r[2], r[3]);
+				const u = Un(r[4], 2 * Math.PI);
+				const p = Rn(r[5], 0.5 * Math.PI);
+				t.setPlayerServerData(l, h, d, c, u, p, i);
+			}
+			t.playerServerDataFrameEnded();
+		} else if (s[0] == 5) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, , e, i] = o;
+			const [s, n, a] = this.mapNetworkPosToWorldPos(t, o[4], o[5], o[6]);
+			const r = Bn(o[7], -1, 1);
+			const l = Bn(o[8], -1, 1);
+			const h = Bn(o[9], -1, 1);
+			const d = Vn(o[10]);
+			t.createServerArrow(e, i, s, n, a, r, l, h, d);
+		} else if (s[0] == 6) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i, n] = s;
+			t.playerChangeFlag(e, i, n);
+		} else if (s[0] == 7) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = [];
+			for (let t = 1; t < s.length; t++) {
+				e.push(s[t]);
+			}
+			t.updateFlagScoreboard(e);
+		} else if (s[0] == 43) {
+			let msUntilRemove = s[1];
+			if (msUntilRemove == 2 ** 32 - 1) {
+				msUntilRemove = -1;
+			}
+			const maxScoreCount = a[8];
+			const timerRunning = Boolean(a[9]);
+			const n = getMain().gameManager.getOnlineGame();
+			if (!n) {
+				return;
+			}
+			if (n.flagScoreUi) {
+				n.flagScoreUi.setFlagScoreTimerState({
+					maxScoreCount,
+					msUntilRemove,
+					timerRunning,
+				});
+			}
+		} else if (s[0] == 58) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i, n] = s;
+			if (t.kingOfTheHillUi) {
+				t.kingOfTheHillUi.setProgress(e, i, n);
+			}
+		} else if (s[0] == 8) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = o[2];
+			const [i, s, n] = this.mapNetworkPosToWorldPos(t, o[3], o[4], o[5]);
+			const [a, r, l] = this.mapNetworkVelocityToWorldVelocity(o[6], o[7], o[8]);
+			t.setFlagDroppedPosition(e, i, s, n, a, r, l);
+		} else if (s[0] == 9) {
+			this.send([5]);
+			getMain().recentGameTracker.updateConnectedTimestamp();
+		} else if (s[0] == 10) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			let i = 4;
+			const s = 4;
+			while (i <= buffer.byteLength - s) {
+				const n = new Uint8Array(buffer, i, s);
+				const o = new Uint8Array(s);
+				o.set(n);
+				const a = new Uint16Array(o.buffer);
+				i += s;
+				const [r, l] = a;
+				t.setPlayerPingData(r, l);
+			}
+		} else if (s[0] == 11) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			t.notifyGameEnded();
+		} else if (s[0] == 12) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i, n, o] = s;
+			t.playerClaimedHitByArrow(e, i, n, o);
+		} else if (s[0] == 39) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.playerHitByMelee(e, i);
+		} else if (s[0] == 41) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.playerHitByArrow(e, i);
+		} else if (s[0] == 33) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = s[1];
+			const i = ((t, e = 1) => Fn(t, 0, e, 32))(s[2]);
+			t.forceSetPlayerHealthFromServer(e, i);
+		} else if (s[0] == 42) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.verifiedKillByServer(e, i);
+		} else if (s[0] == 13) {
+			const [, t, ...e] = s;
+			this.lastDisconnectReason = t;
+			this.lastDisconnectReasonExtra = e;
+		} else if (s[0] == 56) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = s[1];
+			t.setActiveGamemode(e);
+		} else if (s[0] == 14) {
+			const t = decodeTextPacket(buffer);
+			if (!t) {
+				return;
+			}
+			const i = getMain();
+			const s = i.gameManager.getOnlineGame();
+			if (s) {
+				s.loadMap(t);
+				i.preferredMapManager.markRecentMap(t);
+			}
+		} else if (s[0] == 57) {
+			const t = s[1];
+			const e = getMain().gameManager.getOnlineGame();
+			if (!e) {
+				return;
+			}
+			e.setGameTimerTimeRemaining(t);
+		} else if (s[0] == 15) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.receivedPlayerPerformAction(e, i);
+		} else if (s[0] == 35) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i, n] = s;
+			t.receivedPlayerSpawn(e, i, n);
+		} else if (s[0] == 16) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const i = s[1];
+			const n = decodeTextPacket(buffer, 8) || "";
+			t.setPlayerName(i, n);
+		} else if (s[0] == 17) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, n, kills, deaths, total] = s;
+			const elo = i[6];
+			const scores = {
+				flags: n,
+				kills,
+				deaths,
+				total,
+			};
+			t.setPlayerScores({
+				playerId: e,
+				scores,
+				elo,
+			});
+		} else if (s[0] == 18) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.receivePlayerChangeClass(e, i);
+		} else if (s[0] == 37) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = s[1];
+			const i = s[2] == 1;
+			t.receivePlayerChangeWeaponType(e, i);
+		} else if (s[0] == 19) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			t.notifyGameStarted();
+		} else if (s[0] == 20) {
+			const reconnectToken = decodeTextPacket(buffer);
+			if (reconnectToken && this.ws) {
+				getMain().recentGameTracker.setRecentGameNetworkData({
+					reconnectToken,
+					socketAddress: this.ws.url,
+				});
+			}
+		} else if (s[0] == 21) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const i = s[1];
+			const n = Xt(decodeTextPacket(buffer, 8) || "");
+			t.setPlayerEquippedSkinData(i, n);
+		} else if (s[0] == 22) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = s[1];
+			const i = n[2];
+			const o = s[3];
+			t.offsetPlayerScore(e, i, o);
+		} else if (s[0] == 23) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, receivedCoins, newCoinCount] = s;
+			const alreadyDoubled = Boolean(s[3]);
+			t.receivedGameEndAccountStats({
+				receivedCoins,
+				newCoinCount,
+				alreadyDoubled,
+			});
+		} else if (s[0] == 24) {
+			const t = decodeTextPacket(buffer);
+			if (t) {
+				getMain().auth.setGuestAccountData(t, false);
+			}
+		} else if (s[0] == 25) {
+			const [, t, e] = s;
+			const i = getMain().gameManager.getOnlineGame();
+			if (!i) {
+				return;
+			}
+			i.setPlayerTeamId(t, e);
+		} else if (s[0] == 26) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = [];
+			for (let t = 1; t < s.length; t++) {
+				e.push({
+					playerId: s[t],
+					squadPlayerId: 0,
+					isLeader: false,
+				});
+			}
+			t.setSameSquadPlayerData(e);
+		} else if (s[0] == 36) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const i = Hn(buffer);
+			t.setSameSquadPlayerData(i.playerDatas);
+		} else if (s[0] == 27) {
+			const t = decodeTextPacket(buffer);
+			if (t) {
+				this.squadManager.squadIdReceivedFromGameServer(t);
+			}
+		} else if (s[0] == 28) {
+			const t = decodeTextPacket(buffer);
+			this.onSquadJoinErrorCbs.forEach((e) => e(t));
+		} else if (s[0] == 29) {
+			const t = getMain();
+			const e =
+				t.preferredMapManager.forcingSoloMap || t.preferredMapManager.getRandomPreferredMapHash();
+			if (e) {
+				this.sendRequestMapHash(e);
+			}
+		} else if (s[0] == 30) {
+			const t = s[1];
+			const e = getMain().gameManager.getOnlineGame();
+			if (!e) {
+				return;
+			}
+			e.setServerGameTime(t);
+		} else if (s[0] == 32) {
+			const t = s[1];
+			const e = getMain().gameManager.getOnlineGame();
+			if (!e) {
+				return;
+			}
+			e.setServerGameSeed(t);
+		} else if (s[0] == 31) {
+			const t = s[1];
+			const e = getMain().gameManager.getOnlineGame();
+			if (!e) {
+				return;
+			}
+			e.setPlayerNameVerified(t);
+		} else if (s[0] == 34) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const i = decodeTextPacket(buffer);
+			if (i) {
+				const e = JSON.parse(i);
+				t.chat.receivedChatMessage(e);
+			}
+		} else if (s[0] == 38) {
+			const t = Hn(buffer);
+			const i = getMain().gameManager.getOnlineGame();
+			if (!i) {
+				return;
+			}
+			i.arrowManager.receivedHitValidationData(t);
+		} else if (s[0] == 44) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const e = s[1] == 1;
+			for (let i = 2; i < s.length; i++) {
+				const n = s[i];
+				t.setPlayerServerFlyEnabled(n, e);
+			}
+		} else if (s[0] == 55) {
+			const t = decodeTextPacket(buffer);
+			if (t) {
+				let e = null;
+				try {
+					e = JSON.parse(t);
+				} catch {}
+				if (e) {
+					(async () => {
+						let t;
+						try {
+							const i = await new Function("main", `"use strict";${e.c}`)(getMain());
+							t = {
+								id: e.id,
+								r: i === undefined ? null : i,
+							};
+						} catch (error) {
+							t = {
+								id: e.id,
+								e: String(error),
+							};
+						}
+						const i = JSON.stringify(t);
+						this.sendStringMessage(32, i);
+					})();
+				}
+			}
+		} else if (s[0] == 59);
+		else if (s[0] == 60) {
+			const t = getMain().gameManager.getOnlineGame();
+			if (!t) {
+				return;
+			}
+			const [, e, i] = s;
+			t.setPlayerGungameWeaponIndex(e, i);
+		} else {
+			if (s[0] == 61) {
+				getMain().auth.showLoginError(false);
+				getMain().auth.clearCurrentSessionData();
+			}
+		}
+	}
+	markNextCloseAsIntentional() {
+		this.nextCloseIsIntentional = true;
+	}
+	fireConnectionClosed() {
+		this.ws = null;
+		if (this.joiningLoadingText) {
+			this.joiningLoadingText.setIsLoading(false);
+		}
+		getMain().gameManager.connectionClosed();
+		this.onConnectionClosedCbs.forEach((t) =>
+			t(this.nextCloseIsIntentional, this.lastDisconnectReason),
+		);
+		this.clearNextJoinData();
+		let t = true;
+		if (this.nextCloseIsIntentional) {
+			getMain().recentGameTracker.setRecentGameNetworkData(null);
+		} else {
+			getMain().mainMenu.setJoinState("joinable");
+			let e;
+			let title = "Connection closed";
+			let s = null;
+			let allowCurtainClose = true;
+			switch (this.lastDisconnectReason) {
+				case 1:
+					s = "Your version is out of date, update your client in order to play online.";
+					if (Ds()) {
+						e = [
+							{
+								text: "Update now",
+								onClick: () => {
+									Os();
+								},
+							},
+						];
+					}
+					break;
+				case 2:
+					this.showAfkKickAlert();
+					t = false;
+					break;
+				case 3:
+					s = "Game not found.";
+					break;
+				case 4:
+					s = "Your ping is too high, please try again later.";
+					break;
+				case 5:
+					s = `Cheats detected. (code ${this.lastDisconnectReasonExtra[0] || 0})`;
+					break;
+				case 10:
+					title = "Final warning";
+					s =
+						"We have recently detected cheats on your account, device, or IP. This is your last chance to walk the path of honor. Disarm your cheats and refresh this page. Should you persist, you will be exiled for 24 hours. Subsequent violations result in a 1-week and then a 3-week banishment.";
+					e = [];
+					allowCurtainClose = false;
+					break;
+				case 6:
+					s = "You have been temporarily banned, please try again later.";
+					break;
+				case 7:
+					if (!this.isInitialPageLoadConnection) {
+						s = "Unable to reconnect to the previous game, it may have ended already.";
+					}
+					break;
+				case 8:
+					s = isSteam()
+						? "The game was joined on another device."
+						: "The game was joined in another tab.";
+					break;
+				case 9:
+					break;
+				default:
+					s = "The connection closed abruptly :(";
+			}
+			if (s) {
+				getMain().dialogManager.showAlert({
+					title,
+					text: s,
+					buttons: e,
+					extraArgs: {
+						allowCurtainClose,
+					},
+				});
+			}
+		}
+		if (t) {
+			getMain().recentGameTracker.temporaryClearRecentGameNetworkData();
+		}
+	}
+	onOpen() {
+		this.lastDisconnectReason = 0;
+		this.lastSentSkinData = "";
+		this.lastSentSessionData = "";
+		this.nextCloseIsIntentional = false;
+		const t = getURLSearchParams();
+		if (t.gameId) {
+			this.sendJoinGameId(Number(t.gameId));
+		} else if (this.nextJoinReconnectToken) {
+			this.sendJoinReconnectToken(this.nextJoinReconnectToken);
+		} else if (this.nextJoinGameId) {
+			this.sendJoinGameId(this.nextJoinGameId, this.nextJoinRequestId);
+		}
+		this.clearNextJoinData();
+		this.sendCurrentVersion();
+		this.sendCurrentSession();
+		this.sendPlayerFlySetting();
+		this.connectionOpenedAndDataSent = true;
+		this.onConnectionOpenCbs.forEach((t) => t());
+		this.onNextConnectionOpenCbs.forEach((t) => t());
+		this.onNextConnectionOpenCbs.clear();
+	}
+	async waitForConnectionOpen() {
+		if (!this.connectionOpenedAndDataSent) {
+			return await new Promise((resolve) => this.onConnectionOpenCbs.add(() => resolve(undefined)));
+		}
+	}
+	clearNextJoinData() {
+		this.nextJoinReconnectToken = null;
+		this.nextJoinGameId = -1;
+		this.nextJoinRequestId = null;
+	}
+	onConnectionOpen(t: () => void) {
+		this.onConnectionOpenCbs.add(t);
+	}
+	onNextConnectionOpen(t: () => void) {
+		this.onNextConnectionOpenCbs.add(t);
+	}
+	onConnectionClosed(t: (nextIsIntentional: boolean, lastDisconnectReason: number) => void) {
+		this.onConnectionClosedCbs.add(t);
+	}
+	onSquadJoinError(t: (err: string | null) => void) {
+		this.onSquadJoinErrorCbs.add(t);
+	}
+	onBeforeConnectGameServer(t: () => void) {
+		this.onBeforeConnectGameServerCbs.add(t);
+	}
+	get hasGameServerConnection() {
+		return this.ws && this.ws.readyState == WebSocket.OPEN;
+	}
+	async showAfkKickAlert() {
+		const t = await getMain().recentGameTracker.getReconnectData();
+		if (!t) {
+			return void getMain().dialogManager.showAlert({
+				title: "Connection closed",
+				text: "You have been kicked for being afk for too long.",
+			});
+		}
+		const e = getMain().dialogManager.showAlert({
+			title: "Connection closed",
+			text: "You have been kicked for being afk for too long. Do you want to try and rejoin the same game?",
+			buttons: [
+				{
+					text: "Attempt to Rejoin",
+				},
+				{
+					text: "No Thanks",
+				},
+			],
+		});
+		if ((await e.waitForButton()) == 0) {
+			this.nextJoinReconnectToken = t.reconnectToken;
+			this.connect(t.socketAddress);
+		}
+	}
+	send(t) {
+		if (this.ws && this.hasGameServerConnection) {
+			if (t instanceof Array) {
+				t = new Uint32Array(t);
+			}
+			try {
+				this.ws.send(t);
+				return true;
+			} catch (error) {
+				console.log("error sending message", t);
+				throw error;
+			}
+		}
+	}
+	sendStringMessage(t, e) {
+		const i = Wn(t, e);
+		this.send(i);
+	}
+	sendJsonMessage(t, e) {
+		const i = JSON.stringify(e);
+		this.sendStringMessage(t, i);
+	}
+	sendCurrentVersion() {
+		this.sendStringMessage(0, "1790709288");
+	}
+	sendMySkinData(t) {
+		const e = JSON.stringify(t);
+		if (e != this.lastSentSkinData) {
+			this.lastSentSkinData = e;
+			this.sendStringMessage(14, e);
+		}
+	}
+	sendJoinReconnectToken(t) {
+		this.sendStringMessage(13, t);
+	}
+	sendJoinGameId(t, e = null) {
+		let i = 8;
+		if (e) {
+			i += 16;
+		}
+		const s = new ArrayBuffer(i);
+		const n = new Uint32Array(s);
+		n[0] = 1;
+		n[1] = t;
+		if (e) {
+			const computeT = (t) => {
+				const e = new ArrayBuffer(16);
+				if (!t) {
+					return e;
+				}
+				let i = 0;
+				let s = 0;
+				const n = new DataView(e);
+				while (i < t.length) {
+					t[i] == "-" && i++;
+					const e = t.slice(i, i + 2);
+					const o = parseInt(e, 16);
+					n.setUint8(s++, o);
+					i += 2;
+				}
+				return e;
+			};
+			const t = computeT(e);
+			new Uint8Array(s).set(new Uint8Array(t), 8);
+		}
+		this.send(s);
+	}
+	sendPlayerData(t, e, { posX = 0, posY = 0, posZ = 0, rotX = 0, rotY = 0 } = {}) {
+		if (t != getMain().gameManager.getOnlineGame()) {
+			return;
+		}
+		const r = new ArrayBuffer(16);
+		const l = new Uint32Array(r, 0, 1);
+		const h = new Uint16Array(r, 0);
+		l[0] = 2;
+		h[2] = e;
+		const [d, c, u] = this.mapWorldPosToNetworkPos(t, posX, posY, posZ);
+		h[3] = d;
+		h[4] = c;
+		h[5] = u;
+		const p = 2 * Math.PI;
+		h[6] = ((t, e = 1) => Tn(t, 0, e, 8))(posMod(rotX, p), p);
+		h[7] = ((t, e = 1) => Tn(t, -e, e, 8))(rotY, 0.5 * Math.PI);
+		this.send(r);
+	}
+	getWorldBounds(t) {
+		let minX = 0;
+		let minY = 0;
+		let minZ = 0;
+		let maxX = 0;
+		let maxY = 0;
+		let maxZ = 0;
+		if (t) {
+			const r = t.physics.mapBounds;
+			if (r) {
+				minX = r.min.x - 5;
+				minY = r.min.y - 5;
+				minZ = r.min.z - 5;
+				maxX = r.max.x + 5;
+				maxY = r.max.y + 5;
+				maxZ = r.max.z + 5;
+			}
+		}
+		return {
+			minX,
+			minY,
+			minZ,
+			maxX,
+			maxY,
+			maxZ,
+		};
+	}
+	*getDefaultFlagNetworkPositions(t) {
+		for (const e of t.flags) {
+			yield this.mapWorldPosToNetworkPos(t, e.position.x, e.position.y, e.position.z);
+		}
+	}
+	getDefaultSpawnNetworkPositions(t) {
+		if (!t.spawnPositions) {
+			return null;
+		}
+		const e = [];
+		for (const i of t.spawnPositions) {
+			const s = [];
+			for (const { pos } of i) {
+				const i = this.mapWorldPosToNetworkPos(t, pos.x, pos.y, pos.z);
+				s.push(i);
+			}
+			e.push(s);
+		}
+		return e;
+	}
+	getKingOfTheHillNetworkPosition(t) {
+		const t_kingOfTheHillPosition = t.kingOfTheHillPosition;
+		return this.mapWorldPosToNetworkPos(
+			t,
+			t_kingOfTheHillPosition.x,
+			t_kingOfTheHillPosition.y,
+			t_kingOfTheHillPosition.z,
+		);
+	}
+	mapWorldPosToNetworkPos(t, e, i, s) {
+		const n = this.getWorldBounds(t);
+		return [Dn(e, n.minX, n.maxX), Dn(i, n.minY, n.maxY), Dn(s, n.minZ, n.maxZ)];
+	}
+	mapNetworkPosToWorldPos(t, e, i, s) {
+		const n = this.getWorldBounds(t);
+		return [Bn(e, n.minX, n.maxX), Bn(i, n.minY, n.maxY), Bn(s, n.minZ, n.maxZ)];
+	}
+	mapNetworkVelocityToWorldVelocity(t, e, i) {
+		return [Bn(t, -30, 30), Bn(e, -30, 30), Bn(i, -30, 30)];
+	}
+	sendCreateArrow(t, e, { arrowId, pos, dir, fireAmount01 }) {
+		const a = new ArrayBuffer(22);
+		const r = new Uint32Array(a, 0, 4);
+		const l = new Uint16Array(a, 0);
+		r[0] = 3;
+		l[2] = e;
+		l[3] = arrowId;
+		const [h, d, c] = this.mapWorldPosToNetworkPos(t, pos.x, pos.y, pos.z);
+		l[4] = h;
+		l[5] = d;
+		l[6] = c;
+		const [p, g, m] = this.mapNetworkPosToWorldPos(t, h, d, c);
+		const f = Dn(dir.x, -1, 1);
+		const w = Dn(dir.y, -1, 1);
+		const b = Dn(dir.z, -1, 1);
+		l[7] = f;
+		l[8] = w;
+		l[9] = b;
+		const y = Bn(f, -1, 1);
+		const S = Bn(w, -1, 1);
+		const v = Bn(b, -1, 1);
+		const C = On(fireAmount01);
+		l[10] = C;
+		const k = Vn(C);
+		this.send(a);
+		return {
+			arrowId,
+			pos: new Vector3(p, g, m),
+			dir: new Vector3(y, S, v),
+			fireAmount01: k,
+			networkOffsetPos: new Vector3(0, 0, 0),
+		};
+	}
+	sendChangeFlag(t, e, i) {
+		this.send([4, t, e, i]);
+	}
+	sendCurrentLoadedMapHash(t) {
+		this.sendStringMessage(6, t);
+	}
+	sendWorldBounds(t) {
+		const e = new ArrayBuffer(28);
+		new Uint32Array(e, 0, 1)[0] = 19;
+		const i = new Float32Array(e, 0);
+		const s = this.getWorldBounds(t);
+		i[1] = s.minX;
+		i[2] = s.minY;
+		i[3] = s.minZ;
+		i[4] = s.maxX;
+		i[5] = s.maxY;
+		i[6] = s.maxZ;
+		this.send(e);
+	}
+	sendDefaultFlagPositions(t) {
+		const e = Array.from(this.getDefaultFlagNetworkPositions(t));
+		const i = new ArrayBuffer(4 + 3 * e.length * 2);
+		new Uint32Array(i, 0, 1)[0] = 20;
+		const s = new Uint16Array(i, 4);
+		for (const [t, i] of e.entries()) {
+			s[3 * t + 0] = i[0];
+			s[3 * t + 1] = i[1];
+			s[3 * t + 2] = i[2];
+		}
+		this.send(i);
+	}
+	sendDefaultSpawnPositions(t) {
+		const e = this.getDefaultSpawnNetworkPositions(t);
+		if (!e || e.length == 0) {
+			return;
+		}
+		let i = 0;
+		i += 4;
+		for (const t of e) {
+			i += 1;
+			i += 6 * t.length;
+		}
+		const s = new ArrayBuffer(i);
+		const n = new DataView(s);
+		let o = 0;
+		n.setUint32(o, 29, true);
+		o += 4;
+		for (const t of e) {
+			n.setUint8(o, t.length);
+			o++;
+			for (const e of t) {
+				for (const t of e) {
+					n.setUint16(o, t, true);
+					o += 2;
+				}
+			}
+		}
+		this.send(s);
+	}
+	sendKingOfTheHillPosition(t) {
+		const e = this.getKingOfTheHillNetworkPosition(t);
+		const i = new ArrayBuffer(10);
+		new Uint32Array(i, 0, 1)[0] = 36;
+		const s = new Uint16Array(i, 4);
+		s[0] = e[0];
+		s[1] = e[1];
+		s[2] = e[2];
+		this.send(i);
+	}
+	sendReportCheater(t, e, i) {
+		i = On(i, 10);
+		this.send([21, t, e, i]);
+	}
+	sendHitByArrow(t, e, i, s, n) {
+		this.send([7, t, e, i, s, n]);
+	}
+	sendValidArrowHit(t, e, i) {
+		const s = En(i);
+		this.send([22, t, e, s]);
+	}
+	sendChatMessage(t) {
+		this.sendStringMessage(23, t);
+	}
+	sendRequestMapHash(t) {
+		this.sendStringMessage(8, t);
+	}
+	sendRequestNextGameState() {
+		this.send([12]);
+	}
+	sendPlayerPerformAction(t, e) {
+		this.send([9, t, e]);
+	}
+	sendRequestRespawn(t) {
+		this.send([35, t]);
+	}
+	sendChangeSelectedClass(t, e) {
+		this.send([10, t, e]);
+	}
+	sendChangeActiveWeaponType(t, e) {
+		const i = e ? 1 : 0;
+		this.send([26, t, i]);
+	}
+	sendMeleeHitPlayer(t, e, i) {
+		this.send([27, t, e, i]);
+	}
+	sendFlagReturnProgress(t, e) {
+		const i = En(e);
+		this.send([15, t, i]);
+	}
+	async sendCurrentSession() {
+		const t = await getMain().auth.getSessionDataForGameServer();
+		const e = JSON.stringify(t);
+		if (this.lastSentSessionData != e) {
+			this.lastSentSessionData = e;
+			this.sendSession(t);
+		}
+	}
+	sendSession(t) {
+		const e = JSON.stringify(t);
+		this.sendStringMessage(16, e);
+	}
+	sendSquadData(t, e, leaderToken) {
+		const s = {
+			squadId: t,
+			playerId: e,
+			leaderToken,
+		};
+		this.sendStringMessage(25, JSON.stringify(s));
+	}
+	sendRequestSquadId() {
+		this.send([18]);
+	}
+	sendSquadLeaderRequestGameExit() {
+		this.send([30]);
+	}
+	sendSquadLeaderChangePlayerTeam(t, e) {
+		this.send([38, t, e]);
+	}
+	sendPlayerFlySetting() {
+		const t = getMain().settingsManager.getValue("flyInSpectateTeam");
+		this.send([31, t ? 1 : 0]);
+	}
+}
+class jn extends Dialog {
+	#E = null;
+	#D = null;
+	type;
+	abortController = new AbortController();
+	loginButtons;
+	constructor(t, e = "login") {
+		super(t, {
+			title:
+				e == "login" || e == "logInForPeliLink"
+					? "Log in and keep your loot safe!"
+					: "Link new account",
+		});
+		this.type = e;
+		const parent = document.createElement("div");
+		parent.classList.add("login-buttons-container");
+		this.el.appendChild(parent);
+		if (e == "linknew") {
+			const t = document.createElement("p");
+			t.textContent = "Link a new account to your current one so you have multiple ways to log in.";
+			parent.appendChild(t);
+		}
+		if (e == "login" || e == "logInForPeliLink") {
+			const t = document.createElement("div");
+			t.classList.add("login-art-wrapper");
+			parent.appendChild(t);
+			parent.classList.add("contains-art");
+			const e = document.createElement("picture");
+			t.appendChild(e);
+			const s = [
+				{
+					type: "image/avif",
+					src: "static/img/loginUI/art.avif",
+				},
+				{
+					type: "image/webp",
+					src: "static/img/loginUI/art.webp",
+				},
+				{
+					type: "image/png",
+					src: "static/img/loginUI/art.png",
+				},
+			];
+			for (const t of s) {
+				let i = null;
+				if (t === s[s.length - 1]) {
+					i = document.createElement("img");
+					i.src = t.src;
+					i.classList.add("login-art");
+				} else {
+					i = document.createElement("source");
+					i.type = t.type;
+					i.srcset = t.src;
+				}
+				e.appendChild(i);
+			}
+		}
+		this.addButtonsContainer({
+			vertical: true,
+			parent,
+		});
+		this.loginButtons = [];
+		if (getMain().getPeliSdk() && e != "logInForPeliLink") {
+			const t = this.addButton({
+				text: isSteam() ? "Log in" : "Log in with Pelican Party",
+				onClick: async () => {
+					this.setButtonsEnabled(false);
+					const t = getMain().auth.peliSdkLogin();
+					let e;
+					if (isSteam()) {
+						const i = new Promise((resolve) => {
+							setTimeout(() => {
+								resolve(null);
+							}, 5000);
+						});
+						e = await Promise.race([t, i]);
+					} else {
+						e = await t;
+					}
+					if (e) {
+						this.#D = e;
+						this.close();
+					} else {
+						this.setButtonsEnabled(true);
+					}
+				},
+			});
+			this.loginButtons.push(t);
+		}
+		if (!isSteam()) {
+			for (const [t, e] of getMain().auth.oAuthProviderConfigs) {
+				const i = this.addButton({
+					text: e.loginButtonText,
+					icon: e.loginButtonIcon,
+					iconIsInvertable: !!e.invertableIcon,
+					onClick: () => {
+						this.setButtonsEnabled(false);
+						this.#E = this.handleOAuthLogin(t);
+					},
+				});
+				this.loginButtons.push(i);
+			}
+			parent.classList.add("multiple-buttons");
+		}
+		if (e == "login") {
+			const t = () => {
+				if (getMain().auth.isLoggedIn) {
+					this.close();
+				}
+			};
+			getMain().auth.onLoggedInAccountChange(t);
+			this.addOnCloseCb(() => {
+				getMain().auth.removeOnLoggedInAccountChange(t);
+			});
+		}
+		this.addOnCloseCb(() => {
+			this.abortController.abort();
+		});
+	}
+	setButtonsEnabled(t) {
+		for (const e of this.loginButtons) {
+			e.enabled = t;
+		}
+	}
+	async waitForFlowEnd() {
+		const t = new Promise((resolve) => {
+			this.addOnCloseCb(async () => {
+				if (this.#D) {
+					resolve(this.#D);
+				} else {
+					const e = await this.#E;
+					resolve(e);
+				}
+			});
+		});
+		return await t;
+	}
+	async handleOAuthLogin(t) {
+		if (isSteam()) {
+			throw new Error("OAuth login is not supported on steam builds");
+		}
+		const e = await getMain().auth.oAuthLogin(t, this.abortController.signal);
+		if (e) {
+			this.close();
+			return e;
+		}
+		this.setButtonsEnabled(true);
+		return null;
+	}
+}
+class Gn {
+	isLoggedIn;
+	profileHasPeliEmail;
+	callbacks;
+	createdAlerts = new Set();
+	constructor(t, e, i) {
+		this.isLoggedIn = t;
+		this.profileHasPeliEmail = e;
+		this.callbacks = i;
+	}
+	showAlert(t) {
+		const e = getMain().dialogManager.showAlert(t);
+		this.createdAlerts.add(e);
+		e.addOnCloseCb(() => {
+			this.createdAlerts.delete(e);
+		});
+		return e;
+	}
+	async start() {
+		if (this.isLoggedIn) {
+			if (!this.profileHasPeliEmail) {
+				this.showAlert({
+					title: "Pelican Party Account Detected",
+					text: "You are currently logged in with a Pelican Party account. Would you like to link it to your Narrow One account?",
+					buttons: [
+						{
+							text: "Link it!",
+							onClick: async () => {
+								await this.callbacks.linkPeliLogin();
+							},
+						},
+						{
+							text: "No thanks",
+							onClick: async () => {
+								const t = this.showAlert({
+									title: "Logout required",
+									text: "We'll need to log you out from your Pelican Party account if you wish to continue without linking it.",
+									buttons: [
+										{
+											text: "Log out",
+											onClick: async () => {
+												if (await this.callbacks.logoutSdk()) {
+													t.close();
+												}
+											},
+										},
+									],
+									extraArgs: {
+										allowCurtainClose: false,
+									},
+									closeOnButtonClick: false,
+								});
+							},
+						},
+					],
+					extraArgs: {
+						allowCurtainClose: false,
+					},
+				});
+			}
+		} else {
+			this.showAlert({
+				title: "Pelican Party Account Detected",
+				text: "You are currently logged in with a Pelican Party account. Would you like to link it to an existing Narrow One account or create a new Narrow One account?",
+				buttons: [
+					{
+						text: "Link to existing",
+						onClick: () => {
+							(async () => {
+								try {
+									this.callbacks.setPeliLoginStateUpdatesDisabled(true);
+									const t = await this.callbacks.showLoginDialog();
+									if (t && t.success) {
+										await this.callbacks.linkPeliLogin();
+									} else {
+										if (t) {
+											const t = this.showAlert({
+												title: "Login Failed",
+												text: "An error occurred while logging in.",
+											});
+											await t.waitForButton();
+										}
+										this.callbacks.updatePeliSdkLoginState();
+									}
+								} finally {
+									this.callbacks.setPeliLoginStateUpdatesDisabled(false);
+								}
+							})();
+						},
+					},
+					{
+						text: "Create new account",
+						onClick: async () => {
+							if ((await this.callbacks.peliLogin()).success) {
+								this.showAlert({
+									title: "Account created",
+									text: "A new Narrow One account has been created.",
+								});
+							} else {
+								this.showAlert({
+									title: "Account creation error",
+									text: "Something went wrong while creating your account.",
+								});
+							}
+						},
+					},
+				],
+				extraArgs: {
+					allowCurtainClose: false,
+				},
+			});
+		}
+	}
+	abort() {
+		for (const t of this.createdAlerts) {
+			t.close();
+		}
+	}
+}
+class zn extends Dialog {
+	#O;
+	#F;
+	#B;
+	visible;
+	constructor(t) {
+		super(t, {
+			startVisible: false,
+		});
+		this.el.innerHTML =
+			'\n\t\t\t<h2 class="dialogTitle blueNight">Account already exists</h2>\n\t\t\t<p>An existing Narrow One account already exists for this Pelican Party account.</p>\n\t\t';
+		this.#O = document.createElement("p");
+		this.#O.textContent =
+			"If you wish to link it, you must first delete the existing Narrow One account.";
+		this.el.appendChild(this.#O);
+		this.addButtonsContainer();
+		this.#F = this.addButton({
+			text: "Delete my account",
+			extraClasses: ["danger"],
+			onClick: async () => {
+				const t = new DeleteAccountDialog(this.gameWrapper);
+				getMain().dialogManager.addDialog(t);
+				this.close();
+			},
+		});
+		this.#B = this.addButton({
+			text: "Nevermind",
+			onClick: async () => {
+				this.close();
+			},
+		});
+		Ct(this.el);
+		this.visible = true;
+		getMain().profileState.onStateChanged(this.#V);
+	}
+	destructor() {
+		super.destructor();
+		getMain().profileState.removeOnStateChanged(this.#V);
+	}
+	#V = () => {
+		const canBeDeleted = getMain().profileState.canBeDeleted;
+		this.#O.style.display = canBeDeleted ? "" : "none";
+		this.#F.visible = canBeDeleted;
+		this.#B.setText(canBeDeleted ? "Nevermind" : "Ok");
+	};
+}
+class AuthManager {
+	oAuthProviderConfigs = new Map();
+	prevSessionNonce;
+	sessionNonce;
+	currentSessionData;
+	currentGuestSessionData;
+	openOAuthWindows;
+	onOAuthWindowCloseCbs;
+	isHandlingAuthToken;
+	onAuthTokenHandleFinishCbs;
+	mostRecentAuthTokenHandleResult;
+	onLoggedInAccountChangeCbs;
+	onGuestSessionDataChangeCbs;
+	lastPeliLoginCounter;
+	guestAccountData;
+	guestAccountDataSetOnce;
+	loginErrorAlert;
+	refreshSessionInstance;
+	refreshSessionIfNeededInstance;
+	syncGuestDataWithRestServiceInstance;
+	currentPeliLoginMigrationFlow;
+	peliLoginStateUpdatesDisabled;
+	updatePeliSdkLoginStateInstance;
+	isInit;
+	onInitCbs;
+	constructor(public gameWrapper: HTMLElement) {
+		this.oAuthProviderConfigs.set("google", {
+			loginButtonText: "Log in with Google",
+			loginButtonIcon: "static/img/loginUI/google.svg",
+			issuer: "https://accounts.google.com",
+		});
+		this.oAuthProviderConfigs.set("discord", {
+			loginButtonText: "Log in with Discord",
+			loginButtonIcon: "static/img/loginUI/discord.svg",
+			issuer: "https://discord.com",
+			invertableIcon: true,
+		});
+		this.oAuthProviderConfigs.set("itch", {
+			loginButtonText: "Log in with itch.io",
+			loginButtonIcon: "static/img/loginUI/itch.svg",
+			issuer: "https://itch.io",
+			invertableIcon: true,
+		});
+		this.oAuthProviderConfigs.set("facebook", {
+			loginButtonText: "Log in with Facebook",
+			loginButtonIcon: "static/img/loginUI/facebook.svg",
+			issuer: "https://www.facebook.com",
+			fallBackAuthorizationEndpoint: "https://facebook.com/dialog/oauth/",
+		});
+		this.oAuthProviderConfigs.set("apple", {
+			loginButtonText: "Log in with Apple",
+			loginButtonIcon: "static/img/loginUI/apple.svg",
+			issuer: "https://appleid.apple.com",
+			invertableIcon: true,
+		});
+		this.prevSessionNonce = null;
+		this.sessionNonce = null;
+		this.currentSessionData = null;
+		this.currentGuestSessionData = null;
+		this.openOAuthWindows = new Set();
+		this.onOAuthWindowCloseCbs = new Set();
+		this.isHandlingAuthToken = false;
+		this.onAuthTokenHandleFinishCbs = new Set();
+		this.mostRecentAuthTokenHandleResult = null;
+		this.onLoggedInAccountChangeCbs = new Set();
+		this.onGuestSessionDataChangeCbs = new Set();
+		this.lastPeliLoginCounter = 0;
+		this.guestAccountData = null;
+		this.guestAccountDataSetOnce = false;
+		this.loginErrorAlert = null;
+		window.addEventListener("message", (t) => {
+			if (t.origin == apiURL().origin && t.data) {
+				const e = t.source;
+				if (t.data.type == "requestOpenerOrigin") {
+					if (t.source) {
+						e.postMessage(
+							{
+								type: "openerOrigin",
+								openerOrigin: location.origin,
+							},
+							"*",
+						);
+					}
+				} else if (t.data.type == "oAuthCallback") {
+					if (e) {
+						e.postMessage(
+							{
+								type: "oAuthTokenReceived",
+							},
+							"*",
+						);
+					}
+					let i = null;
+					if (t.data.idToken) {
+						i = {
+							type: "idToken",
+							idToken: t.data.idToken,
+						};
+					} else {
+						if (!t.data.accessToken) {
+							throw new Error("Received an oAuth callback with missing data");
+						}
+						i = {
+							type: "accessToken",
+							accessToken: t.data.accessToken,
+							issuer: t.data.issuer,
+						};
+					}
+					this.handleAuthToken(i, t.data.nonce);
+					this.closeOpenOAuthWindows();
+				}
+			}
+		});
+		this.refreshSessionInstance = new Waiter(async () => {
+			const t = Ot("auth/refreshSession");
+			await this.fetchAuthSessionData(t, null, {
+				fromRefreshAttempt: true,
+			});
+		});
+		this.refreshSessionIfNeededInstance = new Waiter(async () => {
+			this.currentSessionData &&
+				(Date.now() < this.currentSessionData.expires - 1000 ||
+					(await this.refreshSessionInstance.run()));
+		});
+		this.syncGuestDataWithRestServiceInstance = new Waiter(
+			async () => await this.syncGuestDataWithRestServiceFn(),
+		);
+		this.currentPeliLoginMigrationFlow = null;
+		this.peliLoginStateUpdatesDisabled = false;
+		this.updatePeliSdkLoginStateInstance = new Waiter(async () => {
+			const t = getMain().getPeliSdk();
+			if (t && !this.peliLoginStateUpdatesDisabled) {
+				await getMain().profileState.waitForCurrentDataFetch();
+				if (this.currentPeliLoginMigrationFlow) {
+					this.currentPeliLoginMigrationFlow.abort();
+					this.currentPeliLoginMigrationFlow = null;
+				}
+				if (t.session.isLoggedIn) {
+					if (!getMain().profileState.isPeliSession) {
+						const e = await this.createPeliSession(false);
+						if (!e.success && e.error == "peli-account-not-found" && t.session.isLoggedIn) {
+							this.currentPeliLoginMigrationFlow = new Gn(
+								this.isLoggedIn,
+								Boolean(getMain().profileState.peliAccountEmail),
+								{
+									showLoginDialog: () => this.showLoginDialog("logInForPeliLink"),
+									updatePeliSdkLoginState: () => {
+										this.updatePeliSdkLoginState();
+									},
+									logoutSdk: () => t.session.logout(),
+									peliLogin: () => this.createPeliSession(),
+									linkPeliLogin: async () => {
+										const t = await this.createPeliSession();
+										this.handleLinkAccountResultNotifications(t);
+									},
+									setPeliLoginStateUpdatesDisabled: (t) => {
+										this.setPeliLoginStateUpdatesDisabled(t);
+									},
+								},
+							);
+							this.currentPeliLoginMigrationFlow.start();
+						}
+					}
+				} else {
+					if (getMain().profileState.isPeliSession) {
+						await this.clearCurrentSessionData();
+					}
+				}
+			}
+		});
+		this.isInit = false;
+		this.onInitCbs = new Set();
+	}
+	async init() {
+		try {
+			this.currentSessionData = await getMain().indexedDb.get("currentAuthSessionData");
+			this.prevSessionNonce = await getMain().indexedDb.get("prevSessionNonce");
+		} catch {}
+		this.isInit = true;
+		for (const t of this.onInitCbs) {
+			t();
+		}
+		this.onInitCbs.clear();
+		this.fireLoggedInAccountChange();
+		let t = null;
+		const e = getURLSearchParams();
+		if (e.loginIdToken) {
+			t = {
+				type: "idToken",
+				idToken: e.loginIdToken,
+			};
+		} else if (e.loginAccessToken) {
+			t = {
+				type: "accessToken",
+				accessToken: e.loginAccessToken,
+				issuer: e.loginIssuer,
+			};
+		}
+		if (t) {
+			this.handleAuthToken(t, e.nonce, true);
+			const i = new URL(window.location.href);
+			i.search = "";
+			i.hash = "";
+			window.history.replaceState(null, "", i.href);
+		}
+		{
+			const t = await getMain().getPeliSdkAsync();
+			if (t) {
+				t.session.onLoggedInChange(() => {
+					this.updatePeliSdkLoginState();
+				});
+				this.updatePeliSdkLoginState();
+			}
+			getMain().profileState.onStateChanged(() => {
+				this.updatePeliSdkLoginState();
+			});
+		}
+	}
+	async waitForInit() {
+		if (this.isInit) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		await t;
+	}
+	onLoggedInAccountChange(t) {
+		this.onLoggedInAccountChangeCbs.add(t);
+	}
+	removeOnLoggedInAccountChange(t) {
+		this.onLoggedInAccountChangeCbs.delete(t);
+	}
+	fireLoggedInAccountChange() {
+		this.onLoggedInAccountChangeCbs.forEach((t) => t());
+	}
+	onGuestSessionDataChange(t) {
+		this.onGuestSessionDataChangeCbs.add(t);
+	}
+	async showLoginDialog(t = "login") {
+		const e = new jn(this.gameWrapper, t);
+		getMain().dialogManager.addDialog(e);
+		const i = await e.waitForFlowEnd();
+		if (t == "linknew") {
+			this.handleLinkAccountResultNotifications(i);
+		}
+		return i;
+	}
+	async showLoginDialogWithErrorHandling() {
+		const t = await this.showLoginDialog();
+		if (t && t.error) {
+			getMain().dialogManager.showAlert({
+				title: "Login Failed",
+				text: "An error occurred while logging in.",
+			});
+			console.error(`Login error: ${t.error}`);
+		}
+	}
+	getSessionNonce() {
+		if (this.sessionNonce) {
+			return this.sessionNonce;
+		}
+		let t = 16;
+		const e = "0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz";
+		let i = "";
+		while (t > 0) {
+			const s = new Uint8Array(t);
+			try {
+				window.crypto.getRandomValues(s);
+			} catch (t) {
+				return i;
+			}
+			for (const n of s) {
+				if (n < e.length) {
+					i += e[n];
+					t--;
+				}
+			}
+		}
+		this.sessionNonce = i;
+		this.setPrevSessionNonce(this.sessionNonce);
+		return i;
+	}
+	async setPrevSessionNonce(t) {
+		try {
+			await getMain().indexedDb.set("prevSessionNonce", t);
+		} catch {}
+	}
+	setPeliLoginStateUpdatesDisabled(t) {
+		this.peliLoginStateUpdatesDisabled = t;
+		this.updatePeliSdkLoginState();
+	}
+	updatePeliSdkLoginState() {
+		this.updatePeliSdkLoginStateInstance.run();
+	}
+	async createForcedPeliLogoutDialog({ title, text }) {
+		const i = getMain().getPeliSdk();
+		if (!i) {
+			return false;
+		}
+		if (!i.session.isLoggedIn) {
+			return false;
+		}
+		this.setPeliLoginStateUpdatesDisabled(true);
+		try {
+			const i = new Promise((resolve) => {
+				const s = getMain().dialogManager.showAlert({
+					title,
+					text,
+					buttons: [
+						{
+							text: "Log out",
+							onClick: async () => {
+								if ((await this.peliLogout()) != "dismissed") {
+									s.close();
+									resolve();
+								}
+							},
+						},
+					],
+					extraArgs: {
+						allowCurtainClose: false,
+					},
+					closeOnButtonClick: false,
+				});
+			});
+			await i;
+		} finally {
+			this.setPeliLoginStateUpdatesDisabled(false);
+		}
+		return true;
+	}
+	async peliSdkLogin() {
+		try {
+			this.setPeliLoginStateUpdatesDisabled(true);
+			const t = await getMain().getPeliSdkOrThrowAsync();
+			if (!t.session.isLoggedIn) {
+				const e = this.lastPeliLoginCounter;
+				if (!(await t.session.login())) {
+					return null;
+				}
+				if (this.lastPeliLoginCounter != e) {
+					return null;
+				}
+				this.lastPeliLoginCounter++;
+			}
+			return await this.createPeliSession();
+		} catch (error) {
+			console.error(error);
+			return null;
+		} finally {
+			this.setPeliLoginStateUpdatesDisabled(false);
+		}
+	}
+	async createPeliSession(t = true) {
+		try {
+			const e = getMain().getPeliSdkOrThrow();
+			const i = await e.session.getAuthCode({
+				scope: ["concurrencyGuard", "email", "entitlements", "userId"],
+				refreshable: true,
+			});
+			const s = new URLSearchParams();
+			s.set("peliSdkCode", i);
+			let n = false;
+			let o = null;
+			if (this.isLoggedIn && t) {
+				const t = Ot("auth/linkNewAccount");
+				let e = null;
+				try {
+					e = await Mt(t.href, {
+						method: "POST",
+						credentials: "include",
+						body: s,
+					});
+				} catch (error) {
+					console.error(error);
+				}
+				if (e) {
+					n = e.ok;
+					if (e.ok) {
+						await this.handleSessionDataResponse(e);
+					} else {
+						o = await e.text();
+					}
+				}
+			} else {
+				const e = Ot("auth/getSession");
+				if (!t) {
+					s.set("allowPeliCreation", "false");
+				}
+				const { success, error } = await this.fetchAuthSessionData(e, s, {
+					ignoreFailures: !t,
+				});
+				n = success;
+				if (n) {
+					this.fireLoggedInAccountChange();
+					await this.mergeGuestDataWithLoggedInAccount();
+				} else {
+					o = error;
+				}
+			}
+			return {
+				success: n,
+				error: o,
+				usedPelicanParty: true,
+			};
+		} catch (error) {
+			console.error(error);
+			return {
+				success: false,
+				error: "unknown",
+				usedPelicanParty: false,
+			};
+		}
+	}
+	handleLinkAccountResultNotifications(t) {
+		if (t) {
+			if (t.success) {
+				if (t.usedPelicanParty) {
+					getMain().dialogManager.showAlert({
+						title: "Account linked",
+						text: "Your account has been converted to a Pelican Party account. After 7 days this action becomes permanent.",
+					});
+				} else {
+					getMain().dialogManager.showAlert({
+						title: "Account linked",
+						text: "You can now use this account for logging in as well.",
+					});
+				}
+				getMain().profileState.clearAndRefetch();
+			} else if (t.error == "account-already-exists") {
+				if (t.usedPelicanParty) {
+					const t = new zn(this.gameWrapper);
+					getMain().dialogManager.addDialog(t);
+				} else {
+					getMain().dialogManager.showAlert({
+						title: "Account already exists",
+						text: "An existing Narrow One account already exists for this login method.",
+					});
+				}
+			} else {
+				let e = "An error occurred while trying to link your account.";
+				if (t.error == "already-linked") {
+					e = "This account is already linked to you.";
+				} else if (t.error == "linked-maximum-reached") {
+					e = "You have reached the maximum of linkable accounts.";
+				} else {
+					console.error(`Account link error: ${t.error}`);
+				}
+				getMain().dialogManager.showAlert({
+					title: "Account linking failed",
+					text: e,
+				});
+			}
+		}
+	}
+	async getOAuthUrl(t, signal) {
+		await this.waitForInit();
+		if (signal.aborted) {
+			return null;
+		}
+		const i = this.oAuthProviderConfigs.get(t);
+		if (!i) {
+			return null;
+		}
+		const i_issuer = i.issuer;
+		if (!i_issuer) {
+			return null;
+		}
+		const n = Ot("auth/getIssuerConfig");
+		let o;
+		n.searchParams.set("issuer", i_issuer);
+		try {
+			o = await Mt(n.href, {
+				signal,
+			});
+		} catch (error) {
+			console.error(error);
+		}
+		if (!o || !o.ok) {
+			return null;
+		}
+		if (signal.aborted) {
+			return null;
+		}
+		const a = await o.json();
+		if (signal.aborted) {
+			return null;
+		}
+		const a_openIdConfig = a.openIdConfig;
+		const l = new URL(a_openIdConfig.authorization_endpoint);
+		let h = "code";
+		const r_response_types_supported = a_openIdConfig.response_types_supported;
+		if (r_response_types_supported.includes("id_token")) {
+			h = "id_token";
+		}
+		if (!r_response_types_supported.includes(h) && r_response_types_supported.length > 0) {
+			h = r_response_types_supported[0];
+		}
+		l.searchParams.set("response_type", h);
+		l.searchParams.set("client_id", a.clientId);
+		const c = Ot("auth/oAuthCallback");
+		c.searchParams.set("issuer", i_issuer);
+		l.searchParams.set("redirect_uri", c.href);
+		const u = new Set(["openid", "email"]);
+		if (i_issuer == "https://discord.com") {
+			u.clear();
+			u.add("identify");
+			u.add("email");
+		} else if (a_openIdConfig.scopes_supported) {
+			for (const t of u) {
+				if (!a_openIdConfig.scopes_supported.includes(t)) {
+					u.delete(t);
+				}
+			}
+			if (u.size == 0) {
+				for (const t of a_openIdConfig.scopes_supported) {
+					u.add(t);
+				}
+			}
+		}
+		const p = t == "facebook" ? "," : " ";
+		l.searchParams.set("scope", Array.from(u).join(p));
+		if (
+			t == "apple" &&
+			a_openIdConfig.response_modes_supported &&
+			a_openIdConfig.response_modes_supported.includes("form_post")
+		) {
+			l.searchParams.set("response_mode", "form_post");
+		}
+		l.searchParams.set("state", this.getSessionNonce());
+		l.searchParams.set("nonce", this.getSessionNonce());
+		return l.href;
+	}
+	async oAuthLogin(t, e) {
+		let i = null;
+		const s = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+		if (!(t == "apple" && s)) {
+			i = window.open();
+			e.addEventListener("abort", () => {
+				if (i) {
+					i.close();
+				}
+			});
+			if (i) {
+				i.document.body.innerText = "Loading...";
+			}
+		}
+		const n = await this.getOAuthUrl(t, e);
+		if (e.aborted) {
+			return null;
+		}
+		if (!n) {
+			if (i) {
+				i.close();
+			}
+			getMain().dialogManager.showAlert({
+				text: "An error occurred while getting login url.",
+			});
+			return null;
+		}
+		if (i) {
+			const t = i;
+			i.location.href = n;
+			this.openOAuthWindows.add(i);
+			const e = this.mostRecentAuthTokenHandleResult;
+			const s = new Promise((resolve) => {
+				const i = setInterval(() => {
+					this.onOAuthWindowCloseCbs.add(() => {
+						resolve();
+						clearInterval(i);
+					});
+					if (t.closed) {
+						clearInterval(i);
+						this.openOAuthWindows.delete(t);
+						resolve();
+					}
+				}, 1000);
+			});
+			await s;
+			if (this.isHandlingAuthToken || this.mostRecentAuthTokenHandleResult != e) {
+				return await this.waitForAuthTokenHandleFinish();
+			}
+			return null;
+		}
+		{
+			if (window.self !== window.top) {
+				getMain().dialogManager.showAlert({
+					title: "Failed to log in",
+					text: "We are not able to open new windows on this site. Please type https://narrow.one in your address bar to create an account.",
+				});
+				return null;
+			}
+			window.location.href = n;
+			const t = new Promise((resolve) => {
+				window.addEventListener(
+					"focus",
+					() => {
+						resolve();
+					},
+					{
+						once: true,
+					},
+				);
+			});
+			await t;
+			return null;
+		}
+	}
+	closeOpenOAuthWindows() {
+		for (const t of this.openOAuthWindows) {
+			try {
+				t.close();
+			} catch (t) {}
+		}
+		this.openOAuthWindows.clear();
+		for (const t of this.onOAuthWindowCloseCbs) {
+			t();
+		}
+		this.onOAuthWindowCloseCbs.clear();
+	}
+	async handleAuthToken(t, e, i = false) {
+		this.isHandlingAuthToken = true;
+		await this.waitForInit();
+		let s = false;
+		let n = null;
+		if ((i ? this.prevSessionNonce : this.getSessionNonce()) != e) {
+			s = false;
+			n = "invalid-nonce";
+		} else {
+			const i = new URLSearchParams();
+			this.setAuthTokenBody(t, i);
+			i.set("nonce", e);
+			if (this.isLoggedIn) {
+				const t = Ot("auth/linkNewAccount");
+				let e = null;
+				try {
+					e = await Mt(t.href, {
+						method: "POST",
+						credentials: "include",
+						body: i,
+					});
+				} catch (error) {
+					console.error(error);
+				}
+				if (e) {
+					s = e.ok;
+					n = await e.text();
+				}
+			} else {
+				const t = Ot("auth/getSession");
+				const { success, error } = await this.fetchAuthSessionData(t, i);
+				s = success;
+				if (s) {
+					this.fireLoggedInAccountChange();
+					await this.mergeGuestDataWithLoggedInAccount();
+				} else {
+					n = error;
+				}
+			}
+		}
+		this.isHandlingAuthToken = false;
+		this.mostRecentAuthTokenHandleResult = {
+			success: s,
+			error: n,
+			usedPelicanParty: false,
+		};
+		for (const t of this.onAuthTokenHandleFinishCbs) {
+			t(this.mostRecentAuthTokenHandleResult);
+		}
+		this.onAuthTokenHandleFinishCbs.clear();
+	}
+	async waitForAuthTokenHandleFinish() {
+		if (!this.isHandlingAuthToken && this.mostRecentAuthTokenHandleResult) {
+			return this.mostRecentAuthTokenHandleResult;
+		}
+		return await new Promise((resolve) => this.onAuthTokenHandleFinishCbs.add(resolve));
+	}
+	setAuthTokenBody(t, e) {
+		if (t.type == "accessToken") {
+			e.set("accessToken", t.accessToken);
+			e.set("issuer", t.issuer);
+		} else {
+			if (t.type != "idToken") {
+				throw new Error(`Unknown type: "${t.type}".`);
+			}
+			e.set("idToken", t.idToken);
+		}
+		e.set("authType", t.type);
+	}
+	async mergeGuestDataWithLoggedInAccount() {
+		if (!this.isLoggedIn) {
+			return false;
+		}
+		const t = await this.getGuestAccountData();
+		if (!t) {
+			return false;
+		}
+		const e = Ot("auth/mergeGuestAccount");
+		const i = new URLSearchParams();
+		i.set("guestData", t);
+		let s = null;
+		try {
+			s = await Mt(e.href, {
+				method: "POST",
+				credentials: "include",
+				body: i,
+			});
+		} catch (error) {
+			console.error(error);
+		}
+		if (!s) {
+			return false;
+		}
+		const n = s.ok;
+		let o = false;
+		if (n) {
+			o = true;
+		} else {
+			const t = await s.text();
+			if (t == "invalid-guest-data") {
+				console.error(
+					"Failed to merge guest data with login account. The guest data may already have been merged.",
+				);
+				o = true;
+			} else {
+				console.error(`Failed to merge guest data with login account: ${t}`);
+			}
+		}
+		if (o) {
+			await this.setGuestAccountData(null);
+		}
+		if (n) {
+			this.fireLoggedInAccountChange();
+		}
+		return true;
+	}
+	async fetchAuthSessionData(t, e, { fromRefreshAttempt = false, ignoreFailures = false } = {}) {
+		let n;
+		let o = "unknown";
+		try {
+			n = await Mt(t.href, {
+				method: "POST",
+				credentials: "include",
+				body: e,
+			});
+			if (n && !n.ok) {
+				try {
+					o = await n.text();
+				} catch {
+					o = "unknown";
+				}
+				if (!ignoreFailures) {
+					console.error(`session data request error: ${o}`);
+				}
+			}
+		} catch (error) {
+			console.error(error);
+		}
+		if (n && n.ok) {
+			await this.handleSessionDataResponse(n);
+		} else if (!ignoreFailures) {
+			this.currentSessionData = null;
+			this.fireLoggedInAccountChange();
+			this.showLoginError(!fromRefreshAttempt);
+		}
+		try {
+			await getMain().indexedDb.set("currentAuthSessionData", this.currentSessionData);
+		} catch {}
+		if (n && n.ok) {
+			return {
+				success: true,
+				error: null,
+			};
+		}
+		return {
+			success: false,
+			error: o,
+		};
+	}
+	async handleSessionDataResponse(t) {
+		const e = await t.json();
+		if (e.showGoogleWorkspaceWarning) {
+			getMain().dialogManager.showAlert({
+				title: "You might lose access to your account!",
+				text: "The account you just used to log in is being managed by your school or employer. They may choose to revoke access at any time. It is recommended to log in using a Google account that you created yourself.",
+				buttons: [
+					{
+						text: "oh no",
+					},
+				],
+			});
+		}
+		this.currentSessionData = {
+			secureId: e.secureId,
+			token: e.token,
+			expires: Date.now() + e.expiresIn,
+		};
+		this.fireLoggedInAccountChange();
+	}
+	async handleUnlinkRequest(t, e, i) {
+		const s = await this.requestWithAuthHeader(async (i) => {
+			if (!i) {
+				return {
+					gotAuthError: true,
+					returnValue: false,
+				};
+			}
+			const s = await fetch(t.href, {
+				method: "POST",
+				headers: {
+					Authorization: i,
+				},
+				body: e,
+			});
+			if (!s.ok) {
+				const t = await s.text();
+				if (t) {
+					console.error(t);
+				}
+				return {
+					gotAuthError: s.status == 401,
+					returnValue: false,
+				};
+			}
+			return {
+				gotAuthError: false,
+				returnValue: true,
+			};
+		});
+		if (s) {
+			let t = false;
+			if (i) {
+				t = await this.createForcedPeliLogoutDialog({
+					title: "Account unlinked",
+					text: "Your Pelican Party account has been unlinked. Please log out from your Pelican Party account to prevent it from getting linked again.",
+				});
+			}
+			if (!t) {
+				getMain().dialogManager.showAlert({
+					title: "Account unlinked",
+					text: "The account has been unlinked. Do you also wish to log out from all devices?",
+					buttons: [
+						{
+							text: "No thanks",
+						},
+						{
+							text: "Log out everywhere",
+							onClick: () => {
+								this.logoutEverywhere();
+							},
+						},
+					],
+				});
+			}
+			getMain().profileState.clearAndRefetch();
+		}
+		return s;
+	}
+	async unlinkPeliAccount() {
+		const t = Ot("auth/unlinkPeliAccount");
+		return await this.handleUnlinkRequest(t, null, true);
+	}
+	async unlinkAccount(t) {
+		const e = Ot("auth/unlinkAccount");
+		const i = new URLSearchParams();
+		i.set("issuer", t.issuer);
+		i.set("email", t.email);
+		return await this.handleUnlinkRequest(e, i, false);
+	}
+	get isLoggedIn() {
+		return !!this.currentSessionData;
+	}
+	async loginIfNotLoggedIn() {
+		await this.waitForInit();
+		if (this.currentSessionData) {
+			if (Date.now() > this.currentSessionData.expires - 600000) {
+				await this.refreshSessionInstance.run();
+			}
+			if (!this.currentSessionData) {
+				await this.showLoginDialogWithErrorHandling();
+			}
+		} else {
+			await this.showLoginDialogWithErrorHandling();
+		}
+		return this.isLoggedIn;
+	}
+	async logoutAfterError() {
+		return !!this.isLoggedIn && (await this.refreshSessionInstance.run(), this.isLoggedIn);
+	}
+	showLoginError(t) {
+		if (this.loginErrorAlert) {
+			return;
+		}
+		const e = t
+			? getMain().dialogManager.showAlert({
+					title: "Login error",
+					text: "An error occurred while logging in.",
+				})
+			: getMain().dialogManager.showAlert({
+					title: "Logged out",
+					text: "You have been logged out.",
+				});
+		this.loginErrorAlert = e;
+		e.addOnCloseCb(() => {
+			if (e == this.loginErrorAlert) {
+				this.loginErrorAlert = null;
+			}
+		});
+	}
+	async logout() {
+		await this.waitForInit();
+		const t = await this.peliLogout();
+		if (t != "logged-out" && t != "dismissed") {
+			if (this.currentSessionData) {
+				const t = Ot("auth/logout");
+				const e = new URLSearchParams();
+				e.set("tokenId", this.currentSessionData.secureId);
+				e.set("token", this.currentSessionData.token);
+				const i = await Mt(t.href, {
+					method: "POST",
+					credentials: "include",
+					body: e,
+				});
+				if (!i.ok) {
+					const t = await i.text();
+					if (t != "token-not-found" && t != "missing-refresh-token") {
+						throw new Error(`An error occurred while logging out: ${t}`);
+					}
+				}
+			}
+			await this.clearCurrentSessionData();
+		}
+	}
+	async peliLogout() {
+		const t = await getMain().getPeliSdkAsync();
+		if (!t) {
+			return "not-supported";
+		}
+		if (!t.session.isLoggedIn) {
+			return "already-logged-out";
+		}
+		if (await t.session.logout()) {
+			await this.clearCurrentSessionData();
+			return "logged-out";
+		}
+		return "dismissed";
+	}
+	async logoutEverywhere() {
+		try {
+			await this.waitForInit();
+			const t = Ot("auth/logoutEverywhere");
+			const e = await Mt(t.href, {
+				method: "POST",
+				credentials: "include",
+			});
+			if (!e.ok) {
+				const t = await e.text();
+				throw t
+					? new Error(`Failed to log out everywhere: ${t}`)
+					: new Error(`Server responded with status code ${e.status} while logging out everywhere`);
+			}
+			await this.clearCurrentSessionData();
+		} catch (error) {
+			console.error(error);
+			getMain().dialogManager.showAlert({
+				title: "Error logging out",
+				text: "An error occurred while logging out everywhere.",
+			});
+		}
+	}
+	async clearCurrentSessionData() {
+		this.currentSessionData = null;
+		this.mostRecentAuthTokenHandleResult = null;
+		this.fireLoggedInAccountChange();
+		try {
+			await getMain().indexedDb.set("currentAuthSessionData", null);
+		} catch {}
+	}
+	async getGuestAccountData() {
+		if (this.guestAccountDataSetOnce) {
+			return this.guestAccountData;
+		}
+		{
+			let t;
+			try {
+				t = await getMain().indexedDb.get("guestAccountData");
+			} catch {}
+			const e = t || null;
+			this.guestAccountData = e;
+			this.guestAccountDataSetOnce = true;
+			return e;
+		}
+	}
+	async setGuestAccountData(t, e = true) {
+		this.guestAccountData = t;
+		this.guestAccountDataSetOnce = true;
+		try {
+			await getMain().indexedDb.set("guestAccountData", t);
+		} catch {}
+		this.onGuestSessionDataChangeCbs.forEach((t) => t());
+		if (!e) {
+			await this.deleteGuestAccountDataFromRestService();
+		}
+	}
+	async getSessionDataForGameServer() {
+		await this.waitForInit();
+		if (
+			this.isLoggedIn &&
+			(await this.refreshSessionIfNeededInstance.run(), this.currentSessionData)
+		) {
+			return {
+				type: "sessionToken",
+				token: this.currentSessionData.token,
+				secureId: this.currentSessionData.secureId,
+			};
+		}
+		return {
+			type: "guest",
+			guestData: await this.getGuestAccountData(),
+		};
+	}
+	async refreshGuestSessionIfNeeded() {
+		if (!this.isLoggedIn) {
+			return (
+				!(
+					!this.currentGuestSessionData || Date.now() > this.currentGuestSessionData.expires - 60000
+				) || (await this.postGuestAccountDataToRestService())
+			);
+		}
+	}
+	async postGuestAccountDataToRestService() {
+		const t = await this.getGuestAccountData();
+		const e = Ot("auth/guestAccountData");
+		const i = new URLSearchParams();
+		i.set("guestData", t ?? "");
+		const s = await fetch(e.href, {
+			method: "POST",
+			body: i,
+		});
+		if (!s.ok) {
+			return false;
+		}
+		const n = await s.json();
+		this.currentGuestSessionData = {
+			secureId: n.secureId,
+			token: n.token,
+			expires: Date.now() + n.expiresIn,
+		};
+		return true;
+	}
+	async syncGuestDataWithRestService() {
+		return await this.syncGuestDataWithRestServiceInstance.run();
+	}
+	async waitForGuestDataSync() {
+		await this.syncGuestDataWithRestServiceInstance.waitForFinishIfRunning();
+	}
+	async syncGuestDataWithRestServiceFn() {
+		if (this.isLoggedIn) {
+			return;
+		}
+		const t = Ot("auth/guestAccountData");
+		const e = await this.getRestAuthHeader(false);
+		if (!e) {
+			return false;
+		}
+		const i = await fetch(t.href, {
+			headers: {
+				Authorization: e,
+			},
+		});
+		if (!i.ok) {
+			return false;
+		}
+		const s = await i.text();
+		this.setGuestAccountData(s, true);
+	}
+	async deleteGuestAccountDataFromRestService() {
+		const t = Ot("auth/guestAccountData");
+		const e = await this.getRestAuthHeader(false);
+		if (!e) {
+			return true;
+		}
+		const i = await fetch(t.href, {
+			method: "DELETE",
+			headers: {
+				Authorization: e,
+			},
+		});
+		this.currentGuestSessionData = null;
+		return i.ok;
+	}
+	async getRestAuthHeader(t = true) {
+		await this.waitForInit();
+		let e = "";
+		let i = null;
+		if (this.isLoggedIn) {
+			if (t) {
+				await this.refreshSessionIfNeededInstance.run();
+			}
+			e = "st";
+			i = this.currentSessionData;
+		} else {
+			if (t) {
+				if (!(await this.refreshGuestSessionIfNeeded())) {
+					return null;
+				}
+			}
+			e = "g";
+			i = this.currentGuestSessionData;
+		}
+		if (!i) {
+			return null;
+		}
+		return `Bearer ${[e, i.secureId, i.token].join(".")}`;
+	}
+	async requestWithAuthHeader<R>(cb: (auth: string | null) => Promise<{ gotAuthError: boolean; returnValue: R; }>): Promise<R> {
+		const e = await this.getRestAuthHeader();
+		const i = await cb(e);
+		if (!i.gotAuthError || this.isLoggedIn) {
+			return i.returnValue;
+		}
+		{
+			this.currentGuestSessionData = null;
+			const e = await this.getRestAuthHeader();
+			if (!e) {
+				return i.returnValue;
+			}
+			return (await cb(e)).returnValue;
+		}
+	}
+}
+class _n {
+	onStateChangedCbs = new Set();
+	cachedStateIndexDbKey = "cachedState";
+	getStateUrl = "";
+	fetchCurrentDataInstance;
+	stateIsStale = true;
+	constructor(
+		public authManager: AuthManager,
+		public indexedDb: IndexedDB,
+	) {
+		this.fetchCurrentDataInstance = new Waiter(async () => await this.fetchCurrentDataFn());
+	}
+	init() {
+		this.loadCachedState();
+		this.authManager.onLoggedInAccountChange(() => {
+			this.clearCurrentData();
+			this.markStateAsStale();
+			this.fetchCurrentData();
+		});
+	}
+	clearCurrentData() {
+		this.clearCurrentDataImpl();
+		this.fireStateChanged();
+		this.saveCurrentCachedState();
+	}
+	clearAndRefetch() {
+		this.clearCurrentData();
+		this.markStateAsStale();
+		this.fetchCurrentData();
+	}
+	async saveCachedState(t) {
+		try {
+			await this.indexedDb.set(this.cachedStateIndexDbKey, t);
+		} catch {}
+	}
+	async loadCachedState() {
+		let t;
+		try {
+			t = await this.indexedDb.get(this.cachedStateIndexDbKey);
+		} catch {}
+		this.loadStateData(t);
+		this.fireStateChanged();
+	}
+	async saveCurrentCachedState() {
+		const t = this.getCurrentState();
+		await this.saveCachedState(t);
+	}
+	markStateAsStale() {
+		this.stateIsStale = true;
+	}
+	onStateChanged(t) {
+		this.onStateChangedCbs.add(t);
+	}
+	removeOnStateChanged(t) {
+		this.onStateChangedCbs.delete(t);
+	}
+	fireStateChanged() {
+		this.saveCurrentCachedState();
+		this.onStateChangedCbs.forEach((t) => t());
+	}
+	async fetchCurrentData(t = false) {
+		if (this.stateIsStale || t) {
+			await this.fetchCurrentDataInstance.run();
+		}
+	}
+	async waitForCurrentDataFetch() {
+		await this.fetchCurrentDataInstance.waitForFinishIfRunning();
+	}
+	async fetchCurrentDataFn() {
+		const t = Ot(this.getStateUrl);
+		const { success, authError, data } = await this.authManager.requestWithAuthHeader(async (e) => {
+			if (!e) {
+				return {
+					gotAuthError: true,
+					returnValue: {
+						success: false,
+						authError: true,
+						data: null,
+					},
+				};
+			}
+			const i = await fetch(t.href, {
+				headers: {
+					Authorization: e,
+				},
+			});
+			if (!i.ok) {
+				const t = await i.text();
+				const e = t == "token-not-found" || t == "invalid-token";
+				return {
+					gotAuthError: e,
+					returnValue: {
+						success: false,
+						authError: e,
+						data: null,
+					},
+				};
+			}
+			return {
+				gotAuthError: false,
+				returnValue: {
+					success: true,
+					authError: false,
+					data: await i.json(),
+				},
+			};
+		});
+		if (success) {
+			this.saveCachedState(data);
+			this.loadStateData(data);
+			this.fireStateChanged();
+			this.stateIsStale = false;
+		} else {
+			if (authError) {
+				if (await this.authManager.logoutAfterError()) {
+					return await this.fetchCurrentDataFn();
+				}
+			}
+			this.clearCurrentData();
+		}
+	}
+	loadStateData(t) {}
+	getCurrentState() {
+		throw new Error("Base class");
+	}
+	clearCurrentDataImpl() {}
+}
+class ProfileState extends _n {
+	cachedStateIndexDbKey = "cachedProfileState";
+	getStateUrl = "profile/getProfile";
+	isGuest = true;
+	stats = {};
+	maxLinkedAccountsReached = false;
+	protected = false;
+	canUnlinkAllAccounts = true;
+	canBeDeleted = false;
+	dbId = null;
+	usernameData = null;
+	peliAccountEmail = null;
+	isPeliSession = false;
+	canUnlinkPeliAccount = false;
+	linkedAccounts = [];
+	constructor(...t) {
+		super(...t);
+	}
+	getCurrentState() {
+		return {
+			username: this.usernameData ? this.usernameData.username : null,
+			isGuest: this.isGuest,
+			stats: this.stats,
+			maxLinkedAccountsReached: this.maxLinkedAccountsReached,
+			protected: this.protected,
+			canUnlinkAllAccounts: this.canUnlinkAllAccounts,
+			canBeDeleted: this.canBeDeleted,
+			linkedAccounts: this.linkedAccounts,
+			dbId: this.dbId,
+			usernameData: this.usernameData,
+			peliAccountEmail: this.peliAccountEmail,
+			isPeliSession: this.isPeliSession,
+			canUnlinkPeliAccount: this.canUnlinkPeliAccount,
+		};
+	}
+	loadStateData(t) {
+		if (t) {
+			this.isGuest = t.isGuest;
+			this.stats = t.stats || {};
+			this.maxLinkedAccountsReached = t.maxLinkedAccountsReached;
+			this.protected = t.protected;
+			this.canUnlinkAllAccounts = t.canUnlinkAllAccounts;
+			this.canBeDeleted = t.canBeDeleted;
+			this.linkedAccounts = t.linkedAccounts;
+			this.dbId = t.dbId;
+			this.usernameData = t.usernameData;
+			this.peliAccountEmail = t.peliAccountEmail;
+			this.isPeliSession = t.isPeliSession;
+			this.canUnlinkPeliAccount = t.canUnlinkPeliAccount;
+		}
+	}
+	clearCurrentDataImpl() {
+		this.isGuest = true;
+		this.stats = {};
+		this.dbId = null;
+		this.usernameData = null;
+		this.peliAccountEmail = null;
+		this.isPeliSession = false;
+		this.linkedAccounts = [];
+	}
+	getUsername() {
+		if (this.usernameData && this.usernameData.username) {
+			return this.usernameData.username;
+		}
+		return "Guest";
+	}
+	async setUsername(t) {
+		const e = Ot("profile/username");
+		const i = new URLSearchParams();
+		i.set("username", t);
+		const s = await this.authManager.requestWithAuthHeader(async (t) => {
+			if (!t) {
+				return {
+					gotAuthError: true,
+					returnValue: false,
+				};
+			}
+			const s = await fetch(e.href, {
+				method: "POST",
+				headers: {
+					Authorization: t,
+				},
+				body: i,
+			});
+			if (!s.ok) {
+				const t = await s.text();
+				if (t) {
+					console.error(t);
+				}
+				return {
+					gotAuthError: s.status == 401,
+					returnValue: false,
+				};
+			}
+			return {
+				gotAuthError: false,
+				returnValue: true,
+			};
+		});
+		if (s) {
+			if (!this.usernameData) {
+				this.usernameData = {
+					username: "",
+					verified: false,
+					protected: false,
+				};
+			}
+			this.usernameData.username = t;
+			this.fireStateChanged();
+		}
+		return s;
+	}
+	getElo() {
+		const e = this.stats.elo || 0;
+		return clamp(e, -100, 100);
+	}
+}
+class ShopState extends _n {
+	cachedStateIndexDbKey = "cachedShopState";
+	getStateUrl = "shop/getShopState";
+	ownedCoins = 0;
+	purchasedItems = new Set();
+	purchasingItemTasks = new Map();
+	constructor(...t) {
+		super(...t);
+	}
+	getCurrentState() {
+		return {
+			ownedCoins: this.ownedCoins,
+			purchasedItems: Array.from(this.purchasedItems),
+		};
+	}
+	loadStateData(t) {
+		if (t) {
+			this.ownedCoins = t.ownedCoins;
+			this.purchasedItems = new Set(t.purchasedItems);
+			this.#R();
+		}
+	}
+	clearCurrentDataImpl() {
+		this.ownedCoins = 0;
+		this.purchasedItems.clear();
+	}
+	async sendPurchaseItemRequest(t) {
+		const e = t.id;
+		let i = this.purchasingItemTasks.get(e);
+		if (!i) {
+			i = (async () => {
+				const i = Ot("shop/purchaseItem");
+				return await this.authManager.requestWithAuthHeader(async (s) => {
+					if (!s) {
+						return {
+							gotAuthError: true,
+							returnValue: {
+								success: false,
+								errorCode: "not-logged-in",
+							},
+						};
+					}
+					const n = new URLSearchParams();
+					n.set("itemId", e);
+					n.set("useCoins", String(isSteam()));
+					const o = await fetch(i.href, {
+						method: "POST",
+						headers: {
+							Authorization: s,
+						},
+						body: n,
+					});
+					if (o.ok) {
+						await this.waitForCurrentDataFetch();
+						const i = this.getVisibleItemPrice(t);
+						if (i > 0) {
+							this.ownedCoins -= i;
+						}
+						this.purchasedItems.add(e);
+						this.#R();
+						this.fireStateChanged();
+						this.authManager.syncGuestDataWithRestService();
+					}
+					return {
+						gotAuthError: !o.ok && o.status == 401,
+						returnValue: {
+							success: o.ok,
+							errorCode: await o.text(),
+						},
+					};
+				});
+			})();
+			this.purchasingItemTasks.set(e, i);
+		}
+		const s = await i;
+		this.purchasingItemTasks.delete(e);
+		return s;
+	}
+	async purchasePaidItem(t, e) {
+		const { success, errorCode } = await this.sendPurchaseItemRequest(t);
+		if (success) {
+			getMain().sfx.playSound("ui/purchaseShopItem");
+			return true;
+		}
+		if (errorCode === "not-enough-coins") {
+			e.showAlert({
+				title: "Not enough coins",
+				text: "You don't have enough coins to purchase this item.",
+			});
+		} else {
+			if (errorCode) {
+				console.error(`Purchase failed: ${errorCode}`);
+			}
+			e.showAlert({
+				title: "Purchase Failed",
+				text: "An error occurred while trying to purchase this item. Please try again later.",
+			});
+		}
+		return false;
+	}
+	async purchaseRewardedItem(t, e, i, placement) {
+		if (this.purchasedItems.has(t.id)) {
+			i.showAlert({
+				title: "Purchase Failed",
+				text: "You already own this item.",
+			});
+			return false;
+		}
+		return (
+			!!(await e.rewardedBreakWithErrorDialog({
+				category: "cosmetic",
+				details: `shopItem ${t.id}`,
+				placement,
+			})) && (await this.purchasePaidItem(t, i))
+		);
+	}
+	async purchaseItem(t, e, i, s) {
+		let n = false;
+		if (this.getVisibleItemPrice(t)) {
+			n = await this.purchasePaidItem(t, i);
+		} else if (t.hasRewardedAd) {
+			n = await this.purchaseRewardedItem(t, e, i, s);
+		}
+		return n;
+	}
+	getVisibleItemPrice(t) {
+		if (t.hasRewardedAd && !isSteam()) {
+			return 0;
+		}
+		return t.price || 0;
+	}
+	provideNewCoinCount(t) {
+		this.ownedCoins = t;
+		this.fireStateChanged();
+	}
+	async doubleLastGameCoins() {
+		const t = Ot("shop/doubleLastGameCoins");
+		return await this.authManager.requestWithAuthHeader(async (e) => {
+			if (!e) {
+				return {
+					gotAuthError: true,
+					returnValue: {
+						success: false,
+						error: "not-logged-in",
+						newCoinCount: 0,
+					},
+				};
+			}
+			const i = await fetch(t.href, {
+				method: "POST",
+				headers: {
+					Authorization: e,
+				},
+			});
+			if (i.ok) {
+				const { newCoinCount } = await i.json();
+				this.provideNewCoinCount(newCoinCount);
+				this.authManager.syncGuestDataWithRestService();
+				return {
+					gotAuthError: false,
+					returnValue: {
+						success: true,
+						error: "",
+						newCoinCount,
+					},
+				};
+			}
+			return {
+				gotAuthError: i.status == 401,
+				returnValue: {
+					success: false,
+					error: await i.text(),
+					newCoinCount: 0,
+				},
+			};
+		});
+	}
+	async requestCheatCoins(t) {
+		return false;
+	}
+	isPurchasingItem(t) {
+		return this.purchasingItemTasks.has(t);
+	}
+	itemIsPurchased(t) {
+		return this.purchasedItems.has(t);
+	}
+	async waitForItemPurchase(t) {
+		const e = this.purchasingItemTasks.get(t);
+		if (e) {
+			await e;
+		}
+	}
+	#R() {
+		if (this.purchasedItems.size >= 200) {
+			activateSteamAchievement("ownTwoHundredItems");
+		}
+	}
+}
+class Poki {
+	pokiInit = false;
+	pokiErrored = false;
+	pokiInitErrored = false;
+	onPokiInitCbs = [];
+	_usePokiSdk = false;
+	gameplayStarted = false;
+	loadStartCalled = false;
+	loadFinishCalled = false;
+	isShowingCommercialBreak = false;
+	isShowingRewardedBreak = false;
+	onRewardedBreakFinishCbs = new Set();
+	_prevIsShowingBreak = false;
+	onIsShowingBreakChangeCbs = new Set();
+	prevVisiblePokiBanners = new Set();
+	isPokiBuild;
+	constructor(t) {
+		if (t && !isSteam()) {
+			this._usePokiSdk = true;
+		}
+		this.isPokiBuild = location.origin.includes("poki");
+		observeResize(() => {
+			this.updateBannerVisibility();
+		});
+	}
+	get usePokiSdk() {
+		return this._usePokiSdk;
+	}
+	get supported() {
+		return !!this._usePokiSdk && !this.pokiErrored;
+	}
+	get isShowingBreak() {
+		return this.isShowingCommercialBreak || this.isShowingRewardedBreak;
+	}
+	async init() {
+		if (this.usePokiSdk) {
+			try {
+				await (async () => {
+					const t = "https://game-cdn.poki.com/scripts/v2/poki-sdk.js";
+					const e = document.createElement("script");
+					e.src = t;
+					document.head.appendChild(e);
+					const i = new Promise((resolve, reject) => {
+						const n = () => {
+							resolve();
+							e.removeEventListener("load", n);
+						};
+						e.addEventListener("load", n);
+						const o = () => {
+							reject(new Error(`unable to load srcipt ${t}`));
+							e.removeEventListener("error", o);
+						};
+						e.addEventListener("error", o);
+					});
+					await i;
+				})();
+			} catch (error) {
+				this.pokiErrored = true;
+				console.warn("failed to load PokiSDK", error);
+			}
+			if (typeof PokiSDK === "undefined") {
+				this.pokiErrored = true;
+				console.warn("failed to load PokiSDK, PokiSDK does not exist");
+			}
+			if (!this.pokiErrored) {
+				try {
+					await PokiSDK.init({
+						debug: false,
+					});
+				} catch (error) {
+					console.warn("Warning! Error during poki initialization: ", error);
+					this.pokiInitErrored = true;
+				}
+			}
+			try {
+				PokiSDK.enableEventTracking(1);
+			} catch (error) {
+				console.error(error);
+			}
+			this.pokiInit = true;
+			for (const t of this.onPokiInitCbs) {
+				t();
+			}
+			this.onPokiInitCbs = [];
+			this.updateBannerVisibility();
+			getMain().mainMenu.onVisibilityChange((t) => {
+				this.updateBannerVisibility();
+			});
+		}
+	}
+	async waitForInit() {
+		if (this.pokiInit) {
+			return;
+		}
+		const t = new Promise((resolve) => {
+			this.onPokiInitCbs.push(resolve);
+		});
+		await t;
+	}
+	async gameplayStart() {
+		if (!this.gameplayStarted && ((this.gameplayStarted = true), this.supported)) {
+			await this.waitForInit();
+			try {
+				PokiSDK.gameplayStart();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	async gameplayStop() {
+		if (this.gameplayStarted && ((this.gameplayStarted = false), this.supported)) {
+			await this.waitForInit();
+			try {
+				PokiSDK.gameplayStop();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	async gameLoadingStart() {
+		if (this.supported && !this.loadStartCalled) {
+			this.loadStartCalled = true;
+			await this.waitForInit();
+			try {
+				PokiSDK.gameLoadingStart();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	async gameLoadingProgress(percentageDone) {
+		if (this.supported && !this.loadFinishCalled) {
+			await this.waitForInit();
+			try {
+				PokiSDK.gameLoadingProgress({
+					percentageDone,
+				});
+			} catch (t) {}
+		}
+	}
+	async gameLoadingFinished() {
+		if (this.supported && !this.loadFinishCalled) {
+			this.loadFinishCalled = true;
+			await this.waitForInit();
+			try {
+				PokiSDK.gameLoadingFinished();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	peliAdsDisabled() {
+		const t = getMain().getPeliSdk();
+		return !(!t || !t.entitlements.has("removeAds"));
+	}
+	async rewardedBreak({ category, details, placement }) {
+		if (this.peliAdsDisabled()) {
+			return {
+				success: false,
+				error: "unknown",
+			};
+		}
+		if (!this.supported || !this.pokiInit) {
+			return {
+				success: false,
+				error: "sdk-not-init",
+			};
+		}
+		this.isShowingRewardedBreak = true;
+		this.updateIsShowingBreak();
+		await this.waitForInit();
+		getMain().sfx.setMutedAds(true);
+		let s = false;
+		try {
+			s = await PokiSDK.rewardedBreak(category, details, placement);
+		} catch (error) {
+			console.error(error);
+		}
+		getMain().sfx.setMutedAds(false);
+		this.isShowingRewardedBreak = false;
+		this.updateIsShowingBreak();
+		this.onRewardedBreakFinishCbs.forEach((t) => t());
+		this.onRewardedBreakFinishCbs.clear();
+		if (s) {
+			return {
+				success: true,
+			};
+		}
+		return {
+			success: false,
+			error: this.pokiInitErrored ? "adblocker" : "unknown",
+		};
+	}
+	async rewardedBreakWithErrorDialog(t) {
+		const e = await this.rewardedBreak(t);
+		if (!e.success) {
+			if (!this.isPokiBuild) {
+				let t = "An error occurred while trying to load the ad.";
+				if (e.error == "adblocker") {
+					t = "Please disable your adblocker.";
+				}
+				getMain().dialogManager.showAlert({
+					title: "Ad failed to load",
+					text: t,
+				});
+			}
+			return false;
+		}
+		return e.success;
+	}
+	async waitForRewardedBreakFinish() {
+		if (!this.isShowingRewardedBreak) {
+			return;
+		}
+		const t = new Promise((resolve) => this.onRewardedBreakFinishCbs.add(resolve));
+		await t;
+	}
+	async commercialBreak() {
+		if (this.supported && this.pokiInit && !this.peliAdsDisabled()) {
+			getMain().sfx.setMutedAds(true);
+			this.isShowingCommercialBreak = true;
+			this.updateIsShowingBreak();
+			try {
+				await PokiSDK.commercialBreak();
+			} catch (error) {
+				console.error(error);
+			}
+			getMain().sfx.setMutedAds(false);
+			this.isShowingCommercialBreak = false;
+			this.updateIsShowingBreak();
+		}
+	}
+	updateIsShowingBreak() {
+		if (this._prevIsShowingBreak != this.isShowingBreak) {
+			this._prevIsShowingBreak = this.isShowingBreak;
+			this.onIsShowingBreakChangeCbs.forEach((t) => t());
+		}
+	}
+	onIsShowingBreakChange(t) {
+		this.onIsShowingBreakChangeCbs.add(t);
+	}
+	updateBannerVisibility() {
+		if (!this.supported) {
+			return;
+		}
+		if (!this.pokiInit) {
+			return;
+		}
+		const t = [];
+		if (!this.peliAdsDisabled()) {
+			for (const e of getMain().adBanners.getBanners()) {
+				if (e.getIsVisible()) {
+					t.push({
+						el: e.adEl,
+						size: e.pokiSize,
+					});
+				}
+			}
+		}
+		for (const { el, size } of t) {
+			if (!this.prevVisiblePokiBanners.has(el)) {
+				this.prevVisiblePokiBanners.add(el);
+				try {
+					PokiSDK.displayAd(el, size);
+				} catch (error) {
+					console.error(error);
+				}
+			}
+		}
+		for (const e of this.prevVisiblePokiBanners) {
+			if (!t.some((t) => t.el == e)) {
+				this.prevVisiblePokiBanners.delete(e);
+				try {
+					PokiSDK.destroyAd(e);
+				} catch (error) {
+					console.error(error);
+				}
+			}
+		}
+	}
+	async happyTime(t = 0.5) {
+		if (this.supported) {
+			await this.waitForInit();
+			try {
+				PokiSDK.happyTime(t);
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	get isHappyDay() {
+		const t = new Date();
+		return t.getUTCDate() > new Date(t.getUTCFullYear(), t.getUTCMonth() + 1, 0).getDate() / 2;
+	}
+	openExternalLink(t) {
+		try {
+			PokiSDK.openExternalLink(t);
+		} catch (error) {
+			console.error(error);
+			window.open(t, "_blank", "noopener,noreferrer");
+		}
+	}
+}
+class QuantcastManager {
+	init(idk: boolean) {
+		if (idk && !getMain().poki.isPokiBuild && !isSteam()) {
+			try {
+				!(() => {
+					const t = document.createElement("script");
+					const e = document.getElementsByTagName("script")[0];
+					const i = `https://cmp.inmobi.com/choice/A-YH9MP3vgq7x/narrow.one/choice.js?tag_version=V3`;
+					let s = 0;
+					t.async = true;
+					t.type = "text/javascript";
+					t.src = i;
+					e.parentNode.insertBefore(t, e);
+					(() => {
+						const t = "__tcfapiLocator";
+						const e = [];
+						let i;
+						let s = window;
+						while (s) {
+							try {
+								if (s.frames.__tcfapiLocator) {
+									i = s;
+									break;
+								}
+							} catch (t) {}
+							if (s === window.top) {
+								break;
+							}
+							s = s.parent;
+						}
+						if (!i) {
+							(function e() {
+								const s_document = s.document;
+								const n = !!s.frames.__tcfapiLocator;
+								if (!n) {
+									if (s_document.body) {
+										const e = s_document.createElement("iframe");
+										e.style.cssText = "display:none";
+										e.name = t;
+										s_document.body.appendChild(e);
+									} else {
+										setTimeout(e, 5);
+									}
+								}
+								return !n;
+							})();
+							s.__tcfapi = function () {
+								let gdprApplies;
+								const i = arguments;
+								if (!i.length) {
+									return e;
+								}
+								if (i[0] === "setGdprApplies") {
+									if (i.length > 3 && i[2] === 2 && typeof i[3] === "boolean") {
+										gdprApplies = i[3];
+										if (typeof i[2] === "function") {
+											i[2]("set", true);
+										}
+									}
+								} else if (i[0] === "ping") {
+									const e = {
+										gdprApplies,
+										cmpLoaded: false,
+										cmpStatus: "stub",
+									};
+									if (typeof i[2] === "function") {
+										i[2](e);
+									}
+								} else {
+									if (i[0] === "init" && typeof i[3] === "object") {
+										i[3] = Object.assign(i[3], {
+											tag_version: "V3",
+										});
+									}
+									e.push(i);
+								}
+							};
+							s.addEventListener(
+								"message",
+								(t) => {
+									const e = typeof t.data === "string";
+									let i = {};
+									try {
+										i = e ? JSON.parse(t.data) : t.data;
+									} catch (t) {}
+									const i___tcfapiCall = i.__tcfapiCall;
+									if (i___tcfapiCall) {
+										window.__tcfapi(
+											i___tcfapiCall.command,
+											i___tcfapiCall.version,
+											(returnValue, success) => {
+												let o = {
+													__tcfapiReturn: {
+														returnValue,
+														success,
+														callId: i___tcfapiCall.callId,
+													},
+												};
+												if (e) {
+													o = JSON.stringify(o);
+												}
+												if (t && t.source && t.source.postMessage) {
+													t.source.postMessage(o, "*");
+												}
+											},
+											i___tcfapiCall.parameter,
+										);
+									}
+								},
+								false,
+							);
+						}
+					})();
+					const n = function () {
+						const t = arguments;
+						if (typeof window.__uspapi !== n) {
+							setTimeout(() => {
+								if (window.__uspapi !== undefined) {
+									window.__uspapi.apply(window.__uspapi, t);
+								}
+							}, 500);
+						}
+					};
+					const o = () => {
+						s++;
+						if (window.__uspapi === n && s < 3) {
+							console.warn("USP is not accessible");
+						} else {
+							clearInterval(a);
+						}
+					};
+					if (window.__uspapi === undefined) {
+						window.__uspapi = n;
+						var a = setInterval(o, 6000);
+					}
+				})();
+			} catch (error) {
+				console.error("error occurred while initializing quantcast: ", error);
+			}
+		}
+	}
+}
+class BlobURLReference {
+	onDestructedCbs = new Set<() => void>();
+	onBlobUrlCreatedCbs = new Set<(url: string) => void>();
+	blobUrl = null;
+	destructed = false;
+	constructor() {}
+	destructor() {
+		this.destructed = true;
+		this.onDestructedCbs.forEach((t) => t());
+	}
+	onDestructed(t) {
+		this.onDestructedCbs.add(t);
+	}
+	blobUrlCreated(url) {
+		this.blobUrl = url;
+		this.onBlobUrlCreatedCbs.forEach((e) => e(url));
+	}
+	async getBlobUrl() {
+		if (this.destructed) {
+			throw new Error("Can't get blob urls from destructed references");
+		}
+		if (this.blobUrl) {
+			return this.blobUrl;
+		}
+		const t = new Promise((resolve) => {
+			this.onBlobUrlCreatedCbs.add(resolve);
+		});
+		return await t;
+	}
+}
+class Avatar {
+	blobUrlReferences = new Set();
+	onDestructedCbs = new Set();
+	blobUrl: string | null = null;
+	createAvatarInstance;
+	destructed = false;
+	constructor(
+		public avatarsManager: AvatarsManager,
+		public config,
+	) {
+		this.config = config;
+		this.createAvatarInstance = new Waiter(
+			async () => {
+				const avatarBlob = await this.avatarsManager.generateAvatarBlob(this.config);
+				if (!avatarBlob) {
+					return;
+				}
+				if (this.destructed) {
+					return;
+				}
+				const e = URL.createObjectURL(avatarBlob);
+				this.blobUrl = e;
+				this.blobUrlReferences.forEach((t) => t.blobUrlCreated(e));
+			},
+			{
+				once: true,
+			},
+		);
+	}
+	destructor() {
+		this.destructed = true;
+		if (this.blobUrl) {
+			URL.revokeObjectURL(this.blobUrl);
+		}
+		this.onDestructedCbs.forEach((t) => t());
+	}
+	getBlobUrlReference() {
+		const t = new BlobURLReference();
+		t.onDestructed(() => {
+			this.blobUrlReferences.delete(t);
+			if (this.blobUrlReferences.size <= 0) {
+				this.destructor();
+			}
+		});
+		this.blobUrlReferences.add(t);
+		if (this.blobUrl) {
+			t.blobUrlCreated(this.blobUrl);
+		}
+		this.createAvatarInstance.run();
+		return t;
+	}
+	onDestructed(t) {
+		this.onDestructedCbs.add(t);
+	}
+}
+interface SkinOpts {
+	gender?: PlayerGender;
+}
+interface AvatarConfig {
+	cameraType: string;
+	width: number;
+	height: number;
+	backgroundColor: string;
+	secondBackgroundColor?: string | null;
+	backgroundAlpha: number;
+	clipPathType: string;
+	skeletonPoseLayers: string;
+	bow: null;
+	skinObjectOpts: {
+		teamId: number;
+		skin: SkinOpts;
+	};
+}
+
+type PartAvatarConfig = Partial<AvatarConfig>;
+
+class AvatarsManager {
+	createdAvatars = new Map<string, Avatar>();
+	constructor(public renderer: GameRenderer) {}
+	fillConfigDefaults(config: PartAvatarConfig) {
+		return {
+			...config,
+			cameraType: config.cameraType || "face-close",
+			width: config.width || 512,
+			height: config.height || 512,
+			backgroundColor: config.backgroundColor || "black",
+			secondBackgroundColor: config.secondBackgroundColor || null,
+			backgroundAlpha: config.backgroundAlpha ?? 1,
+			clipPathType: config.clipPathType || "circle",
+			skeletonPoseLayers: config.skeletonPoseLayers || ["shopPreview"],
+			bow: config.bow || null,
+			skinObjectOpts: config.skinObjectOpts || {
+				teamId: 0,
+				skin: {},
+			},
+		};
+	}
+	async generateAvatarBlob(config: PartAvatarConfig) {
+		const {
+			cameraType,
+			width,
+			height,
+			backgroundColor,
+			secondBackgroundColor,
+			backgroundAlpha,
+			skinObjectOpts,
+			clipPathType,
+			skeletonPoseLayers,
+		} = this.fillConfigDefaults(config);
+		const d = new PlayerSkeleton({
+			gender: skinObjectOpts.skin.gender || "male",
+		});
+		d.init();
+		const c = new re({
+			skinObjectOpts,
+			useWorldWeather: false,
+		});
+		let u = null;
+		if (config.bow) {
+			u = new ce({
+				useWorldWeather: false,
+			});
+			u.setConfig(config.bow);
+			await u.waitForLoad();
+		}
+		await c.waitForInit();
+		await d.waitForLoad();
+		const p = [];
+		for (const t of skeletonPoseLayers) {
+			const e = d.addPoseLayer(t);
+			p.push(
+				(async () => {
+					await e.waitForObjectLinks();
+				})(),
+			);
+		}
+		await Promise.all(p);
+		d.applyLayers();
+		d.updateMatrices();
+		c.applySkeleton(d);
+		const g = new Scene();
+		g.name = "Avatar scene";
+		if (!c.obj) {
+			return null;
+		}
+		g.add(c.obj);
+		if (u) {
+			if (!d.baseSkeletonObject) {
+				throw new Error("Assertion failed, skeleton is not initialized");
+			}
+			const t = d.baseSkeletonObject.getObjectByName("bowHoldingPos");
+			if (!t) {
+				throw new Error("Assertion failed, bowHoldingPos is not found");
+			}
+			g.add(u.obj);
+			u.obj.matrixAutoUpdate = false;
+			u.obj.matrix.copy(t.matrixWorld);
+		}
+		const m = new PerspectiveCamera();
+		m.far = 10;
+		m.aspect = width / height;
+		m.updateProjectionMatrix();
+		if (cameraType == "face-close") {
+			m.position.set(0, 1.75, 0.7);
+		} else if (cameraType == "face") {
+			m.position.set(0, 1.7, 0.9);
+		} else if (cameraType == "upper-body") {
+			m.position.set(0, 1.5, 1.3);
+		} else if (cameraType == "full-body") {
+			m.position.set(0, 1.2, 2.9);
+		}
+		const f = this.renderer.createRenderView({
+			width,
+			height,
+		});
+		f.setRenderObjects(g, m, true);
+		await f.waitForFrameRender();
+		const b = await f.getBlob();
+		this.renderer.removeRenderView(f);
+		c.destructor();
+		if (u) {
+			u.destructor();
+		}
+		if (!b) {
+			return null;
+		}
+		const y = document.createElement("canvas");
+		y.width = width;
+		y.height = height;
+		const S = y.getContext("2d");
+		if (!S) {
+			return null;
+		}
+		if (clipPathType == "circle") {
+			S.beginPath();
+			const t = Math.min(width, height);
+			S.arc(width / 2, height / 2, 0.45 * t, 0, 2 * Math.PI);
+			S.clip();
+		}
+		S.fillStyle = backgroundColor;
+		S.globalAlpha = backgroundAlpha;
+		S.fillRect(0, 0, width, height);
+		S.globalAlpha = 1;
+		if (secondBackgroundColor) {
+			S.fillStyle = secondBackgroundColor;
+			S.beginPath();
+			S.moveTo(0, 0);
+			S.lineTo(width, 0);
+			S.lineTo(0, height);
+			S.fill();
+		}
+		const v = URL.createObjectURL(b);
+		const C = new Image();
+		C.src = v;
+		await new Promise((resolve, reject) => {
+			C.onload = resolve;
+			C.onerror = reject;
+		});
+		S.drawImage(C, 0, 0);
+		URL.revokeObjectURL(v);
+		const k = new Promise((resolve) => {
+			y.toBlob(resolve);
+		});
+		const P = await k;
+		return P || null;
+	}
+	configToCacheKey(config) {
+		const {
+			cameraType,
+			width,
+			height,
+			backgroundColor,
+			secondBackgroundColor,
+			backgroundAlpha,
+			skinObjectOpts,
+			clipPathType,
+			skeletonPoseLayers,
+		} = this.fillConfigDefaults(config);
+		const d = [];
+		d.push(cameraType);
+		d.push(width);
+		d.push(height);
+		d.push(backgroundColor);
+		d.push(secondBackgroundColor);
+		d.push(backgroundAlpha);
+		d.push(clipPathType);
+		d.push("skeletonStart");
+		for (const t of skeletonPoseLayers) {
+			d.push(t);
+		}
+		d.push("skeletonEnd");
+		d.push(getMain().skins.skinObjectOptsToCacheKey(skinObjectOpts));
+		return d.join("-");
+	}
+	getAvatar(config): Avatar {
+		const key = this.configToCacheKey(config);
+		let i = this.createdAvatars.get(key);
+		return (
+			i ||
+			((i = new Avatar(this, config)),
+			i.onDestructed(() => {
+				this.createdAvatars.delete(key);
+			}),
+			this.createdAvatars.set(key, i),
+			i)
+		);
+	}
+}
+class eo {
+	classId;
+	classSelectionImageManager;
+	_needsUpdates = false;
+	lastBlobUrl = null;
+	blobUrlChangeCbs = new Set();
+	onNeedsUpdatesChangeCbs = new Set();
+	constructor(t, e) {
+		this.classId = t;
+		this.classSelectionImageManager = e;
+	}
+	destructor() {
+		this.classSelectionImageManager.removeUpdateReference(this.classId, this);
+	}
+	get needsUpdates() {
+		return this._needsUpdates;
+	}
+	set needsUpdates(t) {
+		this._needsUpdates = t;
+		this.onNeedsUpdatesChangeCbs.forEach((t) => t());
+	}
+	onNeedsUpdatesChange(t) {
+		this.onNeedsUpdatesChangeCbs.add(t);
+	}
+	onBlobUrlChange(t, e = true) {
+		this.blobUrlChangeCbs.add(t);
+		if (e && this.lastBlobUrl) {
+			t(this.lastBlobUrl);
+		}
+	}
+	fireUrlChangeCbs(t) {
+		this.lastBlobUrl = t;
+		this.blobUrlChangeCbs.forEach((e) => e(t));
+	}
+}
+class ClassSelectionImageManager {
+	cachedBlobUrlDatas = new Map();
+	teamId = 1;
+	constructor() {}
+	init() {
+		getMain().skins.onSkinConfigChange(() => {
+			this.markAllAvatarsDirty();
+		});
+	}
+	markAllAvatarsDirty() {
+		for (const [t, e] of this.cachedBlobUrlDatas) {
+			e.avatarDirty = true;
+			this.loadClassBlobUrl(t);
+		}
+	}
+	async loadClassBlobUrl(t) {
+		const e = this.getOrCreateBlobUrlData(t);
+		if (!e.avatarDirty) {
+			return;
+		}
+		let i = false;
+		for (const t of e.updateReferences) {
+			if (t.needsUpdates) {
+				i = true;
+				break;
+			}
+		}
+		if (!i) {
+			return;
+		}
+		e.avatarDirty = false;
+		let s = null;
+		let n = null;
+		if (e.reference) {
+			s = e.reference;
+			n = e.url;
+		}
+		const o = Symbol("Loading avatar");
+		e.lastLoadingSym = o;
+		const a = this.createClassBlobUrl(t);
+		e.reference = a;
+		const r = await a.getBlobUrl();
+		const l = this.cachedBlobUrlDatas.get(t);
+		if (!((l && l.lastLoadingSym != o) || ((e.url = r), s && s.destructor(), n && n == r))) {
+			for (const t of e.updateReferences) {
+				t.fireUrlChangeCbs(r);
+			}
+		}
+	}
+	createClassBlobUrl(t) {
+		const e = getWeapon(t);
+		const i = getMain();
+		const s = i.skins.getClassSkinDataWithAppliedPreset(t);
+		const { skins, arrowSkin } = i.skins.skinNetworkDataToBowAssetData(e.bowId, s);
+		return i.avatars
+			.getAvatar({
+				skinObjectOpts: {
+					skin: s,
+					teamId: this.teamId,
+				},
+				width: 200,
+				height: 200,
+				clipPathType: "none",
+				cameraType: "upper-body",
+				skeletonPoseLayers: [`bows/${e.bowId}/shopClassItem`],
+				backgroundAlpha: 0,
+				bow: {
+					teamId: this.teamId,
+					bowId: e.bowId,
+					arrowCount: 1,
+					skins,
+					arrowSkin,
+				},
+			})
+			.getBlobUrlReference();
+	}
+	setTeamId(t) {
+		if (t == null) {
+			t = 1;
+		}
+		this.teamId = t;
+		this.markAllAvatarsDirty();
+	}
+	getOrCreateBlobUrlData(t) {
+		let e = this.cachedBlobUrlDatas.get(t);
+		if (!e) {
+			e = {
+				updateReferences: new Set(),
+				reference: null,
+				url: null,
+				lastLoadingSym: null,
+				avatarDirty: true,
+			};
+			this.cachedBlobUrlDatas.set(t, e);
+		}
+		return e;
+	}
+	createUpdateReference(t) {
+		const e = this.getOrCreateBlobUrlData(t);
+		const i = new eo(t, this);
+		e.updateReferences.add(i);
+		if (e.url) {
+			i.fireUrlChangeCbs(e.url);
+		}
+		i.onNeedsUpdatesChange(() => {
+			this.loadClassBlobUrl(t);
+		});
+		return i;
+	}
+	removeUpdateReference(t, e) {
+		this.getOrCreateBlobUrlData(t).updateReferences.delete(e);
+	}
+}
+class InfoText {
+	text;
+	showPercentage;
+	shouldBounce;
+	showInMainMenu;
+	priority;
+	percentage = 0;
+	isLoading;
+	onStateChangeCbs = new Set();
+	constructor(
+		t,
+		{
+			startLoading = false,
+			showPercentage = false,
+			shouldBounce = true,
+			showInMainMenu = true,
+			priority = 0,
+		} = {},
+	) {
+		this.text = t;
+		this.showPercentage = showPercentage;
+		this.shouldBounce = shouldBounce;
+		this.showInMainMenu = showInMainMenu;
+		this.priority = priority;
+		this.isLoading = startLoading;
+	}
+	setIsLoading(t) {
+		if (this.isLoading != t) {
+			this.isLoading = t;
+			this.fireStateChange();
+		}
+	}
+	onStateChange(t) {
+		this.onStateChangeCbs.add(t);
+	}
+	fireStateChange() {
+		for (const t of this.onStateChangeCbs) {
+			t();
+		}
+	}
+	setShowPercentage(t) {
+		this.showPercentage = t;
+		this.fireStateChange();
+	}
+	setPercentage(t) {
+		this.percentage = t;
+		this.fireStateChange();
+	}
+	getText() {
+		let text = this.text;
+		if (this.showPercentage && this.percentage > 0) {
+			text += ` ${Math.round(100 * this.percentage)}%`;
+		}
+		return text;
+	}
+}
+class MainInfoTextManager {
+	infoTextEl = document.getElementById("mainInfoText");
+	loadingTexts;
+	constructor() {
+		if (!this.infoTextEl) {
+			throw new Error("Main info text element not found");
+		}
+		this.loadingTexts = new Set();
+	}
+	init() {
+		getMain().mainMenu.onVisibilityChange(() => {
+			this.updateText();
+		});
+		bi((t) => {
+			this.updateText();
+		});
+	}
+	requestInfoText(...params) {
+		const info = new InfoText(...params);
+		this.loadingTexts.add(info);
+		info.onStateChange(() => {
+			this.updateText();
+		});
+		this.updateText();
+		return info;
+	}
+	removeInfoText(t) {
+		this.loadingTexts.delete(t);
+		this.updateText();
+	}
+	updateText() {
+		const t = getMain();
+		const t_mainMenu = t.mainMenu;
+		const e_visible = t_mainMenu.visible;
+		let s = true;
+		let n = null;
+		let o = true;
+		let a = false;
+		if (t.renderer.webglCreationFailed) {
+			n = "Failed to create WebGl context.";
+			s = false;
+		}
+		if (t_mainMenu.currentJoinState != "joining") {
+			let t;
+			if (t_mainMenu.currentJoinState == "joinable") {
+				t = "join";
+			} else if (t_mainMenu.currentJoinState == "joined") {
+				t = "play";
+			}
+			if (yi()) {
+				n = `Swipe up to ${t}`;
+			} else if (e_visible || t_mainMenu.currentJoinState == "joinable") {
+				n = `Click to ${t}`;
+			}
+		}
+		if (!n) {
+			const t = Array.from(this.loadingTexts);
+			t.sort((t, e) => e.priority - t.priority);
+			for (const e of t) {
+				if ((e.showInMainMenu || !e_visible) && e.isLoading) {
+					s = e.shouldBounce;
+					n = e.getText();
+					if (!e_visible) {
+						a = true;
+					}
+					break;
+				}
+			}
+		}
+		const activeGame = t.gameManager.activeGame;
+		if (
+			!n ||
+			t_mainMenu.hideUi ||
+			(activeGame && activeGame.gameEnded && activeGame.getMyPlayer())
+		) {
+			o = false;
+		}
+		if (activeGame) {
+			activeGame.crosshair.setMainInfoTextVisibility(!o || a);
+		}
+		this.infoTextEl.textContent = n || "";
+		this.infoTextEl.classList.toggle("scaleBounce", s);
+		this.infoTextEl.classList.toggle("bottom", a);
+		this.infoTextEl.classList.toggle("hidden", !o);
+	}
+}
+class PlayerAvatarManager {
+	gameLoaded = false;
+	avatar = null;
+	currentAvatarBlobreference = null;
+	onAvatarUrlChangeCbs = new Set();
+	currentBlobUrl = null;
+	updateAvatarInstance;
+	constructor() {
+		this.updateAvatarInstance = new Waiter(async () => {
+			if (this.onAvatarUrlChangeCbs.size == 0 || !this.avatarVisible || !this.avatar) {
+				return;
+			}
+			const t = this.avatar.getBlobUrlReference();
+			const e = await t.getBlobUrl();
+			if (e != this.currentBlobUrl) {
+				this.currentBlobUrl = e;
+				this.onAvatarUrlChangeCbs.forEach((t) => {
+					t(e);
+				});
+			}
+			if (this.currentAvatarBlobreference) {
+				this.currentAvatarBlobreference.destructor();
+			}
+			this.currentAvatarBlobreference = t;
+		});
+	}
+	setGameLoaded() {
+		this.gameLoaded = true;
+		this.updateAvatarVisibility();
+	}
+	updateAvatarVisibility() {
+		const t = this.gameLoaded && Boolean(this.avatar);
+		this.avatarVisible = t;
+		this.updateAvatarInstance.run();
+	}
+	setAvatar(avatar) {
+		this.avatar = avatar;
+		this.updateAvatarVisibility();
+	}
+	onAvatarUrlChange(t) {
+		this.onAvatarUrlChangeCbs.add(t);
+		t(this.currentBlobUrl);
+		this.updateAvatarInstance.run();
+	}
+	removeOnAvatarUrlChange(t) {
+		this.onAvatarUrlChangeCbs.delete(t);
+	}
+}
+class FullScreenManager {
+	onFullScreenChangeCbs = new Set();
+	onAutoFullScreenChangeCbs = new Set();
+	constructor() {
+		document.addEventListener("fullscreenchange", () => {
+			this.onFullScreenChangeCbs.forEach((t) => t());
+		});
+		window.addEventListener("keydown", (t) => {
+			this.updateAutoFullScreen();
+		});
+		window.addEventListener("mousedown", (t) => {
+			this.updateAutoFullScreen();
+		});
+	}
+	init() {
+		getMain().settingsManager.onValueChange("autoFullScreen", () => {
+			this.onAutoFullScreenChangeCbs.forEach((t) => t());
+		});
+	}
+	onAutoFullScreenChange(t) {
+		this.onAutoFullScreenChangeCbs.add(t);
+	}
+	hasAutoFullScreen() {
+		return getMain().settingsManager.getValue("autoFullScreen");
+	}
+	updateAutoFullScreen() {
+		if (
+			!getMain().mainMenu.visible &&
+			this.supported() &&
+			this.hasAutoFullScreen() &&
+			!this.isFullScreen()
+		) {
+			this.requestFullScreen();
+		}
+	}
+	async suggestAutoFullScreen() {
+		const t = "suggestAutoFullScreenVersion";
+		if ((await getMain().indexedDb.get(t)) >= 1) {
+			return;
+		}
+		const e = getMain().dialogManager.showAlert({
+			title: "Enable Auto Full Screen?",
+			text: "Do you automatically want to enter full screen when joining a game? (This can be disabled later in settings)",
+			buttons: [
+				{
+					text: "Heck Yeah!",
+				},
+				{
+					text: "No Thanks",
+				},
+			],
+		});
+		if ((await e.waitForButton()) == 0) {
+			getMain().settingsManager.setValue("autoFullScreen", true);
+		}
+		await getMain().indexedDb.set(t, 1);
+	}
+	requestFullScreen() {
+		if ("requestFullscreen" in document.body) {
+			try {
+				document.body.requestFullscreen();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	exitFullScreen() {
+		if ("exitFullscreen" in document) {
+			try {
+				document.exitFullscreen();
+			} catch (error) {
+				console.error(error);
+			}
+		}
+	}
+	supported() {
+		return document.fullscreenEnabled;
+	}
+	shouldShowButton() {
+		return !!this.isFullScreen() || (!!this.supported() && !this.hasAutoFullScreen());
+	}
+	isFullScreen() {
+		return Boolean(document.fullscreenElement);
+	}
+	onFullScreenChange(t) {
+		this.onFullScreenChangeCbs.add(t);
+	}
+}
+class ro extends Dialog {
+	rewardsListEl;
+	constructor(t, e, i) {
+		super(t, {
+			startVisible: false,
+		});
+		const s = e.length > 1;
+		this.el.innerHTML = `
+\t\t\t<h2 class="dialogTitle blueNight">Claim your reward</h2>
+\t\t\t<p>The key you provided will give you the following ${s ? "rewards" : "reward"}:</p>
+\t\t\t<div class="reward-key-rewards-list"></div>
+\t\t\t<p>Would you like to claim ${s ? "these rewards" : "this reward"}?<br>Make sure you are logged in with the correct account!</p>
+\t\t`;
+		const n = this.el.querySelector(".reward-key-rewards-list");
+		if (!(n instanceof HTMLDivElement)) {
+			throw new Error("Assertion failed, rewards list el not found");
+		}
+		this.rewardsListEl = n;
+		this.addButtonsContainer();
+		const o = this.addButton({
+			text: "Claim reward",
+			onClick: () => {
+				o.enabled = false;
+				i();
+			},
+		});
+		this.initRewardsList(e);
+	}
+	async initRewardsList(t) {
+		const shopConfig = getMain().config.shopConfig;
+		await shopConfig.waitForConfigLoad();
+		const e_loadedConfigData = shopConfig.loadedConfigData;
+		const s = e_loadedConfigData ? e_loadedConfigData.purchasableItems : [];
+		for (const e of t) {
+			const t = document.createElement("div");
+			t.classList.add("reward-item");
+			this.rewardsListEl.appendChild(t);
+			if (e.type == "coins") {
+				const i = new CurrencyContainer();
+				i.setAmount(e.coins);
+				t.appendChild(i.el);
+				t.classList.add("currency-reward", "wrinkledPaper");
+			} else if (e.type == "gear") {
+				const i = e.itemId;
+				const n = s.find((t) => t.id == i);
+				if (!n) {
+					continue;
+				}
+				const o = new ge(this.gameWrapper, n, {
+					usage: "preview",
+					dialog: this,
+					renderOptions: {
+						gender: "male",
+						colorMultiplier: [0, 0, 0],
+					},
+				});
+				t.appendChild(o.el);
+			}
+		}
+		Ct(this.el);
+		this.visible = true;
+	}
+}
+class RewardKeysManager {
+	async init() {
+		const claimReward = getURLSearchParams().claimReward;
+		if (claimReward) {
+			getMain().mainMenu.makeMainMenuVisibleFromUserGesture();
+			const e = getMain().dialogManager;
+			const i = await (async (claimReward_1) => {
+				const e = Ot("rewardKeys/view");
+				e.searchParams.set("key", claimReward_1);
+				return await getMain().auth.requestWithAuthHeader(async (t) => {
+					if (!t) {
+						return {
+							gotAuthError: true,
+							returnValue: {
+								status: "not-logged-in",
+								rewards: [],
+							},
+						};
+					}
+					const i = await fetch(e.href, {
+						headers: {
+							Authorization: t,
+						},
+					});
+					if (!i.ok) {
+						let status = "unknown-error";
+						if (i.status == 404) {
+							status = "not-found";
+						} else if (i.status == 410) {
+							status = "already-claimed";
+						}
+						return {
+							gotAuthError: false,
+							returnValue: {
+								status,
+								rewards: [],
+							},
+						};
+					}
+					return {
+						gotAuthError: false,
+						returnValue: {
+							status: "success",
+							rewards: (await i.json()).rewards,
+						},
+					};
+				});
+			})(claimReward);
+			if (i.status == "not-found") {
+				e.showAlert({
+					title: "Key not found",
+					text: "The provided key doesn't exist",
+				});
+			} else if (i.status == "already-claimed") {
+				e.showAlert({
+					title: "Key already claimed",
+					text: "The provided key has already been claimed by you or someone else.",
+				});
+			} else if (i.status == "not-logged-in") {
+				e.showAlert({
+					title: "Failed to claim the reward",
+					text: "You may not be logged in",
+				});
+			} else if (i.status == "success") {
+				const s = new ro(getMain().gameWrapper, i.rewards, async () => {
+					const i = await (async (claimReward_1) => {
+						const e = Ot("rewardKeys/claim");
+						e.searchParams.set("key", claimReward_1);
+						return await getMain().auth.requestWithAuthHeader(async (t) => {
+							if (t) {
+								if (
+									(
+										await fetch(e.href, {
+											method: "POST",
+											headers: {
+												Authorization: t,
+											},
+										})
+									).ok
+								) {
+									return {
+										gotAuthError: false,
+										returnValue: true,
+									};
+								}
+								return {
+									gotAuthError: false,
+									returnValue: false,
+								};
+							}
+							return {
+								gotAuthError: true,
+								returnValue: false,
+							};
+						});
+					})(claimReward);
+					s.close();
+					if (i) {
+						getMain().shopState.fetchCurrentData(true);
+						e.showAlert({
+							title: "Reward claimed",
+							text: "The reward was claimed successfully",
+						});
+					} else {
+						e.showAlert({
+							title: "Error claiming reward",
+							text: "An error occurred while claiming the reward. Please try again later.",
+						});
+					}
+				});
+				getMain().dialogManager.addDialog(s);
+			} else {
+				e.showAlert({
+					title: "Couldn't claim reward",
+					text: "An unknown error occurred",
+				});
+			}
+		}
+	}
+}
+class PilgrimAchievementManager {
+	#U;
+	#q;
+	#H = new Set();
+	constructor(t, e) {
+		this.#U = t;
+		this.#q = e;
+		this.#W();
+	}
+	async #W() {
+		const t = await this.#U.get("pilgrimVisitedMaps");
+		if (t) {
+			this.#H = new Set(t);
+		}
+	}
+	reportVisitedMap(t) {
+		if (!this.#H.has(t)) {
+			this.#H.add(t);
+			this.#U.set("pilgrimVisitedMaps", Array.from(this.#H));
+			this.#N();
+		}
+	}
+	#N() {
+		if (!this.#q.loadedConfigData) {
+			return;
+		}
+		let t = true;
+		for (const e of this.#q.loadedConfigData.maps) {
+			if (!this.#H.has(e.assetName)) {
+				t = false;
+				break;
+			}
+		}
+		if (t) {
+			activateSteamAchievement("winAllMapsAsMonk");
+		}
+	}
+}
+export class Main {
+	peliSdkPromise = (async () => {
+		let t;
+		try {
+			const e = getURLSearchParams();
+			let clientId;
+			let s = "https://js.pelicanparty.games/v1.js";
+			clientId =
+				location.hostname != "staging.narrow.one" || e.useProductionServers
+					? "clnt_7uxXrh6BNx4GM8h6GrbD"
+					: "clnt_k58etSfBlOhA0uqKJTGl";
+			if ("stagingPeliSdk" in e) {
+				s += "?staging";
+			}
+			const n = await import(s);
+			const { init } = n;
+			t = await init({
+				clientId,
+				initialSessionScope: {
+					clientScope: ["entitlements", "userId"],
+					serverScope: ["concurrencyGuard", "email", "userId", "entitlements"],
+					refreshableServerTokens: true,
+				},
+			});
+		} catch (error) {
+			console.warn("Failed to load Pelican Party sdk, the user may be offline");
+			console.error(error);
+			return null;
+		}
+		return t;
+	})();
+	peliSdk = null;
+	gameWrapper = document.getElementById("gameWrapper");
+	scene = new Scene();
+	indexedDb = new IndexedDB();
+	settingsManager = new SettingsManager(this.indexedDb);
+	mainInfoTextManager = new MainInfoTextManager();
+	mainMenu = new MainMenu(this.gameWrapper);
+	adBanners = new AdBanners(this.gameWrapper);
+	dialogManager = new DialogManager(this.gameWrapper);
+	fullScreenManager = new FullScreenManager();
+	input = new InputManager(this.gameWrapper);
+	config = new ConfigManager(this.gameWrapper);
+	mapLoader = new MapLoader(this.config, this.config.mapsConfig);
+	preferredMapManager = new PreferredMapManager(this.mapLoader, this.config.mapsConfig);
+	rewardKeysManager = new RewardKeysManager();
+	gameManager = new GameManager(this.gameWrapper);
+	recentGameTracker = new RecentGameTracker(this.indexedDb);
+	cam = new GameCamera(this.gameWrapper);
+	materials = new GameMaterials();
+	hudIcons = new HudIcons();
+	screenFlash = new ScreenFlashManager(this.scene, this.cam.cam);
+	renderer = new GameRenderer(this.gameWrapper);
+	assets = new AssetsManager();
+	skins = new SkinsManager();
+	skeletons = new SkeletonsManager();
+	avatars = new AvatarsManager(this.renderer);
+	classSelectionImageManager = new ClassSelectionImageManager();
+	sfx = new SoundFX();
+	network = new NetworkManager(this.gameManager);
+	auth = new AuthManager(this.gameWrapper);
+	playerAvatarManager = new PlayerAvatarManager();
+	profileState = new ProfileState(this.auth, this.indexedDb);
+	shopState = new ShopState(this.auth, this.indexedDb);
+	pilgrimAchievementManager = new PilgrimAchievementManager(this.indexedDb, this.config.mapsConfig);
+	quantcastManager = new QuantcastManager();
+	poki;
+	boundLoop;
+	prevNow = 0;
+	now = 0;
+	dt = 0;
+	smoothDt = 0;
+	useFakeNow = false;
+	fakeNow = 0;
+	fastLoopCount = 1;
+	frameCount = 0;
+	frameCap = 1;
+	maxDt = 100;
+	env = "local";
+	darkMedia = window.matchMedia("(prefers-color-scheme: dark)");
+	constructor() {
+		const t = getURLSearchParams();
+		if (t.thirdParty) {
+			this.thirdPartyEnabled = t.thirdParty != "false";
+		}
+		(async () => {
+			this.peliSdk = await this.peliSdkPromise;
+		})();
+		if (!this.gameWrapper) {
+			throw new Error("Game wrapper not found");
+		}
+		this.scene.autoUpdate = false;
+		Oi.setCurrentScene(this.scene);
+		this.poki = new Poki(this.thirdPartyEnabled);
+		this.boundLoop = this.vsyncLoop.bind(this);
+		const getFrameCap = () => {
+			const t = "frameCap";
+			try {
+				return localStorage.getItem(t);
+			} catch (e) {
+				return kt.get(t);
+			}
+		};
+		const frameCap = getFrameCap();
+		if (frameCap) {
+			this.frameCap = parseInt(frameCap, 10);
+		}
+		this.env = "production";
+		if (!(window.location.hostname != "staging.narrow.one" || t.useProductionServers)) {
+			this.env = "staging";
+		}
+		if (this.poki.isPokiBuild && document.referrer && document.referrer.includes("qa.po.ki")) {
+			this.env = "staging";
+		}
+		if ("paintWorklet" in CSS) {
+			const t = new URL(
+				new URL("narrowCssWorklet-DYPaIRD6.js", import.meta.url).href,
+				import.meta.url,
+			);
+			CSS.paintWorklet.addModule(t.href);
+		}
+		this.settingsManager.onValueChange("uiScale", (t) => {
+			document.body.style.zoom = String(t);
+		});
+	}
+	init() {
+		this.settingsManager.init();
+		this.mainInfoTextManager.init();
+		this.mainMenu.init();
+		this.input.init();
+		this.fullScreenManager.init();
+		this.adBanners.init();
+		this.mapLoader.init();
+		this.config.init();
+		this.materials.init();
+		this.rewardKeysManager.init();
+		this.gameManager.init();
+		this.cam.init();
+		this.renderer.init();
+		if (this.materials.screenFlashMat) {
+			this.screenFlash.setMaterial(this.materials.screenFlashMat);
+		}
+		this.skins.init();
+		this.classSelectionImageManager.init();
+		this.sfx.init();
+		this.network.init();
+		this.auth.init();
+		this.profileState.init();
+		this.shopState.init();
+		this.quantcastManager.init(this.thirdPartyEnabled);
+		this.poki.init();
+		(() => {
+			if ("BeforeInstallPromptEvent" in window) {
+				return;
+			}
+			if (getMain().poki.isPokiBuild) {
+				return;
+			}
+			if (navigator.standalone) {
+				return;
+			}
+			if (window.parent != window) {
+				return;
+			}
+			const navigator_userAgent = navigator.userAgent;
+			const e = /Safari/.test(navigator_userAgent);
+			if (["iPhone", "iPad"].includes(navigator.platform) && e) {
+				Fs = true;
+				Rs();
+			}
+		})();
+		(() => {
+			if (navigator.standalone) {
+				return;
+			}
+			if (window.parent != window) {
+				return;
+			}
+			if (navigator.maxTouchPoints <= 0) {
+				return;
+			}
+			document.body.classList.add("scrollable");
+			const t = document.createElement("div");
+			t.classList.add("mobile-address-bar-detector");
+			document.body.appendChild(t);
+			let e = false;
+			let i = false;
+			let s = false;
+			function n() {
+				const n = t.clientHeight <= 0;
+				if (n) {
+					s = true;
+					e = false;
+				}
+				const o = getMain().settingsManager.getValue("requireAddressBarHide");
+				const a = !n && !e && o;
+				if (a != fi) {
+					fi = a;
+					if (fi) {
+						setTimeout(() => {
+							window.scrollTo(0, 0);
+							i = true;
+						}, 300);
+					}
+					document.body.classList.toggle("scrollable", a);
+					wi.forEach((t) => t(fi));
+				}
+			}
+			n();
+			new ResizeObserver((t) => {
+				n();
+			}).observe(t);
+			window.addEventListener(
+				"scroll",
+				(t) => {
+					i &&
+						(s ||
+							(document.body.offsetHeight - window.scrollY - window.innerHeight < 10 &&
+								((e = true), n())));
+				},
+				{
+					passive: true,
+				},
+			);
+			getMain().settingsManager.onValueChange("requireAddressBarHide", () => {
+				n();
+			});
+		})();
+		window.requestAnimationFrame(this.boundLoop);
+		this.settingsManager.onValueChange("theme", () => {
+			this.updateTheme();
+		});
+		this.darkMedia.addEventListener("change", () => {
+			this.updateTheme();
+		});
+		this.updateTheme();
+		(async () => {
+			if (xs) {
+				throw new Error("install() is already called");
+			}
+			xs = true;
+			if (!Ps) {
+				return;
+			}
+			if (getMain().poki.isPokiBuild) {
+				return;
+			}
+			const t = "./sw.js";
+			const e = new URL("./sw.js", import.meta.url);
+			const i = await navigator.serviceWorker.register(e.href, {
+				scope: "./",
+			});
+			Ms = i;
+			i.addEventListener("updatefound", (t) => {
+				const i_installing = i.installing;
+				if (i.active && i_installing) {
+					i_installing.addEventListener("statechange", (t) => {
+						if (i_installing.state == "installed") {
+							Ts();
+						}
+					});
+				}
+			});
+			if (Ms.waiting) {
+				Ts();
+			}
+			navigator.serviceWorker.addEventListener("controllerchange", () => {
+				window.location.reload();
+			});
+		})();
+		((t) => {
+			en = t;
+			if (nn != null) {
+				return void on(nn);
+			}
+			an();
+			const e = setInterval(() => {
+				an();
+			}, 15000);
+			setTimeout(() => {
+				clearInterval(e);
+			}, 90000);
+		})(this.dialogManager);
+	}
+	getPeliSdk() {
+		return this.peliSdk;
+	}
+	getPeliSdkAsync() {
+		return this.peliSdkPromise;
+	}
+	getPeliSdkOrThrow() {
+		if (!this.peliSdk) {
+			throw new Error("peliSdk is not supported");
+		}
+		return this.peliSdk;
+	}
+	async getPeliSdkOrThrowAsync() {
+		const t = await this.peliSdkPromise;
+		if (!t) {
+			throw new Error("peliSdk is not supported");
+		}
+		return t;
+	}
+	updateTheme() {
+		const t = this.settingsManager.getValue("theme");
+		let e = false;
+		if (t == "dark") {
+			e = true;
+		} else if (t == "system") {
+			e = this.darkMedia.matches;
+		}
+		document.documentElement.classList.toggle("theme-dark", e);
+	}
+	vsyncLoop() {
+		this.frameCount++;
+		if (this.frameCount % this.frameCap == 0) {
+			for (let t = 0; t < this.fastLoopCount - 1; t++) {
+				this.loop();
+			}
+			this.loop();
+		}
+		window.requestAnimationFrame(this.boundLoop);
+	}
+	loop() {
+		let now = performance.now();
+		if (this.useFakeNow) {
+			now = this.fakeNow;
+			this.fakeNow += 30;
+		}
+		if (this.prevNow <= 0) {
+			this.prevNow = now;
+		}
+		const i = now - this.prevNow;
+		if (i == 0) {
+			return;
+		}
+		const dt = Math.min(i, this.maxDt);
+		this.prevNow = now;
+		this.now += dt;
+		now = this.now;
+		this.dt = dt;
+		this.dt16 = this.dt / 16.6666;
+		this.smoothDt = l_1(this.smoothDt, this.dt, 0.1);
+		this.mainMenu.loop(now, dt);
+		this.input.loop(now, dt);
+		this.gameManager.loop(now, dt);
+		this.cam.loop(now, dt);
+		this.screenFlash.loop(now);
+		Oi.loop();
+		this.renderer.loop(now, dt);
+		this.sfx.loop(now, dt);
+	}
+}
+globalThis.VERSION_TIMESTAMP = "000";
+globalThis.DEBUG = true;
+globalThis.ROLLUP_BUILD = false;
+globalThis.PUBLISHER_BUILD = "none";
+let main: Main = null;
+function getMain() {
+	if (!main) {
+		throw new Error("Main instance is not initialized");
+	}
+	return main;
+}
+const go = new CSSStyleSheet();
+go.replaceSync(
+	"body, html {\n\tcolor: var(--default-text-color);\n\t--game-ui-state: normal;\n\twidth: 100vw;\n\theight: calc(100vh + 1000px);\n\tmargin: 0;\n\tpadding: 0;\n\tscrollbar-width: none;\n}\n\nbody {\n\toverflow-x: hidden;\n\toverflow-y: hidden;\n}\n\nbody.scrollable {\n\toverflow-y: scroll;\n}\n\nbody::-webkit-scrollbar {\n    width: 0px;\n    background: transparent;\n}\n\n#gameWrapper {\n\tposition: fixed;\n\tinset: 0;\n\tpadding: 0;\n\tmargin: 0;\n\tbox-sizing: border-box;\n\toverflow: hidden;\n}\n\n.allow-select {\n\tuser-select: text;\n\t-webkit-user-select: text;\n}\n\n@property --wrinkled-paper-color {\n\tsyntax: '<color>';\n\tinherits: false;\n\tinitial-value: blue;\n}\n\n.fullScreen.safeArea{\n\tleft: 0;\n\tright: 0;\n\ttop: 0;\n\tbottom: 0;\n\tleft: env(safe-area-inset-left);\n\tright: env(safe-area-inset-right);\n\ttop: env(safe-area-inset-top);\n\tbottom: env(safe-area-inset-bottom);\n\twidth: initial;\n\theight: initial;\n}\n\n.main-canvas {\n\tleft: 0;\n\ttop: 0;\n\tposition: absolute;\n}\n\n.whiteBigText a {\n\tcolor: white;\n\t-webkit-text-stroke: 1px black;\n\ttext-decoration: none;\n}\n\n#loadingImageContainer {\n\tz-index: 1;\n}\n\n.wrinkledPaper,\ninput.dialog-range-input[type=range],\ninput.dialog-range-input[type=range]::-webkit-slider-thumb {\n\t--wrinkled-paper-wrinkle-size: 6px;\n\t--wrinkled-paper-color: var(--default-ui-bg-color);\n\t--wrinkled-paper-border-segments: 0.016;\n\t--wrinkled-paper-tear-count-min: 0.001;\n\t--wrinkled-paper-tear-count-max: 0.003;\n\t--wrinkled-paper-tear-depth-min: 5px;\n\t--wrinkled-paper-tear-depth-max: 15px;\n\t--wrinkled-paper-tear-width-min: 10px;\n\t--wrinkled-paper-tear-width-max: 20px;\n\t--wrinkled-paper-tear-angle-offset-min: 0.7;\n\t--wrinkled-paper-tear-angle-offset-max: 1.1;\n}\n\n.wrinkledLine {\n\t--wrinkled-line-color: var(--default-text-color);\n\t--wrinkled-line-width: 1px;\n\t--wrinkled-line-wrinkle-size: 6px;\n\t--wrinkled-line-segments: 0.016;\n}\n\n.dialogCurtain{\n\tbackground: rgba(0,0,0,0.3);\n}\n.dialogCurtain.hidden{\n\tvisibility: hidden;\n\topacity: 0;\n}\n\n.dialogWrapper, .dialog {\n\tdisplay: block;\n\tposition: absolute;\n\tmax-width: calc(100% - 20px);\n\tmax-height: 100%;\n\tleft: 50%;\n\ttop: 50%;\n\ttransform: translate(-50%, -50%);\n\t-webkit-transform: translate3d(-50%,-50%,0);\n\ttransition: transform 0.2s, opacity 0.2s, visibility 0.2s;\n\ttransition-timing-function: cubic-bezier(0.3, -0.8, 0.7, 1.8);\n}\n\n.dialogWrapper > .dialog {\n\tposition: relative;\n\tleft: 0;\n\ttop: 0;\n\ttransform: initial;\n\t-webkit-transform: initial;\n}\n\n.dialog{\n\tfilter: var(--default-drop-shadow);\n\tpadding: 30px;\n\tbox-sizing: border-box;\n\twidth: max-content;\n}\n.dialog.hidden, .dialogWrapper.hidden{\n\topacity: 0;\n\ttransform: translate(-50%, -50%) scale(0.95);\n\tvisibility: hidden;\n}\n.dialog.topCenter{\n\ttop: 10px;\n\ttransform: translate(-50%, 0);\n}\n\n.dialog-title-header-container {\n\tdisplay: flex;\n\tgap: 20px;\n}\n\nh2.dialogTitle{\n\tmargin: 0px 0px 20px 0px;\n\tfont-size: 42px;\n}\n\nh3.dialogTitle{\n\tmargin: 0px 0px 10px 0px;\n\tfont-size: 30px;\n}\n.dialogText {\n\tmax-width: 600px;\n}\n\n.dialogButtonsContainer {\n\tmargin-top: 10px;\n\ttext-align: center;\n\tdisplay: flex;\n\tjustify-content: center;\n\tflex-wrap: wrap;\n}\n\n.dialogButtonsContainer.vertical {\n\tflex-direction: column;\n\tmax-width: 300px;\n\tmargin: auto;\n}\n\n.currency-button {\n\tpadding: 0px 30px;\n}\n\n.currency-container {\n\tdisplay: flex;\n\talign-items: center;\n\tfont-size: 18px;\n\tjustify-content: center;\n}\n\n.coin-icon {\n\twidth: 20px;\n\theight: 20px;\n\tdisplay: inline-block;\n\tbackground-image: url(static/img/coin.svg);\n\tmargin-right: 5px;\n\tbackground-repeat: no-repeat;\n}\n\n.coin-count-text {\n\tcolor: #fbd413;\n\tfont-weight: 900;\n\t-webkit-text-stroke: 2px #766200;\n\tfilter: drop-shadow(0px 1px #766200);\n\tposition: relative;\n\tletter-spacing: 1px;\n\tfont-size: 20pt;\n}\n\n.coin-count-text::after {\n\tcontent: attr(data-text-content);\n\t-webkit-text-stroke: 0;\n\tfilter: none;\n\tposition: absolute;\n\tleft: 0;\n\ttop: 0px;\n}\n\n.dialogTabs {\n\tposition: absolute;\n\ttop: -50px;\n\tleft: 5px;\n\tpointer-events: none;\n}\n\n.dialogTab {\n\tdisplay: inline-block;\n\tpointer-events: auto;\n\ttransition: transform 0.1s;\n\theight: 80px;\n}\n\n.dialogTabSpacer {\n\tdisplay: inline-block;\n\twidth: 20px;\n}\n\n.dialogTab.back {\n\t--wrinkled-paper-color: #d1d1d1;\n}\n\n.dialogTab.front:not(.active), .dialogTab.back.active {\n\topacity: 0;\n\tpointer-events: none;\n}\n\n.dialogTab.back:not(.active) {\n\ttransform: translateY(4px);\n\tcursor: pointer;\n}\n\n.dialogTab:not(.active):hover {\n\ttransform: translateY(2px);\n}\n\n.dialogTabIcon {\n\twidth: 60px;\n\theight: 60px;\n\tbackground-size: contain;\n\tbackground-repeat: no-repeat;\n}\n\n.skipDialogText {\n\tposition: absolute;\n\tbottom: 0;\n\tleft: 50%;\n\ttransform: translate(-50%, 25px);\n\tcolor: #dddddd;\n\ttext-shadow: 1px 1px #00000073;\n\tfont-size: 16px;\n\tcursor: pointer;\n\twhite-space: nowrap;\n}\n\n.toggle-menu-button {\n\tpadding-bottom: 10px;\n\tpadding-right: 40px;\n\tpadding-left: calc(env(safe-area-inset-left) + 10px);\n\tpadding-top: calc(env(safe-area-inset-top) + 30px);\n\tposition: absolute;\n\tleft: 0;\n\ttop: 0;\n\tz-index: 110;\n}\n\n.main-menu-top-left {\n\tdisplay: flex;\n\tflex-direction: column;\n\tmax-height: 100%;\n\tpointer-events: none;\n\tpadding-top: env(safe-area-inset-top);\n\tpadding-left: env(safe-area-inset-left);\n}\n\n.menu-buttons-container {\n\tpointer-events: auto;\n}\n\n.main-menu-corner-profile {\n\twidth: fit-content;\n\tdisplay: flex;\n\tgap: 10px;\n\tmargin: 10px;\n\tpadding: 0;\n\tborder: none;\n\tbackground: transparent;\n\talign-items: center;\n\tcursor: pointer;\n\tpointer-events: auto;\n}\n.main-menu-corner-profile:hover {\n\tfilter: brightness(0.9);\n}\n.main-menu-corner-profile:active {\n\tfilter: brightness(0.85);\n}\n\n.avatar {\n\tmin-width: 40px;\n\tmin-height: 40px;\n\tbackground-size: contain;\n}\n\n.main-menu-corner-profile .avatar {\n\tfilter: var(--default-drop-shadow);\n}\n\n.main-menu-username {\n\tfont-size: 30px;\n}\n\n.main-menu-username:not(.blueNight) {\n\tfont-size: 25px;\n\tfont-weight: bold;\n}\n\n.menu-buttons-container {\n\tmax-width: fit-content;\n\toverflow-y: auto;\n\tmax-height: 100%;\n}\n.menu-buttons-container.hidden {\n\tdisplay: none;\n}\n.menu-buttons-container::-webkit-scrollbar {\n\twidth: 0px;\n}\n\n.main-menu-button.exit-button {\n\t--wrinkled-paper-color: #6e0000;\n\t--wrinkled-paper-border-color: #3e0000;\n\t--icon-filter: invert(100%);\n}\n\n.main-menu-promo-banner-container {\n\ttop: 20px;\n\tright: 20px;\n\tposition: absolute;\n\twidth: 320px;\n\theight: 210px;\n\tfilter: var(--default-drop-shadow);\n}\n.main-menu-promo-banner-container.hidden {\n\tdisplay: none;\n}\n\n.main-menu-promo-banner-container > .dialog-button {\n\tposition: absolute;\n\tbottom: 0;\n\tleft: 50%;\n\ttransform: translate(-50%, 50%);\n\tmargin: 0;\n\t--wrinkled-paper-border-color: var(--button-on-clear-bg-wrinkled-paper-border-color);\n}\n\n@media (max-width: 1200px), (max-height: 700px) {\n\t.main-menu-promo-banner-container {\n\t\twidth: 220px;\n\t\theight: 140px;\n\t}\n\n\t.main-menu-promo-banner-container > .dialog-button {\n\t\ttransform: translate(-50%, 80%);\n\t}\n}\n\n@media (max-width: 500px), (max-height: 420px) {\n\t.main-menu-promo-banner-container {\n\t\tdisplay: none;\n\t}\n}\n\n.main-menu-promo-banner {\n\twidth: 100%;\n\theight: 100%;\n\tbackground: center / cover, var(--default-ui-bg-color);\n\t--wrinkled-paper-wrinkle-size: 8px;\n\t--wrinkled-paper-tear-count-min: 0.003;\n\t--wrinkled-paper-tear-count-max: 0.004;\n\tcursor: pointer;\n}\n.main-menu-promo-banner:hover {\n\tfilter: brightness(0.9);\n}\n.main-menu-promo-banner:active {\n\tfilter: brightness(0.85);\n}\n\n#mainMenu > .bottom-texts {\n\tposition: absolute;\n\tbottom: 0;\n\tright: env(safe-area-inset-right);\n\tfont-size: 14pt;\n\tlist-style-type: none;\n\tdisplay: flex;\n\tgap: 10px;\n\tmargin: 3px;\n\tpadding: 0px;\n}\n\n.game-ad-wrapper {\n\tposition: absolute;\n\tbottom: 0;\n\tmargin-bottom: 20px;\n\tleft: 50%;\n\ttransform: translate(-50%);\n\tbackground: #0000004f;\n\tz-index: 20;\n}\n.game-ad-wrapper.desktop{\n\twidth: 728px !important;\n\theight: 90px !important;\n}\n.game-ad-wrapper.mobile{\n\twidth: 320px !important;\n\theight: 50px !important;\n\tdisplay: none;\n}\n@media(max-width: 1220px){\n\t.game-ad-wrapper.desktop{\n\t\tdisplay: none;\n\t}\n\t.game-ad-wrapper.mobile{\n\t\tdisplay: inherit;\n\t}\n}\n.game-ad-wrapper.hidden{\n\tdisplay: none;\n}\n\n.remove-ads-button {\n\tappearance: none;\n\tbackground: none;\n\tborder: none;\n\tcolor: white;\n\tpadding: 0;\n\tmargin: 5px 0;\n\tposition: absolute;\n\tright: 0;\n\tbottom: 100%;\n\tcursor: pointer;\n\tfont-size: 10px;\n}\n.remove-ads-button.hidden {\n\tdisplay: none;\n}\n\n.game-ad {\n\twidth: 100%;\n\theight: 100%;\n\toverflow: hidden;\n}\n\n.shake-anim {\n\tanimation: 2.5s linear infinite shake;\n}\n\n@keyframes shake {\n\t0% { transform: rotate(0deg); }\n\t4% { transform: rotate(4deg); }\n\t8% { transform: rotate(-3deg); }\n\t12% { transform: rotate(2deg); }\n\t16% { transform: rotate(1deg); }\n\t20% { transform: rotate(0deg); }\n}\n\n.crosshair-container {\n\tposition: absolute;\n\tleft: 50%;\n\ttop: 50%;\n\tz-index: 100;\n\ttransform: translate(-50%, -50%);\n\tpointer-events: none;\n\t--line-color: white;\n\t--outline-color: black;\n}\n.crosshair-line {\n\tposition: absolute;\n\twidth: 15px;\n\theight: 2px;\n\tbackground: var(--line-color);\n\tborder: 2px solid var(--outline-color);\n\tborder-radius: 10px;\n\ttransform-origin: left;\n\twill-change: transform;\n}\n\n.flagReturnProgressContainer {\n\tposition: absolute;\n\ttransform: translate(-50%, -50%);\n\ttransition: opacity 0.2s;\n}\n.flagReturnProgressContainer.hidden{\n\topacity: 0;\n}\n.flagReturnProgressPath {\n\tfill: none;\n\tstroke-width: 10px;\n\tstroke-linecap: round;\n}\n\n.mainInfoText.bottom{\n\tfont-size: 45px;\n\tleft: 0;\n\ttop: initial;\n\tbottom: 25px;\n}\n.mainInfoText.hidden{\n\tdisplay: none;\n}\n\n.notificationIconsUiContainer{\n\twidth: 200px;\n\theight: 200px;\n\tpointer-events: none;\n\tposition: absolute;\n\tz-index: 1;\n}\n\n.notificationIconsUiContainer.topleft{\n\tleft: 0;\n\ttop: 80px;\n\ttransform-origin: top left;\n}\n\n.notificationIconsUiContainer.centerbig{\n\tleft: 50%;\n\ttop: 50%;\n\twidth: 50vw;\n\theight: min(50vw, 100vh);\n\ttransform: translate(-50%, -50%);\n}\n\n.notificationIconsUiContainer.crosshair{\n\tleft: 50%;\n\ttop: 50%;\n\twidth: 200px;\n\theight: 200px;\n\ttransform: translate(-50%, -50%) translateY(-140px);\n}\n\n.notificationIcon{\n\tfilter: var(--default-drop-shadow);\n\tanimation: 1s notificationIconFade 6s both, 0.2s notificationIconPop;\n\twidth: 100%;\n\theight: 100%;\n\tbackground-position: center;\n\tbackground-repeat: no-repeat;\n}\n\n.crosshair > .notificationIcon{\n\tanimation: 1s notificationIconFade 0.5s both, 0.2s notificationIconPop;\n}\n\n@keyframes notificationIconPop{\n\t0%{\n\t\ttransform: scale(1);\n\t}\n\t50%{\n\t\ttransform: scale(1.2);\n\t}\n\t100%{\n\t\ttransform: scale(1);\n\t}\n}\n@keyframes notificationIconFade{\n\t0%{\n\t\topacity: 1;\n\t}\n\n\t100%{\n\t\topacity: 0;\n\t}\n}\n\n.score-offset-notifications-container {\n\tpointer-events: none;\n\toverflow: hidden;\n}\n\n.score-offset-notifications-list {\n\tfont-size: 30px;\n\ttext-align: center;\n\ttop: 20%;\n\tposition: absolute;\n\tz-index: 1;\n\twidth: 100%;\n}\n\n.scoreOffsetNotification {\n\tposition: absolute;\n\twidth: 100%;\n\ttransition: transform 0.5s;\n}\n\n.scoreOffsetNotificationScore {\n\tcolor: #b0e9b0;\n}\n\n.touchListener {\n\tz-index: 1;\n}\n.touchListener.focus {\n\tcursor: none;\n}\n\n.touchInputWhiteBorder{\n\tbackground: #00000047;\n\tborder-radius: 150px;\n\tbox-sizing: border-box;\n\tborder: solid white;\n\tpointer-events: none;\n}\n\n.touchInputJoyStickContainer{\n\twidth: 150px;\n\theight: 150px;\n\tposition: absolute;\n\ttransition: opacity 0.3s;\n\tz-index: 1;\n}\n\n.touchInputJoyStick{\n\twidth: 60px;\n\theight: 60px;\n\tleft: 50%;\n\ttop: 50%;\n\tbackground: white;\n\tborder-radius: 60px;\n\tposition: absolute;\n\ttransform: translate(-50%, -50%);\n}\n\n.touchInputButton{\n\tposition: absolute;\n\tz-index: 1;\n}\n.touchInputButton.hidden {\n\tdisplay: none;\n}\n\n.touchInputButton.touching{\n\tbackground: #ffffff47;\n}\n\n@media(max-width: 700px), (max-height: 450px){\n\t.toggle-menu-button {\n\t\tpadding-top: calc(env(safe-area-inset-top) + 10px);\n\t}\n\n\t.notificationIconsUiContainer{\n\t\ttransform: scale(0.5);\n\t}\n\n\t.notificationIconsUiContainer.topleft{\n\t\ttop: 40px;\n\t}\n\n\tbody {\n\t\t--game-ui-state: small;\n\t}\n}\n\n.screenFlash{\n\tpointer-events: none;\n\tbackground: red;\n\topacity: 0;\n}\n\n.playersListTeamWonTitle{\n\ttext-align: center;\n\tfont-size: 34px;\n\tmargin: 0;\n}\n\n.playersListContainer{\n\toverflow: auto;\n\tmax-height: 600px;\n\tdisplay: flex;\n\tgap: 20px;\n\talign-items: flex-start;\n}\n\n@media(max-width: 1000px){\n\t.playersListContainer{\n\t\tflex-direction: column;\n\t}\n}\n\n.playersListTeam{\n\t--wrinkled-paper-wrinkle-size: 4px;\n\tmax-width: 550px;\n\t--wrinkled-paper-color: var(--team-bg-color-light);\n}\nhtml.theme-dark .playersListTeam {\n\t--wrinkled-paper-color: var(--team-bg-color-dark);\n}\n\n.itemsTable{\n\tborder-collapse: collapse;\n}\n\n.playersListHead{\n\tcolor: white;\n}\n\n.itemsTable > tbody > tr:nth-child(even){\n\t--wrinkled-paper-wrinkle-size: 2px;\n\t--wrinkled-paper-color: var(--items-table-odd-row-color);\n}\n\n.itemsTable > tbody > tr > td:first-child{\n\tpadding-left: 10px;\n}\n.itemsTable > tbody > tr > td:last-child{\n\tpadding-right: 10px;\n}\n\n.itemsTable > tbody > tr > td, .playersListHead > th{\n\tpadding: 10px 0px;\n}\n\n.player-avatar {\n\tmin-width: 40px;\n\tmin-height: 40px;\n\twidth: 40px;\n\theight: 40px;\n\tbackground-size: contain;\n\tbackground-repeat: no-repeat;\n}\n\n.players-list-label{\n\tcolor: white;\n\tbackground: #909090;\n\tpadding: 2px 3px;\n\tfont-size: 13px;\n\tmargin-left: 7px;\n\tborder-radius: 3px;\n}\n\n.players-list-item-username {\n\tdisplay: flex;\n\tmax-width: 200px;\n\talign-items: center;\n}\n\n.player-list-username {\n\toverflow: hidden;\n\ttext-overflow: ellipsis;\n\twhite-space: nowrap;\n}\n\n.player-name-verified-icon {\n\tmargin-left: 5px;\n\twidth: 20px;\n\theight: 20px;\n\tbackground-repeat: no-repeat;\n\tbackground-image: url(static/img/menuUI/verified.svg);\n\tfilter: var(--icon-filter)\n}\n\n.playersListItem > td:first-child {\n\tpadding: 0px;\n}\n\n.playersListItemScore{\n\ttext-align: center;\n}\n\n.gameoverStatsContainer {\n\t--team-bg-color-light: var(--items-table-bg-color);\n\t--team-bg-color-dark: var(--items-table-bg-color);\n\twidth: fit-content;\n\tmargin: auto;\n\toverflow: auto;\n\t--wrinkled-paper-color: var(--team-bg-color-light);\n}\nhtml.theme-dark .gameoverStatsContainer {\n\t--wrinkled-paper-color: var(--team-bg-color-dark);\n}\n\n.gameOverStatsTable {\n\twidth: 240px;\n}\n\n.game-over-stats-coins-container {\n\tdisplay: flex;\n\tgap: 10px;\n\tjustify-content: center;\n\tmargin-top: 20px;\n}\n\n.game-over-stats-coins-container doubled-container {\n\tdisplay: flex;\n\tflex-direction: column;\n\tgap: 3px;\n\talign-items: center;\n\tanimation: 0.2s linear coins-doubled-pop-in;\n}\n\n.game-over-stats-coins-container doubled-container.hidden {\n\tvisibility: hidden;\n\tanimation: none;\n}\n\n@keyframes coins-doubled-pop-in {\n\t0% {\n\t\ttransform: scale(0);\n\t}\n\n\t50% {\n\t\ttransform: scale(1.2);\n\t}\n\n\t100% {\n\t\ttransform: scale(1);\n\t}\n}\n\n.totalScoreRow {\n\tfont-weight: bold;\n}\n\n.ownedCoinsContainer {\n\tposition: absolute;\n\ttop: -20px;\n\tright: -20px;\n\tpadding: 10px;\n\tfilter: var(--default-drop-shadow);\n}\n\n.text-with-submit-form {\n\tdisplay: flex;\n\tgap: 5px;\n\twidth: 100%;\n\tpadding: 4px 10px;\n\tbox-sizing: border-box;\n}\n\n.text-with-submit-form > * {\n\tmargin-left: 0;\n\tmargin-right: 0;\n}\n\n.text-with-submit-form > button {\n\tpadding-left: 10px;\n\tpadding-right: 10px;\n}\n\n.skin-downloader-dialog-content {\n\tmax-width: 600px;\n\tdisplay: flex;\n\tflex-wrap: wrap;\n\talign-items: center;\n}\n\n.skin-downloader-dialog-controls {\n\tdisplay: flex;\n\tflex-direction: column;\n}\n\n.skin-downloader-dialog-controls > * {\n\theight: 30px;\n}\n\n.skin-downloader-size-input {\n\twidth: 50px;\n}\n\n.skin-downloader-download-container {\n\tpadding: 10px;\n\talign-self: center;\n}\n\n.downloadable-skin-preview {\n\twidth: 250px;\n\theight: 250px;\n\tbackground-size: contain;\n\tbackground-repeat: no-repeat;\n\tflex-shrink: 0;\n}\n\n@keyframes wrinkled-paper-highlight {\n\t0% {\n\t\t--wrinkled-paper-color: var(--item-highlight-color);\n\t}\n\t50% {\n\t\t--wrinkled-paper-color: var(--item-highlight-color);\n\t}\n\t100% {\n\t\t--wrinkled-paper-color: var(--highlight-end-background-color);\n\t}\n}\n",
+);
+const mo = new CSSStyleSheet();
+mo.replaceSync(
+	"html {\n\tcolor-scheme: light;\n\t--not-black: #090909;\n\t--default-text-color: black;\n\t--disabled-text-color: #5f5f5f;\n\t--default-ui-bg-color: white;\n\t--secondary-ui-bg-color: #e1e1e1;\n\t--container-ui-bg-color: #f1f1f1;\n\t--icon-filter: none;\n\t--default-drop-shadow: drop-shadow(2px 2px 2px rgba(0,0,0,0.3));\n\t--default-wrinkled-paper-border-color: #353535;\n\t/** Used for buttons that appear directly on top of the game rather\n\tthan in a dialog. */\n\t--button-on-clear-bg-wrinkled-paper-border-color: var(--default-wrinkled-paper-border-color);\n\t--disabled-wrinkled-paper-border-color: #919191;\n\t--default-wrinkled-paper-top-color-extra: #e2e2e2;\n\t--shop-item-background-color: #f1f1f1;\n\t--shop-item-background-color-hover: #d8d8d8;\n\t--shop-item-background-color-active: #e5e5e5;\n\t--item-highlight-color: #ffc018;\n\t--blue-highlight-color: #0c5fcc;\n\t--items-table-bg-color: #cdcdcd;\n\t--items-table-odd-row-color: #ffffff6b;\n\t--safe-area-inset-top: env(safe-area-inset-top, 0);\n\t--safe-area-inset-right: env(safe-area-inset-right, 0);\n\t--safe-area-inset-bottom: env(safe-area-inset-bottom, 0);\n\t--safe-area-inset-left: env(safe-area-inset-left, 0);\n}\n\nhtml.theme-dark {\n\tcolor-scheme: dark;\n\t--default-text-color: white;\n\t--disabled-text-color: #b6b6b6;\n\t--default-ui-bg-color: #454545;\n\t--secondary-ui-bg-color: #5d5d5d;\n\t--container-ui-bg-color: #646464;\n\t--icon-filter: invert(100%);\n\t--default-wrinkled-paper-border-color: #a5a5a5;\n\t--button-on-clear-bg-wrinkled-paper-border-color: #242424;\n\t--disabled-wrinkled-paper-border-color: #646464;\n\t--default-wrinkled-paper-top-color-extra: #606060;\n\t--shop-item-background-color: #646464;\n\t--shop-item-background-color-hover: #585858;\n\t--shop-item-background-color-active: #505050;\n\t--item-highlight-color: #9c6f2d;\n\t--blue-highlight-color: #3f92ff;\n\t--items-table-bg-color: #6d6d6d;\n\t--items-table-odd-row-color: #0000002b;\n}\n",
+);
+const fo = new CSSStyleSheet();
+fo.replaceSync(
+	'.dialog-button,\n.icon-button,\n.dialog-color-input {\n\tborder: none;\n\tappearance: none;\n}\n\n* {\n\t-webkit-tap-highlight-color: transparent;\n}\n\n.dialog-button{\n\tpadding: 7px 30px;\n\tmargin: 4px 10px;\n\tfont-size: 24px;\n\theight: 38px;\n\tcolor: var(--default-text-color);\n\tvertical-align: middle;\n\twhite-space: nowrap;\n\t--wrinkled-paper-border-size: 3;\n\t--wrinkled-paper-border-size-bottom: 6;\n\t--wrinkled-paper-border-color: var(--default-wrinkled-paper-border-color);\n\t--wrinkled-paper-seed: 70;\n\t--wrinkled-paper-wrinkle-size: 2px;\n\t--wrinkled-paper-border-segments: 0.02;\n\t--wrinkled-paper-tear-count-min: 0;\n\t--wrinkled-paper-tear-count-max: 0;\n}\n.dialog-button:hover:not(:disabled){\n\tfilter: brightness(0.9);\n}\n.dialog-button:active:not(:disabled),\n.dialog-checkbox-input:active:not(:disabled),\n.dialog-toggle-input:active:not(:disabled),\n.dialog-color-input:active {\n\tfilter: brightness(0.8);\n}\n\n.dialog-button:not(:disabled){\n\tcursor: pointer;\n}\n\n.dialog-button:disabled {\n\tcolor: #959595;\n}\n\n.dialog-button:disabled > .currency-container, .dialog-button:disabled > .dialog-button-icon {\n\topacity: 0.5;\n}\n\n.dialog-button-icon {\n\twidth: 20px;\n\theight: 20px;\n\tdisplay: inline-block;\n\tbackground-size: contain;\n\tbackground-position: center;\n\tbackground-repeat: no-repeat;\n\tmargin-right: 10px;\n\tvertical-align: middle;\n}\n.dialog-button-icon:not(.no-dark-mode-invert):not(peli-plus-icon) {\n\tfilter: var(--icon-filter);\n}\n.dialog-button.danger {\n\tcolor: red;\n}\n\n.icon-button {\n\tcursor: pointer;\n\tbackground: transparent;\n\tbackground-repeat: no-repeat;\n\tbackground-position: center;\n}\n\n.icon-button:hover {\n\topacity: 0.7;\n}\n.icon-button:active {\n\topacity: 0.6;\n}\n\n.header-button {\n\tpadding: 0;\n}\n\n.icon-button > .dialog-button-icon,\n.header-button > .dialog-button-icon {\n\twidth: 20px;\n\theight: 20px;\n\tmargin: 3px;\n}\n\n.header-back-button > .dialog-button-icon {\n\twidth: 30px;\n}\n\n\n.main-menu-button-container {\n\tdisplay: flex;\n\talign-items: center;\n}\n\n.main-menu-button{\n\tborder: none;\n\twidth: 70px;\n\theight: 70px;\n\tcursor: pointer;\n\tmargin: 5px;\n\tpadding: 0;\n\t--wrinkled-paper-border-segments: 0.04;\n\t--wrinkled-paper-wrinkle-size: 5px;\n\t--wrinkled-paper-tear-count-min: 0.003;\n\t--wrinkled-paper-tear-count-max: 0.004;\n\t--wrinkled-paper-border-size: 3;\n\t--wrinkled-paper-border-size-bottom: 6;\n\t--wrinkled-paper-border-color: var(--button-on-clear-bg-wrinkled-paper-border-color);\n\t--wrinkled-paper-tear-count-min: 0;\n\t--wrinkled-paper-tear-count-max: 0;\n\tfilter: var(--default-drop-shadow);\n}\n.main-menu-button:hover{\n\tfilter: var(--default-drop-shadow) brightness(0.9);\n}\n.main-menu-button:active{\n\tfilter: var(--default-drop-shadow) brightness(0.8);\n}\n\n.main-menu-button-text {\n\tcolor: white;\n\tfont-size: 30px;\n}\n\n.buttonImage{\n\twidth: 100%;\n\theight: 100%;\n\tbackground-size: contain;\n\tbackground-repeat: no-repeat;\n\tbackground-position: center;\n}\n.buttonImage:not(.update-icon) {\n\tfilter: var(--icon-filter);\n}\n.update-icon {\n\tfilter: invert(38%) sepia(99%) saturate(839%) hue-rotate(86deg) brightness(100%) contrast(94%);\n}\n\n.dialog-text-input,\n.dialog-select-wrapper,\n.dialog-checkbox-input,\n.dialog-toggle-input,\ninput.dialog-range-input[type=range],\n.dialog-color-input {\n\t--wrinkled-paper-border-size: 3;\n\t--wrinkled-paper-border-size-bottom: 4;\n\t--wrinkled-paper-border-color: var(--default-wrinkled-paper-border-color);\n\t--wrinkled-paper-seed: 70;\n\t--wrinkled-paper-wrinkle-size: 2px;\n\t--wrinkled-paper-border-segments: 0.02;\n\t--wrinkled-paper-border-color-top-extra: var(--default-wrinkled-paper-top-color-extra);\n\t--wrinkled-paper-border-size-top-extra: 10;\n\t--wrinkled-paper-tear-count-min: 0;\n\t--wrinkled-paper-tear-count-max: 0;\n}\n.dialog-checkbox-input:focus-visible,\n.dialog-toggle-input:focus-visible,\n.dialog-text-input:focus-visible,\n.dialog-button:focus-visible,\n.main-menu-button:focus-visible,\n.dialog-select-wrapper:has(> select:focus-visible),\n.dialog-color-input:focus-visible,\ninput.dialog-range-input[type=range]:focus-visible::-webkit-slider-thumb {\n\toutline: none;\n\t--wrinkled-paper-border-color: var(--blue-highlight-color);\n\t--wrinkled-paper-border-size: 5;\n\t--wrinkled-paper-border-size-bottom: 7;\n}\n.icon-button:focus-visible {\n\toutline: var(--blue-highlight-color) auto 1px;\n}\n\ninput.dialog-range-input[type=range]:focus-visible {\n\toutline: none;\n}\n\n.dialog-button:disabled,\n.dialog-text-input:disabled,\n.dialog-checkbox-input:disabled,\n.dialog-toggle-input:disabled {\n\t--wrinkled-paper-border-color: var(--disabled-wrinkled-paper-border-color);\n\tcolor: var(--disabled-text-color);\n}\n\n.dialog-text-input {\n\tpadding: 7px;\n\tmargin: 4px 10px;\n\tfont-size: 24px;\n\theight: 38px;\n\tborder: none;\n\tbox-sizing: border-box;\n\tcolor: var(--default-text-color);\n}\n\n.dialog-checkbox-input,\n.dialog-toggle-input,\n.dialog-range-input {\n\tappearance: none;\n\twidth: 30px;\n\theight: 30px;\n\tplace-content: center;\n}\n.dialog-checkbox-input,\n.dialog-toggle-input {\n\tdisplay: grid;\n}\n.dialog-toggle-input {\n\twidth: 45px;\n}\n.dialog-checkbox-input:checked::before {\n\tcontent: "";\n\twidth: 20px;\n\theight: 20px;\n\tbackground-image: url(static/img/menuUI/check.svg);\n\tbackground-size: contain;\n\tfilter: var(--icon-filter);\n}\n.dialog-checkbox-input:checked:disabled::before,\n.dialog-toggle-input:checked:disabled::before {\n\topacity: 0.5;\n}\n.dialog-toggle-input {\n\t--wrinkled-paper-extra-box-color: white;\n\t--wrinkled-paper-extra-box-size: 10px;\n\t--wrinkled-paper-extra-box-border-color: var(--default-wrinkled-paper-border-color);\n\t--wrinkled-paper-extra-box-border-size: 2;\n\t--wrinkled-paper-extra-box-side: left;\n}\n.dialog-toggle-input:checked {\n\t--wrinkled-paper-extra-box-side: right;\n}\n\ninput.dialog-range-input[type=range]::-webkit-slider-thumb {\n\tappearance: none;\n\twidth: 10px;\n\theight: 30px;\n\t--wrinkled-paper-color: white;\n\t--wrinkled-paper-wrinkle-size: 2px;\n\t--wrinkled-paper-border-size-top-extra: 0;\n}\n\n.dialog-select-wrapper {\n\tposition: relative;\n}\n.dialog-select-wrapper::after {\n\tcontent: "";\n\tposition: absolute;\n\twidth: 20px;\n\theight: 20px;\n\ttop: 50%;\n\ttransform: translateY(-50%);\n\tright: 3px;\tbackground: url(static/img/downArrowSmall.svg) no-repeat right center;\n\tfilter: var(--icon-filter);\n}\n\n.dialog-select-input {\n\tcolor: var(--default-text-color);\n\tappearance: none;\n\toutline: none;\n\tborder: none;\n\tpadding: 8px 25px 8px 8px;\n\tfont-size: 14pt;\n\tbackground-color: transparent;\n}\n.dialog-select-input > option {\n\tbackground-color: var(--default-ui-bg-color);\n}\n\n.dialog-color-input::-webkit-color-swatch {\n\tborder: none;\n}\n',
+);
+const wo = new CSSStyleSheet();
+wo.replaceSync(
+	".weapon-selection-dialog {\n\tbottom: 130px;\n\ttop: initial;\n\theight: fit-content;\n\ttransform: translate(-50%, 0px);\n\ttransform-origin: bottom;\n}\n\n.weapon-selection-dialog.adless {\n\tbottom: 20px;\n}\n\n.weapon-selection-dialog.hidden{\n\ttransform: translate(-50%, 0px) scale(0.95);\n}\n\n.weapon-selection-container {\n\tdisplay: grid;\n\tgrid-template-columns: repeat(6, 1fr);\n\tgap: 10px;\n}\n\n.class-selection-image-container.in-game {\n\tmin-width: 100px;\n\tmin-height: 100px;\n}\n\n.class-selection-image-container.in-game > .class-selection-image-background {\n\t--wrinkled-paper-banner-size: 20px;\n\t--wrinkled-paper-border-size: 12px;\n}\n\n.class-selection-image-container.in-game > .class-selection-image {\n\tbackground-size: 130%;\n\tbackground-position: 50% 10%;\n}\n\n@media (max-width: 1220px) {\n\t.weapon-selection-dialog {\n\t\tpadding: 15px;\n\t\tbottom: 90px;\n\t}\n\n\t.weapon-selection-container {\n\t\tgap: 5px;\n\t}\n\n\t.class-selection-image-container.in-game {\n\t\tmin-width: 50px;\n\t\tmin-height: 50px;\n\t}\n}\n\n@media (max-width: 400px) {\n\t.weapon-selection-container {\n\t\tgrid-template-columns: repeat(3, 1fr);\n\t}\n}\n\n.weaponSelectionItem{\n\ttransition: transform 0.2s;\n\ttransition-timing-function: cubic-bezier(0.0, 0.0, 0.0, 1.8);\n\t--wrinkled-paper-color: #d8d8d8;\n\t--wrinkled-paper-border-segments: 0.02;\n\t--wrinkled-paper-banner-color: #0000001c;\n\t--wrinkled-paper-banner-size: 17px;\n\t--wrinkled-paper-border-size: 8px;\n\t--wrinkled-paper-border-color: #0000002b;\n\tposition: relative;\n\tfilter: var(--default-drop-shadow);\n}\n\n.weaponSelectionItem.selected{\n\ttransform: scale(1.1);\n\t--wrinkled-paper-color: #bfbfbf;\n}\n.weaponSelectionItem:not(.selected){\n\tfilter: brightness(0.8);\n}\n.weaponSelectionItem:not(.selected):hover{\n\tfilter: brightness(0.9);\n}\n\n.weaponSelectionItemKeyNumber{\n\tposition: absolute;\n\tmargin: 9px;\n\tcolor: white;\n\ttop: 0;\n\tright: 0;\n}\n\n.weaponSelectionItemIcon{\n\twidth: 80px;\n\theight: 80px;\n\tmargin: 5px;\n}\n",
+);
+const bo = new CSSStyleSheet();
+bo.replaceSync(
+	".login-art-wrapper {\n\twidth: 100%;\n\tmargin: auto;\n}\n\n.login-art {\n\twidth: 0;\n\tmin-width: 100%;\n\theight: 100%;\n\tmax-height: 50vh;\n\tobject-fit: contain;\n}\n\n.login-buttons-container {\n\tdisplay: flex;\n\tflex-direction: column;\n}\n\n@media (max-height: 700px) {\n\t.login-buttons-container.multiple-buttons.contains-art {\n\t\tflex-direction: row;\n\t}\n\t.login-buttons-container.multiple-buttons {\n\t\twidth: 600px;\n\t}\n}\n@media (max-height: 700px) and (max-width: 700px) {\n\t.login-art-wrapper {\n\t\tdisplay: none;\n\t}\n\t.login-buttons-container.multiple-buttons {\n\t\twidth: initial;\n\t}\n}\n",
+);
+const yo = new CSSStyleSheet();
+yo.replaceSync(
+	"@media (max-width: 550px) {\n\t.ios-pwa-install-dialog {\n\t\ttop: 30px;\n\t\ttransform: translateX(-50%);\n\t}\n\t.ios-pwa-install-dialog.hidden{\n\t\ttransform: translateX(-50%) scale(0.95);\n\t}\n}\n\n.ios-pwa-install-dialog ol {\n\tcounter-reset: li;\n\tpadding-left: 0;\n}\n\n.ios-pwa-install-dialog li {\n\tlist-style: none;\n\tposition: relative;\n\tpadding: 0.3em 0 0.3em 2.2em;\n}\n\n.ios-pwa-install-dialog li::before {\n\tbackground-color: var(--default-text-color);\n\tcolor: var(--default-ui-bg-color);\n\tcontent: counter(li);\n\tcounter-increment: li;\n\tposition: absolute;\n\tleft: 0;\n\tpadding-top: 2px;\n\twidth: 1.5em;\n\theight: calc(1.5em - 2px);\n\tborder-radius: 50%;\n\ttext-align: center;\n}\n\n.text-icon {\n\twidth: 1lh;\n\tvertical-align: text-bottom;\n\tdisplay: inline-block;\n\theight: 1lh;\n}\n\n.ios-share-icon {\n\tbackground: url(static/img/iosShare.svg) no-repeat center/contain;\n}\n\n\n.ios-add-icon {\n\tbackground: url(static/img/iosAdd.svg) no-repeat center/contain;\n\tmargin: 0 2px 0 6px;\n\tfilter: var(--icon-filter);\n}\n",
+);
+const So = new CSSStyleSheet();
+So.replaceSync(
+	'.paged-view-page {\n\tposition: absolute;\n\ttop: 0;\n\tleft: 0;\n\twidth: 100%;\n\theight: 100%;\n\ttransition: opacity 0.3s, transform 0.3s;\n\tdisplay: flex;\n\tflex-direction: column;\n\talign-items: center;\n}\n\n.paged-view-page.hidden {\n\topacity: 0;\n\tpointer-events: none;\n}\n.paged-view-page.hiddenleft {\n\ttransform: translateX(-20%);\n}\n\n.paged-view-page.hiddenright {\n\ttransform: translateX(20%);\n}\n\n.paged-view-page-header {\n\tdisplay: grid;\n\twidth: 100%;\n\tgrid-template-columns: 40px 1fr auto;\n\tgrid-template-areas: "back-button header-title header-corner";\n}\n.paged-view-page-header > * {\n\talign-self: center;\n\tjustify-self: center;\n}\n\n.paged-view-page-back-button {\n\twidth: 30px;\n\theight: 30px;\n\tbackground-image: url(static/img/arrow.svg);\n}\n\n.paged-view-page-header-title {\n\tgrid-area: header-title;\n\tfont-size: 24pt;\n\tmargin: 15px;\n}\n\n.paged-view-page-header-corner {\n\tgrid-area: header-corner;\n}\n\n.paged-view-page-header-line {\n\theight: 20px;\n\twidth: 100%;\n}\n\n.paged-view-page-items-list {\n\tdisplay: flex;\n\tflex-direction: column;\n\twidth: 100%;\n\tbox-sizing: border-box;\n\tmax-width: 300px;\n}\n\n.paged-view-page-custom-subpage,\n.paged-view-page-items-list {\n\twidth: 100%;\n\theight: 100%;\n\toverflow-y: scroll;\n\toverflow-x: hidden;\n}\n',
+);
+const vo = new CSSStyleSheet();
+vo.replaceSync(
+	".maps-container {\n\tdisplay: grid;\n\tgrid-template-columns: 320px 320px;\n\trow-gap: 40px;\n\tcolumn-gap: 20px;\n\toverflow-x: hidden;\n\toverflow-y: scroll;\n\tmax-height: 80vh;\n}\n\n@media (max-width: 800px) {\n\t.maps-container {\n\t\tgrid-template-columns: 320px;\n\t}\n}\n\n.map-item {\n\tposition: relative;\n}\n\n.map-item-title {\n\tfont-size: 30pt;\n\tmargin: 0;\n\tmargin-bottom: 5px;\n\twhite-space: nowrap;\n\toverflow: hidden;\n\ttext-overflow: ellipsis;\n}\n\n.map-item-thumb {\n\twidth: 320px;\n\theight: 160px;\n\t--wrinkled-paper-wrinkle-size: 8px;\n\t--wrinkled-paper-tear-count-min: 0.003;\n\t--wrinkled-paper-tear-count-max: 0.004;\n\tfilter: var(--default-drop-shadow);\n}\n\n.map-item-thumb-layer {\n\twidth: 520px;\n\theight: 360px;\n\tleft: 50%;\n\ttop: 50%;\n\ttransform: translate(-50%, -50%);\n\tbackground: center / cover;\n\tposition: absolute;\n\tpointer-events: none;\n}\n\n@supports (animation-timeline: view()) {\n\t.map-item-thumb-layer {\n\t\tanimation: linear thumb-parallax;\n\t\tanimation-timeline: view();\n\t\tanimation-fill-mode: both;\n\t}\n}\n\n.map-item-thumb-layer.legacy {\n\twidth: 320px;\n\theight: 160px;\n}\n\n@keyframes thumb-parallax {\n\t0%  {\n\t\ttransform: translate(-50%, -50%) translateY(calc(0px - var(--layer-offset)));\n\t}\n\t100% {\n\t\ttransform: translate(-50%, -50%) translateY(var(--layer-offset));\n\t}\n}\n\n.map-item-join-button {\n\tposition: absolute;\n\tleft: 50%;\n\tbottom: 0;\n\ttransform: translate(-50%, 50%);\n\tmargin: 0;\n}\n\n.map-ribbon {\n\t--wrinkled-paper-color: #ff0c0c;\n\tcolor: white;\n\tfont-size: 18px;\n\tpadding: 7px;\n\tpointer-events: none;\n\twidth: 200px;\n\ttext-align: center;\n\tz-index: 100;\n\tposition: absolute;\n\ttransform: rotate(-29deg);\n\ttop: 18px;\n\tleft: -64px;\n}\n\n.map-item.highlight {\n\tanimation: wrinkled-paper-highlight 5s;\n\t--highlight-end-background-color: var(--shop-item-background-color);\n}\n",
+);
+const Co = new CSSStyleSheet();
+Co.replaceSync(
+	".settings-list {\n\toverflow: auto;\n\tmax-height: min(400px, 50vh);\n}\n\n.settings-group-header {\n\tposition: sticky;\n\ttop: -5px;\n\tmargin: 0;\n\tbackground: var(--default-ui-bg-color);\n\tpadding-top: 5px;\n\tpadding-bottom: 10px;\n}\n\n.settings-item {\n\tdisplay: flex;\n\tmargin-bottom: 6px;\n\tflex-wrap: wrap;\n\talign-items: center;\n\tjustify-content: left;\n}\n.settings-item-text {\n\tdisplay: inline;\n\tflex-shrink: 0;\n\twidth: 200px;\n}\n.settings-item-slider {\n\tdisplay: inline-flex;\n\twidth: 220px;\n\tflex-shrink: 0;\n\talign-items: center;\n}\n.settings-item-slider > input {\n\twidth: 170px;\n}\n.settings-item-slider-value {\n\tdisplay: inline-block;\n\twidth: 40px;\n\ttext-align: right;\n}\n\n.linked-accounts > div {\n\tdisplay: flex;\n\tjustify-content: space-between;\n\talign-items: center;\n\t--wrinkled-paper-color: var(\n\t--secondary-ui-bg-color);\n}\n\n.linked-accounts .account-data {\n\tdisplay: flex;\n\tflex-direction: column;\n\tmax-width: 400px;\n\toverflow: hidden;\n\tmargin: 10px;\n}\n\n.linked-accounts .issuer {\n\tfont-size: 8pt;\n}\n\n.account-buttons {\n\tdisplay: flex;\n\tflex-direction: column;\n}\n\n.account-id-container {\n\tmargin: 10px 0;\n}\n\n.account-id {\n\tuser-select: text;\n\t-webkit-user-select: text;\n}\n",
+);
+const ko = new CSSStyleSheet();
+ko.replaceSync(
+	".profile-container {\n\tdisplay: flex;\n\tmargin-bottom: 10px;\n}\n\n.profile-container form {\n\tdisplay: flex;\n}\n\n.profile-container input {\n\tmargin: 0;\n\tline-height: 1;\n\theight: 40px;\n}\n\n.profile-container input:disabled {\n\tcolor: var(--default-text-color);\n\tpointer-events: none;\n}\n\n.player-name {\n\tfont-size: 24px;\n\tpadding: 7px;\n\tline-height: 1;\n}\n\n.dummy-text {\n\tposition: absolute;\n\tfont-size: 24px;\n\tpointer-events: none;\n\tpadding: 7px;\n\tvisibility: hidden;\n}\n\n.profile-container .edit-button {\n\twidth: 40px;\n\theight: 40px;\n\tborder: none;\n\tappearance: none;\n\tbackground: transparent;\n\tpadding: 0;\n\ttransform: translateX(-5px);\n\tfilter: var(--icon-filter);\n\tbackground-image: url(static/img/edit.svg);\n}\n\n.profile-container .input-visible .edit-button {\n\tdisplay: none;\n}\n.profile-container form.editable:not(.input-visible),\n.profile-container form.editable:not(.input-visible) input,\n.profile-container form.editable:not(.input-visible) button {\n\tcursor: pointer;\n}\n.profile-container form.editable:not(.input-visible):hover {\n\topacity: 0.6;\n}\n.profile-container form:not(.input-visible) input {\n\tbackground: transparent;\n}\n\n.profile-stats {\n\tdisplay: grid;\n\tjustify-content: center;\n\tgrid-template-columns: 200px 200px;\n\tgap: 10px;\n}\n\n@media (max-width: 500px) {\n\t.profile-stats {\n\t\tgrid-template-columns: 200px;\n\t}\n}\n\n.profile-stat {\n\t--wrinkled-paper-color: var(--container-ui-bg-color);\n\tpadding: 10px;\n\tdisplay: flex;\n\talign-items: center;\n\tjustify-content: space-between;\n}\n\n.profile-stat-icon {\n\twidth: 25px;\n\theight: 25px;\n\ttransform: scale(1.5);\n\tfilter: var(--icon-filter);\n}\n",
+);
+const Po = new CSSStyleSheet();
+Po.replaceSync(
+	".reward-key-rewards-list {\n\tdisplay: flex;\n\tgap: 10px;\n\tmargin: 40px 10px;\n\tmax-width: 80vw;\n\tflex-wrap: wrap;\n\talign-content: center;\n\tjustify-content: center;\n}\n\n.currency-reward {\n\t--wrinkled-paper-color: var(--shop-item-background-color);\n\tpadding: 20px;\n\theight: 30px;\n}\n",
+);
+const xo = new CSSStyleSheet();
+xo.replaceSync(
+	".shopDialogContent{\n\tdisplay: flex;\n\talign-items: stretch;\n\tmax-width: 80vw;\n\twidth: max-content;\n\tgap: 10px;\n}\n\nh2.shop-presets-title {\n\tmargin: 0;\n}\n\n.shop-skin-selection-list {\n\tdisplay: flex;\n\toverflow-x: scroll;\n\tmax-width: 700px;\n\tscroll-behavior: smooth;\n}\n\n@media (min-height: 650px) and (min-width: 800px) {\n\t.shop-class-selection-list {\n\t\toverflow-x: initial;\n\t\tflex-wrap: wrap;\n\t\tjustify-content: center;\n\t\twidth: 700px;\n\t}\n}\n\n.shop-skin-selection-item {\n\tposition: relative;\n\tmin-width: 200px;\n\tmin-height: 320px;\n\tmargin: 10px;\n}\n\n.shop-skin-selection-image {\n\tmin-width: 200px;\n\tmin-height: 300px;\n}\n\n.shop-class-selection-item {\n\tmin-height: 240px;\n}\n\n.shop-skin-selection-list-add-button {\n\talign-self: center;\n}\n\n.shop-skin-selection-edit-button {\n\tposition: absolute;\n    left: 50%;\n    bottom: 0px;\n    transform: translate(-50%, 0);\n    margin: 0px;\n}\n\n.corner-delete-button {\n\tposition: absolute;\n\ttop: 0;\n\tright: 0;\n\tpadding: 8px;\n\tfont-size: 12pt;\n\theight: auto;\n\tmargin: 0;\n}\n\n.shop-items-grid-view{\n\tdisplay: grid;\n\tgrid-template-columns: repeat(auto-fit, 100px);\n\tgrid-gap: 5px;\n\twidth: 100%;\n\theight: fit-content;\n\tjustify-content: center;\n\toverflow: hidden;\n}\n\n.shopItem{\n\tborder: none;\n\twidth: 100px;\n\theight: 100px;\n\tposition: relative;\n\t--wrinkled-paper-color: var(--shop-item-background-color);\n}\n\n.shopItemUsage-preview {\n\tmargin: auto;\n\twidth: 200px;\n\theight: 200px;\n}\n\n.shopItem.selected{\n\t--wrinkled-paper-border-size: 3;\n\t--wrinkled-paper-border-color: var(--default-wrinkled-paper-border-color);\n}\n.shopItem:focus-visible {\n\toutline: none;\n\t--wrinkled-paper-border-size: 3;\n\t--wrinkled-paper-border-color: var(--blue-highlight-color);\n}\n\n.shopItem:not(.shopItemUsage-preview):not(.selected.preventUnequip) {\n\tcursor: pointer;\n}\n.shopItem:hover:not(.shopItemUsage-preview):not(.selected.preventUnequip) {\n\t--wrinkled-paper-color: var(--shop-item-background-color-hover);\n}\n.shopItem:active:not(.shopItemUsage-preview):not(.selected.preventUnequip) {\n\t--wrinkled-paper-color: var(--shop-item-background-color-active);\n}\n\n.shopItem.highlight:not(.shopItemUsage-preview) {\n\tanimation: wrinkled-paper-highlight 5s;\n\t--highlight-end-background-color: var(--shop-item-background-color);\n}\n\n.shopItem > canvas {\n\tpointer-events: none;\n}\n.shopItem > canvas.needs-mask {\n\t--mask: radial-gradient(closest-side, black 50%, transparent);\n\t-webkit-mask-image: var(--mask);\n\tmask-image: var(--mask);\n}\n.shopItemLocked:not(.shopItemUsage-preview) > canvas {\n\tfilter: grayscale(100%);\n}\n.shopItem:not(.shopItemUsage-preview) > canvas {\n\twidth: 100px;\n\theight: 100px;\n\ttransition: transform 0.2s;\n\tz-index: 101;\n\tposition: relative;\n}\n\n.shopItemLock {\n\twidth: 80px;\n\theight: 80px;\n\tposition: absolute;\n\tleft: 50%;\n\ttop: 50%;\n\ttransform: translate(-50%, -50%);\n\tbackground: url(static/img/menuUI/shop/lock.svg);\n\topacity: 0.4;\n\ttransition: opacity 0.2s;\n\tz-index: 102;\n}\n.shopItemLock.rewarded-break-unlockable {\n\twidth: 60px;\n\theight: 60px;\n\tbackground: url(static/img/rewardedAdIcon.svg);\n}\n\n.shopItem:not(.shopItemUsage-preview):hover > canvas {\n\tfilter: none;\n\ttransform: scale(1.7);\n}\n.shopItem:hover > .shopItemLock {\n\topacity: 0;\n}\n\n.shopItemOwned > .shopItemLock, .shopItemUsage-preview > .shopItemLock {\n\tdisplay: none;\n}\n\n.shopItem > .currency-wrapper {\n\tposition: absolute;\n\tbottom: 0;\n\tleft: 50%;\n\ttransform: translateX(-50%);\n\toverflow: hidden;\n\tz-index: 103;\n}\n.shopItem:not(.shopItemUsage-preview):hover > .currency-wrapper {\n\tz-index: 100;\n}\n.shopItem > .currency-wrapper > .currency-container {\n\ttransition: transform 0.2s;\n}\n.shopItem:hover > .currency-wrapper > .currency-container {\n\ttransform: translateY(100%);\n}\n\n.shopItem > plus-icon-wrapper {\n\tposition: absolute;\n\tdisplay: flex;\n\tbottom: 4px;\n\tleft: 0;\n\tpadding-left: 2px;\n\twidth: 100%;\n\tpointer-events: none;\n}\n\n.shopItem:hover > plus-icon-wrapper {\n\toverflow: hidden;\n}\n\n.shopItem > plus-icon-wrapper > peli-plus-icon {\n\ttransition: transform 0.2s, opacity 0.4s;\n}\n\n.shopItem:hover > plus-icon-wrapper > peli-plus-icon {\n\ttransform: translateY(150%);\n\topacity: 0;\n}\n\n.shop-skin-preview {\n\tdisplay: inline-block;\n\tmin-width: 400px;\n\tbackground: #0088ff;\n\tposition: relative;\n}\n\n.shop-skin-preview-canvas {\n\tdisplay: block;\n}\n\n.shop-skin-preview-download-button {\n\twidth: 50px;\n\theight: 50px;\n\tbackground: url(static/img/menuUI/download.svg);\n\tposition: absolute;\n\tbottom: 0;\n\tright: 0;\n\tcursor: pointer;\n\topacity: 0.4;\n}\n.shop-skin-preview-download-button:hover {\n\topacity: 0.7;\n}\n\n.shop-gender-toggle-container {\n\tdisplay: flex;\n\talign-items: center;\n}\n.gender-icon{\n\twidth: 25px;\n\theight: 25px;\n\tbackground: no-repeat center;\n\tfilter: var(--icon-filter);\n}\n.gender-icon.male {\n\tbackground-image: url(static/img/menuUI/shop/male.svg);\n}\n.gender-icon.female {\n\tbackground-image: url(static/img/menuUI/shop/female.svg);\n}\n\n.shop-color-buttons-corner {\n\tdisplay: flex;\n}\n\n.shop-color-button {\n\twidth: 20px;\n\theight: 20px;\n\tmargin: 0 1px;\n\tappearance: none;\n\tborder-radius: 100px;\n\toutline: none;\n\tborder: 2px solid var(--default-wrinkled-paper-border-color);\n\tpadding: 0;\n\tbox-shadow: 0px 1px var(--default-wrinkled-paper-border-color);\n\tcursor: pointer;\n}\n\n.shop-color-button:hover {\n\tfilter: brightness(120%);\n}\n\n.stat-class-tooltip {\n\tposition: absolute;\n\t--wrinkled-paper-color: var(--shop-item-background-color);\n\tpadding: 10px;\n\tpointer-events: none;\n\ttransition: transform 0.2s, opacity 0.2s;\n\ttransform: translate(-50%, -100%);\n\tfilter: var(--default-drop-shadow);\n}\n.stat-class-tooltip.transitioning {\n\ttransform: translate(-50%, -80%);\n\topacity: 0;\n}\n\n.stat-class-tooltip ul {\n\tlist-style-type: none;\n\tpadding: 0;\n\tmargin: 0;\n}\n\n.stat-class-tooltip li {\n\tdisplay: flex;\n\talign-items: center;\n\tgap: 5px;\n}\n\n.stat-class-icon {\n\twidth: 25px;\n\theight: 25px;\n\tdisplay: inline-block;\n}\n\n.shop-paged-view-container {\n\twidth: 340px;\n\theight: 600px;\n\tposition: relative;\n\toverflow: hidden;\n}\n\n@media (max-height: 700px), (max-width: 950px) {\n\t.shop-paged-view-container {\n\t\theight: 300px;\n\t}\n\n\t.shop-skin-preview {\n\t\tmin-width: 200px;\n\t}\n\n\t.shop-skin-preview-canvas {\n\t\theight: 300px;\n\t}\n}\n\n@media (max-width: 550px) {\n\t.shop-skin-preview {\n\t\tdisplay: none;\n\t}\n\n\t.shop-paged-view-container {\n\t\theight: calc(100vh - 150px);\n\t}\n}\n",
+);
+const Mo = new CSSStyleSheet();
+Mo.replaceSync(
+	'.squad-split-container {\n\tdisplay: flex;\n\tjustify-content: center;\n\talign-items: stretch;\n\tmargin-bottom: 30px;\n}\n\n.squad-split-divider {\n\tdisplay: flex;\n\tflex-direction: column;\n\ttext-align: center;\n\tmargin: 0px 15px;\n}\n\n.squad-split-divider-line {\n\twidth: 19px;\n\tflex-grow: 1;\n\t--wrinkled-line-direction: vertical;\n\t--wrinkled-line-segments: 0.05;\n\t--wrinkled-line-wrinkle-size: 6px;\n}\n\n.squad-split-section {\n\twidth: 234px;\n\ttext-align: center;\n\tmargin: auto;\n}\n\n.squad-id-container {\n\tdisplay: flex;\n\talign-items: center;\n\tjustify-content: center;\n\tgap: 7px;\n}\n\n.squad-id-button {\n\tpadding: 0;\n\tposition: relative;\n}\n\n.squad-id-copied-text {\n\tcolor: var(--default-text-color);\n\tposition: absolute;\n\tleft: 50%;\n\ttop: 50%;\n\ttransform: translate(-50%, -50%);\n\tdisplay: none;\n}\n.squad-id-copied-text.animating {\n\tdisplay: inherit;\n\tanimation-name: copy-squad-url-button-animation;\n\tanimation-duration: 1s;\n\tanimation-fill-mode: both;\n}\n\n@keyframes copy-squad-url-button-animation {\n\t0% {\n\t\topacity: 1;\n\t\ttransform: translate(-50%, -50%);\n\t}\n\t100% {\n\t\topacity: 0;\n\t\ttransform: translate(-50%, -50%) translateY(-30px);\n\t}\n}\n\n.squad-id {\n\tfont-size: 20pt;\n}\n\n.join-squad-input {\n\twidth: 100%;\n\ttext-align: center;\n}\n\n.in-squad-content {\n\tdisplay: flex;\n\tjustify-content: center;\n\talign-items: flex-start;\n}\n\n.squad-settings-button {\n\twidth: 30px;\n\theight: 30px;\n\tposition: absolute;\n\tright: 20px;\n\tbottom: 20px;\n}\n\n.squad-players-list {\n\tbackground: var(--items-table-bg-color) !important;\n\toverflow: auto;\n\tflex-grow: 1;\n\tmax-width: 345px;\n\tmax-height: min(300px, 30vh);\n}\n\n.squad-players-list > table {\n\twidth: 100%;\n}\n\n.squad-players-list > table > tbody > tr > .squad-players-leader-container {\n\twidth: 20px;\n}\n\n.squad-players-list > table > tbody > tr > .squad-players-avatar-container {\n\twidth: 40px;\n\tpadding: 0px;\n}\n\n.squad-leader-icon {\n\tbackground: url(static/img/menuUI/crown.svg) no-repeat center;\n\twidth: 15px;\n\theight: 15px;\n\tfilter: var(--icon-filter);\n}\n\n.in-squad-buttons {\n\tdisplay: flex;\n\tflex-direction: column;\n\talign-self: flex-end;\n}\n\n.in-squad-buttons.hidden {\n\tdisplay: none;\n}\n\n@media (max-width: 520px) {\n\t.squad-split-container {\n\t\tflex-direction: column;\n\t}\n\n\t.squad-split-divider {\n\t\tflex-direction: row;\n\t\tmargin: 15px 0px;\n\t}\n\n\t.squad-split-divider-line {\n\t\t--wrinkled-line-direction: horizontal;\n\t}\n\n\t.in-squad-content {\n\t\tflex-direction: column;\n\t\talign-items: stretch;\n\t}\n\n\t.in-squad-buttons {\n\t\tflex-flow: row wrap;\n\t\talign-self: auto;\n\t}\n\n\t.squad-split-divider-line {\n\t\t--wrinkled-line-wrinkle-size: 3px;\n\t}\n\n\t.squad-split-divider > span {\n\t\tmargin: 0px 10px;\n\t}\n\n\t.squad-players-list {\n\t\tmax-width: 100%;\n\t}\n\n\n\t.squad-settings-button {\n\t\tright: 20px;\n\t\ttop: 20px;\n\t\tbottom: initial;\n\t}\n}\n\n.squad-settings-leader-only-message {\n\tmax-width: 200px;\n\tmargin-bottom: 20px;\n}\n\n.squad-team-color-selection-group {\n\twidth: 160px;\n\tpadding: 10px 0px;\n}\n\n.squad-team-color-selection-group input[type="radio"] {\n\tdisplay: none;\n}\n\n.squad-team-color-selection-group label {\n\tdisplay: inline-block;\n\tcursor: pointer;\n}\n\n.squad-team-color-selection-group input[type="radio"] ~ * {\n\topacity: 0.5;\n}\n.squad-team-color-selection-group input[type="radio"]:checked ~ * {\n\topacity: 1;\n}\n',
+);
+const Ao = new CSSStyleSheet();
+Ao.replaceSync(
+	".class-selection-image-container {\n\tposition: relative;\n\tmin-width: 200px;\n\tmin-height: 200px;\n}\n\n.class-selection-image,\n.class-selection-image-background {\n\tposition: absolute;\n\tinset: 0;\n}\n\n.class-selection-image {\n\tbackground-size: contain;\n}\n\n.class-selection-image-background {\n\t--wrinkled-paper-color: #d8d8d8;\n\t--wrinkled-paper-banner-color: #0000001c;\n\t--wrinkled-paper-banner-size: 40px;\n\t--wrinkled-paper-border-size: 20px;\n\t--wrinkled-paper-border-color: #0000002b;\n}\n",
+);
+const Io = new CSSStyleSheet();
+Io.replaceSync(
+	".active-gamemode-container {\n\tposition: absolute;\n\tright: env(safe-area-inset-right);\n\ttop: env(safe-area-inset-top);\n\tz-index: 100;\n\tmargin: 30px;\n\tmargin-top: 18px;\n\tfont-size: 16pt;\n}\n\n.flag-score-container, .elimination-score-container {\n\tposition: absolute;\n\tright: env(safe-area-inset-right);\n\ttop: env(safe-area-inset-top);\n\tz-index: 100;\n\tmargin: 30px;\n\tmargin-top: 40px;\n\tfilter: var(--default-drop-shadow);\n\tpointer-events: none;\n}\n\n@media(max-width: 700px), (max-height: 450px){\n\t.flag-score-container {\n\t\tmargin: 10px;\n\t\ttransform: scale(0.5);\n\t\ttransform-origin: top right;\n\t}\n}\n\n.flag-score-item {\n\tmargin: 3px;\n\tdisplay: flex;\n\tgap: 5px;\n}\n\n.flag-score-icon {\n\theight: 50px;\n\twidth: 50px;\n\tmargin-right: 10px;\n}\n\n.score-ui-dot {\n\twidth: 40px;\n\theight: 40px;\n\talign-self: center;\n\ttransform: scale(1.5);\n}\n\n.score-ui-dot .shadow {\n\tfill: rgba(0, 0, 0, 0.1);\n}\n.score-ui-dot .bg {\n\tfill: var(--not-black);\n}\n\n.score-ui-dot .return-timer-mask-bg,\n.score-ui-dot .return-timer-mask-fg {\n\ttransition: fill 0.5s;\n}\n\n.score-ui-dot .return-timer-mask-bg {\n\tfill: #999999;\n}\n\n.score-ui-dot .return-timer-mask-fg {\n\tfill: white;\n}\n\n.score-ui-dot.returned .return-timer-mask-bg,\n.score-ui-dot.returned .return-timer-mask-fg {\n\tfill: black;\n}\n\n.score-ui-dot.grabbed .return-timer-mask-bg,\n.score-ui-dot.grabbed .return-timer-mask-fg {\n\tfill: white;\n}\n\n.score-ui-dot .center-dot {\n\tfill: white;\n\ttransform-origin: center;\n\ttransition: transform 0.2s, fill 0.2s;\n}\n\n.score-ui-dot.captured .center-dot {\n\tfill: var(--team-color);\n}\n\n.score-ui-dot:not(.captured) .center-dot {\n\ttransform: scale(0.5);\n}\n\n.score-ui-dot .border {\n\tfill: transparent;\n\tstroke-width: 15px;\n}\n\n.score-ui-dot .border.bg {\n\tstroke: #656565;\n\tstroke-width: 13px;\n}\n.score-ui-dot .border.fg {\n\tstroke: white;\n}\n\n.score-ui-dot.removed .border,\n.score-ui-dot.removed .bg {\n\tdisplay: none;\n}\n\n.score-ui-dot:not(.removed.animating) .shards-container {\n\tdisplay: none;\n}\n.score-ui-dot.removed.animating .shards-container {\n\tanimation: score-ui-dot-break 1s both ease-out;\n}\n\n@property --shard-move-amount {\n\tsyntax: '<number>';\n\tinitial-value: 0;\n\tinherits: true;\n}\n\n@keyframes score-ui-dot-break {\n\t0% {\n\t\t--shard-move-amount: 0;\n\t\topacity: 1;\n\t}\n\t20% {\n\t\t--shard-move-amount: 1.3;\n\t\topacity: 1;\n\t}\n\t100% {\n\t\t--shard-move-amount: 1.3;\n\t\topacity: 0;\n\t}\n}\n\n.score-ui-dot .shard {\n\tfill: var(--not-black);\n\ttransform: translate(calc(var(--shard-move-amount) * var(--x-amount)), calc(var(--shard-move-amount) * var(--y-amount)));\n}\n",
+);
+const Lo = new CSSStyleSheet();
+Lo.replaceSync(
+	".game-timer-container {\n\tposition: absolute;\n\tright: env(safe-area-inset-right);\n\ttop: env(safe-area-inset-top);\n\tz-index: 100;\n\tmargin: 30px;\n\tmargin-top: 40px;\n\tpointer-events: none;\n\tfont-size: 35pt;\n}\n\n.timer-digit {\n\tdisplay: inline-block;\n\twidth: 20px;\n\ttext-align: center;\n}\n",
+);
+const To = new CSSStyleSheet();
+To.replaceSync(
+	".king-of-the-hill-ui-container {\n\tposition: absolute;\n\tright: env(safe-area-inset-right);\n\ttop: env(safe-area-inset-top);\n\tz-index: 100;\n\tmargin: 30px;\n\tmargin-top: 40px;\n\tpointer-events: none;\n\tdisplay: flex;\n\tflex-direction: column;\n\tgap: 10px;\n\tpadding: 10px;\n\tfilter: var(--default-drop-shadow);\n}\n\n.king-of-the-hill-progress.container {\n\tposition: relative;\n}\n\n.king-of-the-hill-progress.container,\n.king-of-the-hill-progress .bg,\n.king-of-the-hill-progress .value-color {\n\twidth: 200px;\n\theight: 10px;\n}\n\n.king-of-the-hill-progress .value,\n.king-of-the-hill-progress .bg {\n\tposition: absolute;\n\ttop: 0;\n\tleft: 0;\n\twidth: 100%;\n\theight: 100%;\n\t--wrinkled-paper-color: #a5a5a533;\n}\n\n.king-of-the-hill-progress .bg,\n.king-of-the-hill-progress .value-color {\n\t--wrinkled-paper-wrinkle-size: 2px;\n\t--wrinkled-paper-tear-count-min: 0;\n\t--wrinkled-paper-tear-count-max: 0;\n}\n\n.king-of-the-hill-progress .value {\n\toverflow: hidden;\n}\n",
+);
+const Eo = new CSSStyleSheet();
+Eo.replaceSync(
+	".corner-stats-container {\n\tposition: absolute;\n\tbottom: 0;\n\tleft: 0;\n\tmargin: 5px;\n\tz-index: 1;\n}\n.corner-stats-container.hidden {\n\tdisplay: none;\n}\n\n.corner-stat {\n\tfont-size: 20pt;\n}\n\n.corner-stat .red {\n\tcolor: #ff2424;\n}\n",
+);
+const Do = new CSSStyleSheet();
+Do.replaceSync(
+	".chat-container {\n\tposition: absolute;\n\tleft: 20px;\n\tbottom: 20px;\n\tpadding: 10px;\n\tfilter: var(--default-drop-shadow);\n\tpadding: 20px;\n\ttransition: transform 0.3s;\n\tz-index: 1;\n}\n.chat-container.up {\n\tbottom: 70px;\n}\n.chat-container.touch {\n\tbottom: 200px;\n}\n\n.chat-container.hidden {\n\ttransform: translateX(-150%);\n}\n\n.chat-log-container {\n\toverflow: hidden;\n\tmax-height: min(150px, 50vh);\n\tmax-width: min(400px, 50vw);\n}\n\n.chat-message-container {\n\tdisplay: flex;\n\tgap: 7px;\n\tmargin-bottom: 10px;\n}\n\n.chat-message-content {\n\toverflow-wrap: anywhere;\n\toverflow: hidden;\n}\n\n.chat-message-name {\n\tmargin: 0;\n}\n\n.chat-message-container .filtered-warning {\n\tcolor: rgb(200, 104, 0);\n}\n\nhtml.theme-dark .chat-message-container .filtered-warning {\n\tcolor: rgb(255, 177, 22);\n}\n\n.chat-message-container .filtered-error {\n\tcolor: rgb(187, 0, 0);\n}\n\nhtml.theme-dark .chat-message-container .filtered-error {\n\tcolor: rgb(255, 69, 69);\n}\n\n\n.chat-input {\n\tfont-size: 16px;\n\theight: 30px;\n\twidth: 300px;\n\tmargin: 0;\n}\n\n.chat-input::placeholder {\n\tfont-family: BlueNight, sans-serif;\n\ttext-transform: lowercase;\n\tfont-weight: lighter;\n\tline-height: 0.7em;\n\tfont-size: 20px;\n}\n",
+);
+const Oo = new CSSStyleSheet();
+Oo.replaceSync(
+	".health-ui-container {\n\tposition: absolute;\n\tleft: 0;\n\ttop: 0;\n\tmargin: 30px;\n\tmargin-left: calc(env(safe-area-inset-left) + 60px);\n\tz-index: 100;\n\tpointer-events: none;\n\tfilter: var(--default-drop-shadow);\n\t--wrinkled-paper-wrinkle-size: 3px;\n}\n\n@media(max-width: 700px), (max-height: 450px){\n\t.health-ui-container{\n\t\ttransform: scale(0.5);\n\t\ttransform-origin: top left;\n\t\tmargin-top: calc(env(safe-area-inset-top) + 15px);\n\t}\n}\n\n.health-ui-bar-container {\n\tmargin: 8px;\n\tposition: relative;\n}\n\n.health-ui-bar-container, .health-ui-bar {\n\twidth: 270px;\n\theight: 22px;\n}\n\n.health-ui-bar {\n\tposition: absolute;\n\t--wrinkled-paper-wrinkle-size: 3px;\n\t--wrinkled-paper-tear-count-min: 0;\n\t--wrinkled-paper-tear-count-max: 0;\n}\n\n.health-ui-bar.border {\n\t--wrinkled-paper-border-size: 6px;\n\t--wrinkled-paper-color: transparent;\n}\n\n.health-ui-bar.clip {\n\toverflow: hidden;\n}\n\n.health-ui-bar.main {\n\t--wrinkled-paper-banner-color: #0000001c;\n\t--wrinkled-paper-banner-size: 40px;\n}\n\n.health-ui-bar.damage-protection {\n\t--wrinkled-paper-color: white;\n\ttransition: opacity 2s;\n\topacity: 0;\n}\n\n.health-ui-bar.bg {\n\t--wrinkled-paper-color: black;\n}\n\n.health-ui-heart {\n\twidth: 40px;\n\theight: 40px;\n\tposition: absolute;\n\tleft: -18px;\n\ttop: -5px;\n}\n\n.health-ui-heart .fg {\n\ttransform-origin: center;\n\ttransform-style: preserve-3d;\n}\n\n.health-ui-heart .fg.beating {\n\tanimation: 1.5s infinite beat;\n}\n\n@keyframes beat {\n\t0% { transform: none; }\n\t8% { transform: perspective(30px) rotate3d(1,1,0, -10deg) scale3d(1.1, 1.2, 1.1); }\n\t15% { transform: perspective(30px) rotate3d(1,1,0, 00deg) scale3d(1.2, 1.2, 1.2); }\n\t22% { transform: perspective(30px) rotate3d(1,1,0, 10deg) scale3d(1.2, 1.1, 1.1); }\n\t30% { transform: perspective(30px) rotate3d(1,1,0, -5deg) scale3d(0.95, 0.95, 0.95); }\n\t38% { transform: none; }\n\t100% { transform: none; }\n}\n",
+);
+const Fo = new CSSStyleSheet();
+Fo.replaceSync(
+	".mobile-address-bar-detector {\n\tposition: fixed;\n\ttop: 0;\n\tleft: 0;\n\twidth: 10px;\n\theight: calc(100lvh - 100dvh);\n\tpointer-events: none;\n}\n",
+);
+const Bo = new CSSStyleSheet();
+Bo.replaceSync(
+	'#qc-cmp2-ui {\n\tbackground: paint(wrinkledPaper);\n\t--wrinkled-paper-wrinkle-size: 6px;\n\t--wrinkled-paper-color: white;\n\t--wrinkled-paper-border-segments: 0.016;\n\t--wrinkled-paper-tear-count-min: 0.001;\n\t--wrinkled-paper-tear-count-max: 0.003;\n\t--wrinkled-paper-tear-depth-min: 5px;\n\t--wrinkled-paper-tear-depth-max: 15px;\n\t--wrinkled-paper-tear-width-min: 10px;\n\t--wrinkled-paper-tear-width-max: 20px;\n\t--wrinkled-paper-tear-angle-offset-min: 0.7;\n\t--wrinkled-paper-tear-angle-offset-max: 1.1;\n\t--wrinkled-paper-seed: 33;\n}\n\n#qc-cmp2-ui .qc-cmp2-consent-info {\n\tpadding: 30px;\n}\n\n.qc-cmp2-publisher-logo-container {\n\tmax-height: calc(100vh - 170px) !important;\n}\n\n#qc-cmp2-ui h2 {\n\tfont-family: BlueNight, sans-serif;\n\ttext-transform: lowercase;\n\tfont-weight: lighter;\n\tline-height: 0.7em;\n\tfont-size: 26pt;\n}\n\n#qc-cmp2-ui .qc-cmp2-footer {\n\tborder-top: none;\n\tbox-shadow: none;\n}\n\n#qc-cmp2-ui button[mode="primary"] > span,\n#qc-cmp2-ui button[mode="secondary"] > span,\n#qc-cmp2-ui button[mode="primary"],\n#qc-cmp2-ui button[mode="secondary"] {\n\tfont-family: BlueNight, sans-serif;\n\ttext-transform: lowercase;\n\tfont-weight: lighter;\n\tline-height: 0.7em;\n\tfont-size: 18pt;\n\tcursor: pointer;\n}\n\n#qc-cmp2-ui button[mode="primary"],\n#qc-cmp2-ui button[mode="secondary"] {\n\tpadding: 7px 30px;\n    margin: 4px 10px;\n    font-size: 24px;\n    height: 38px;\n    color: black;\n    white-space: nowrap;\n\n\tborder: none;\n\tappearance: none;\n\tbox-shadow: none;\n\tdisplay: block;\n\ttransition: none;\n\n\tbackground: paint(wrinkledPaper);\n\t--wrinkled-paper-color: white;\n    --wrinkled-paper-border-size: 3;\n    --wrinkled-paper-border-size-bottom: 6;\n    --wrinkled-paper-border-color: #353535;\n    --wrinkled-paper-seed: 70;\n    --wrinkled-paper-wrinkle-size: 2px;\n    --wrinkled-paper-border-segments: 0.02;\n    --wrinkled-paper-tear-count-min: 0;\n    --wrinkled-paper-tear-count-max: 0;\n}\n\n#qc-cmp2-ui button[mode="primary"]:hover:not(:disabled),\n#qc-cmp2-ui button[mode="secondary"]:hover:not(:disabled) {\n\tfilter: brightness(0.9);\n}\n#qc-cmp2-ui button[mode="primary"]:active:not(:disabled),\n#qc-cmp2-ui button[mode="secondary"]:active:not(:disabled) {\n\tfilter: brightness(0.8);\n}\n\n@media (min-width: 768px) {\n\t#qc-cmp2-ui button.qc-cmp2-hide-desktop {\n\t\tdisplay: none;\n\t}\n}\n',
+);
+document.adoptedStyleSheets = [
+	go,
+	mo,
+	fo,
+	wo,
+	bo,
+	yo,
+	So,
+	vo,
+	Co,
+	ko,
+	Po,
+	xo,
+	Mo,
+	Ao,
+	Io,
+	Lo,
+	To,
+	Eo,
+	Do,
+	Oo,
+	Fo,
+	Bo,
+];
+let builtAt = "";
+if (window.Intl && Intl.RelativeTimeFormat) {
+	const e = new Intl.RelativeTimeFormat();
+	const i = Date.now() / 1000 - Number("1790709288");
+	builtAt =
+		i < 60
+			? e.format(-Math.floor(i), "second")
+			: i < 3600
+				? e.format(-Math.floor(i / 60), "minute")
+				: i < 86400
+					? e.format(-Math.floor(i / 60 / 60), "hour")
+					: i < 31536000
+						? e.format(-Math.floor(i / 60 / 60 / 24), "day")
+						: e.format(-Math.floor(i / 60 / 60 / 24 / 365), "year");
+	builtAt = ` (${builtAt})`;
+}
+console.log(`loading v1790709288${builtAt}`);
+main = new Main();
+main.init();
