@@ -46,6 +46,20 @@ class MapLoadError extends Error {
 	}
 }
 
+export interface AssetWorkerSend {
+	setBasePath(path: string): Promise<unknown>;
+	signalAborted(signalId: number): Promise<unknown>;
+	removeAbortSignal(signalId: number): Promise<unknown>;
+	loadGlbAsset(options: Record<string, unknown>): Promise<unknown>;
+	setBaseSkinBuffers(buffers: Record<string, ArrayBuffer>): Promise<unknown>;
+	buildSkin(options: Record<string, unknown>): Promise<unknown>;
+	buildBow(options: Record<string, unknown>): Promise<unknown>;
+	buildConfigObject(options: Record<string, unknown>): Promise<unknown>;
+	cacheRemainingMaps(hashes: string[], config: unknown): Promise<unknown>;
+	loadMap(request: unknown, requestId: number): Promise<unknown>;
+	loadClouds(buffer: ArrayBuffer): Promise<unknown>;
+	setConfigBasePath(path: string): Promise<unknown>;
+}
 class AssetWorkerMessenger {
 	returnTransferSupport;
 	lastRequestId = 0;
@@ -63,7 +77,7 @@ class AssetWorkerMessenger {
 	onRequestIdMessageCbs = new Map();
 	serializeErrorHook: ((arg0: unknown) => any) | null;
 	deserializeErrorHook: ((arg0: any) => any) | null;
-	send;
+	send: AssetWorkerSend;
 	sendWithTransfer;
 
 	constructor({
@@ -84,7 +98,7 @@ class AssetWorkerMessenger {
 				},
 			},
 		);
-		this.send = i;
+		this.send = i as unknown as AssetWorkerSend;
 		const r = new Proxy(
 			{},
 			{

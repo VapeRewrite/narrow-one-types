@@ -1,4 +1,5 @@
-import { Mesh, Object3D, Matrix4, Vector3, Quaternion, Scene, PlaneGeometry, Color, ShaderMaterial, Box3, Vector2, PerspectiveCamera, type Renderer, Texture } from "three";
+import { AssetWorkerMessenger, n as n_1 } from "./three";
+import { Mesh, Object3D, Matrix4, Vector3, Quaternion, Scene, PlaneGeometry, Color, ShaderMaterial, Box3, Sphere, Vector2, PerspectiveCamera, Group, type Renderer, Texture } from "three";
 declare class IndexedDB {
     dbName: string;
     objectStoreNames: string[];
@@ -10,10 +11,10 @@ declare class IndexedDB {
     closeConnection(): Promise<void>;
     _promisifyRequest<T>(openRequest: IDBRequest<T>): Promise<T>;
     deleteDb(): Promise<void>;
-    get(key: IDBValidKey | IDBKeyRange, storeName?: string): Promise<any>;
-    set(key: IDBValidKey, value: any, storeName?: string): Promise<void>;
-    getSet(key: IDBValidKey | undefined, getValue: (cur: any) => any, storeNames?: string, remove?: boolean): Promise<void>;
-    delete(key: string, e?: string): Promise<void>;
+    get<T = unknown>(key: IDBValidKey | IDBKeyRange, storeName?: string): Promise<T | undefined>;
+    set(key: IDBValidKey, value: unknown, storeName?: string): Promise<void>;
+    getSet(key: IDBValidKey | undefined, getValue: (cur: unknown) => unknown, storeNames?: string, remove?: boolean): Promise<void>;
+    delete(key: string, storeName?: string | undefined): Promise<void>;
 }
 type SettingValue = string | number | boolean;
 declare class SettingsManager {
@@ -66,9 +67,9 @@ declare class SettingsManager {
     getValue(k: string): SettingValue | undefined;
     setValue(k: string, v: SettingValue): void;
     fireValueChange(k: string, v: SettingValue): void;
-    onValueChange(k: string, v: SettingValue): void;
-    removeOnValueChange(t: any, e: any): void;
-    onSettingsLoaded(t: any): void;
+    onValueChange(k: string, cb: (v: SettingValue) => void): void;
+    removeOnValueChange(k: string, cb: (v: SettingValue) => void): void;
+    onSettingsLoaded(cb: () => void): void;
     waitForSettingsLoad(): Promise<void>;
 }
 interface MainMenuButtonProps extends ButtonProps {
@@ -80,11 +81,12 @@ declare class MainMenuButton {
     containerEl: HTMLDivElement;
     el: HTMLButtonElement;
     textEl: HTMLDivElement;
+    iconEl?: HTMLDivElement;
     visible: boolean;
     constructor({ text, icon, testLabel, iconSizeMultiplier, isUpdateIcon, isExitButton, onClick, }?: MainMenuButtonProps);
-    setVisibility(t: any): void;
-    click(t?: boolean): void;
-    setText(t: any): void;
+    setVisibility(visible: boolean): void;
+    click(onlyIfVisible?: boolean): void;
+    setText(text: string): void;
 }
 declare class CurrencyContainer {
     #private;
@@ -101,15 +103,18 @@ declare class CurrencyContainer {
     lastIncrementSfxTime: number;
     boundAnimationLoop: () => void;
     constructor({ amount, testLabel }?: {
-        amount?: number | undefined;
-        testLabel?: string | undefined;
+        amount?: number;
+        testLabel?: string;
     });
-    setAmount(t: any): void;
-    _setAmountText(t: any): void;
+    setAmount(amount: number): void;
+    /**
+     * @param text converted into a string via `String(text)`
+     */
+    _setAmountText(text: number): void;
     get amount(): number;
-    animateAmount(e: any, { durationMultiplier, sfx }?: {
-        durationMultiplier?: number | undefined;
-        sfx?: boolean | undefined;
+    animateAmount(amount: number, { durationMultiplier, sfx }?: {
+        durationMultiplier?: number;
+        sfx?: boolean;
     }): void;
     animationLoop(): void;
     waitForTargetReached(): Promise<void>;
@@ -128,7 +133,7 @@ interface ButtonProps {
     iconSize?: number;
     iconIsInvertable?: boolean;
 }
-declare class Et {
+declare class CustomButton {
     #private;
     el: HTMLButtonElement;
     currencyContainer?: CurrencyContainer;
@@ -139,19 +144,19 @@ declare class Et {
     _visible: boolean;
     constructor({ text, ariaLabel, onClick, showCurrency, currency, extraClasses, testLabel, isIconButton, icon, hasPeliPlusIcon, iconSize, iconIsInvertable, }?: ButtonProps);
     get visible(): boolean;
-    set visible(t: boolean);
+    set visible(visible: boolean);
     click(): void;
-    onClick(t: (e: PointerEvent) => void): void;
-    set enabled(t: boolean);
+    onClick(handler: (event: PointerEvent) => void): void;
+    set enabled(enabled: boolean);
     get enabled(): boolean;
-    setIcon(icon: any): void;
+    setIcon(icon: string | null): void;
     setPeliPlusIcon(): void;
-    setText(t: any): void;
+    setText(text: string | null): void;
 }
-declare class Ft {
+declare class Dialog {
     gameWrapper: HTMLElement;
     allowCurtainClose: boolean;
-    customOnCurtainClickCb: any;
+    customOnCurtainClickCb: (() => boolean) | null;
     needsCurtain: boolean;
     needsUnlockedPointer: boolean;
     indexPriority: number;
@@ -161,154 +166,333 @@ declare class Ft {
     startVisible: boolean;
     _visible: boolean;
     _inert: boolean;
-    onVisibilityChangeCbs: Set<unknown>;
-    onInertChangeCbs: Set<unknown>;
+    onVisibilityChangeCbs: Set<(visible: boolean) => void>;
+    onInertChangeCbs: Set<(inert: boolean) => void>;
     closed: boolean;
-    onCloseCbs: Set<unknown>;
+    onCloseCbs: Set<() => void>;
+    titleEl?: HTMLHeadingElement;
     constructor(gameWrapper: HTMLElement, { allowCurtainClose, customOnCurtainClickCb, startVisible, needsCurtain, needsUnlockedPointer, extraClasses, testLabel, indexPriority, title, }?: {
-        allowCurtainClose?: boolean | undefined;
-        customOnCurtainClickCb?: null | undefined;
-        startVisible?: boolean | undefined;
-        needsCurtain?: boolean | undefined;
-        needsUnlockedPointer?: boolean | undefined;
-        extraClasses?: never[] | undefined;
-        testLabel?: string | undefined;
-        indexPriority?: number | undefined;
-        title?: null | undefined;
+        allowCurtainClose?: boolean;
+        customOnCurtainClickCb?: (() => boolean) | null;
+        startVisible?: boolean;
+        needsCurtain?: boolean;
+        needsUnlockedPointer?: boolean;
+        extraClasses?: string[];
+        testLabel?: string;
+        indexPriority?: number;
+        title?: string | null;
     });
     destructor(): void;
     get rootEl(): HTMLDivElement;
-    setZIndex(t: any): void;
-    setInert(t: any): void;
+    setZIndex(zIndex: number): void;
+    setInert(inert: boolean): void;
     get inert(): boolean;
-    set visible(t: boolean);
+    set visible(visible: boolean);
     get visible(): boolean;
     get transitionVisible(): boolean;
     close(): void;
-    onVisibilityChange(t: any): void;
+    onVisibilityChange(visible: boolean): void;
     onClose(): void;
-    addOnVisibilityChangeCb(t: any): void;
-    addOnInertChangeCb(t: any): void;
-    addOnCloseCb(t: any): void;
+    addOnVisibilityChangeCb(cb: (visible: boolean) => void): void;
+    addOnInertChangeCb(cb: (inert: boolean) => void): void;
+    addOnCloseCb(cb: () => void): void;
+    buttonsContainer?: HTMLDivElement;
     addButtonsContainer({ vertical, parent }?: {
-        vertical?: boolean | undefined;
-        parent?: HTMLDivElement | undefined;
+        vertical?: boolean;
+        parent?: HTMLElement;
     }): void;
-    addButton(t: any): Et;
-    removeButton(t: any): void;
+    addButton(props: ButtonProps): CustomButton;
+    removeButton(button: CustomButton): void;
+}
+type SettingType = "color" | "slider" | "toggle" | "enum";
+interface BaseSettingOptions<T extends SettingType, V> {
+    text: string;
+    type: T;
+}
+interface ColorSettingOptions extends BaseSettingOptions<"color", string> {
+}
+interface EnumSettingOptions extends BaseSettingOptions<"enum", string> {
+    enumValues: {
+        [k: string]: string;
+    };
+}
+interface SliderSettingOptions extends BaseSettingOptions<"slider", number> {
+    min: number;
+    /** @default 1 */
+    step?: number;
+    max: number;
+    /** @default false */
+    triggerOnChange?: boolean;
+}
+interface ToggleSettingOptions extends BaseSettingOptions<"toggle", boolean> {
+}
+type SettingOptions = ColorSettingOptions | SliderSettingOptions | ToggleSettingOptions | EnumSettingOptions;
+declare class Setting<V extends SettingValue, O extends SettingOptions> {
+    type: "color" | "enum" | "slider" | "toggle";
+    el: HTMLLabelElement;
+    valueEl?: HTMLDivElement | undefined;
+    sliderEl?: HTMLInputElement | undefined;
+    dropdownEl?: HTMLSelectElement | undefined;
+    toggleEl?: HTMLInputElement | undefined;
+    colorEl?: HTMLInputElement | undefined;
+    textEl: HTMLDivElement;
+    onValueChangeCbs: Set<(value: V) => void>;
+    constructor(options: O);
+    setValue(value: V): void;
+    getValue(): V;
+    onValueChange(cb: (value: V) => void): void;
+    fireOnValueChange(): void;
+    setDisabled(disabled: boolean): void;
+}
+declare class SettingsDialog extends Dialog {
+    settingsManager: SettingsManager;
+    dialogManager: DialogManager;
+    titleEl: HTMLHeadingElement;
+    settingsListEl: HTMLDivElement;
+    linkedAccountsEl: HTMLDivElement;
+    accountButtonsEl: HTMLDivElement;
+    loginButton: CustomButton;
+    linkAccountButton: CustomButton;
+    manageAccountButton: CustomButton;
+    logoutButton: CustomButton;
+    logoutEverywhereButton: CustomButton;
+    deleteAccountButton: CustomButton;
+    accountIdContainer: HTMLDivElement;
+    accountIdEl: HTMLSpanElement;
+    boundUpdateAccountButtons: () => void;
+    constructor(gameWrapper: HTMLElement, settingsManager: SettingsManager, dialogManager: DialogManager);
+    destructor(): void;
+    createLinkedAccountEl({ email, issuer, unlinkButtonOptions }: {
+        email: string;
+        issuer: string;
+        unlinkButtonOptions?: string | (() => Promise<boolean>) | null;
+    }): void;
+    updateAccountState(): void;
+    createSettingsGroup(groupName: string): HTMLDivElement;
+}
+interface BowConfig {
+    id: string;
+    uiName: string;
+    bowId: string;
+    shopSkeletonLayer: string;
+    bowHandleShopCategories: string[];
+    bowTipShopCategories: string[];
+    bowShopCamPosition: string;
+    bowHandleShopCamPosition: string;
+    bowTipShopCamPosition: string;
+}
+declare class AssetPackage {
+    url: string;
+    isDownloading: boolean;
+    loaded: boolean;
+    arrayBuffer: ArrayBuffer | null;
+    fileLocations: {
+        path: string;
+        start: number;
+        length: number;
+    }[];
+    onLoadCbs: (() => void)[];
+    onProgressCbs: ((percentage01: number) => void)[];
+    lastProgressValue: number;
+    textureCache: Record<string, unknown>;
+    constructor(url: string);
+    startDownloading(): Promise<void>;
+    parseFilePositions(buffer: ArrayBuffer): void;
+    onLoad(cb: () => void): void;
+    onProgress(cb: (percentage01: number) => void): void;
+    waitForLoad(): Promise<void>;
+    hasFile(path: string): Promise<boolean>;
+    getFileAsBuffer(path: string): Promise<ArrayBuffer>;
+    getAsObjectUrl(path: string, mimeType: string): Promise<string | null>;
+    getAsSvg(path: string): Promise<string | null>;
+    getAsText(path: string): Promise<string>;
+    getAsJSON(path: string): Promise<unknown>;
+    blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer>;
+}
+interface AddPackageOpts {
+    /** @default null */
+    waitForOtherPackages: string[] | null;
+    /** @default 1 */
+    expectedOtherPackageCount: number;
+    /** @default false */
+    manualDownload: boolean;
 }
 declare class AssetsManager {
-    onPackageAddCbs: any[];
-    packages: {};
+    onPackageAddCbs: (() => void)[];
+    packages: {
+        [k: string]: AssetPackage;
+    };
     lastWorkerRequestId: number;
-    onWorkerMessageCbs: Map<any, any>;
-    onWorkerErrorCbs: Map<any, any>;
-    messenger: any;
+    onWorkerMessageCbs: Map<_, Set<{
+        cb: () => void;
+        endOnly: boolean;
+    }>>;
+    onWorkerErrorCbs: Map<_, Set<() => void>>;
+    messenger: AssetWorkerMessenger;
     workerPromise: Promise<any>;
-    abortSignalIds: WeakMap<object, any>;
+    abortSignalIds: WeakMap<AbortSignal, number>;
     lastAbortSignalId: number;
     constructor();
     loadWorker(): Promise<any>;
-    getMessenger(): Promise<any>;
-    registerAbortSignal(t: any): Promise<{
-        abortSignalId: any;
-        messenger: any;
+    getMessenger(): Promise<AssetWorkerMessenger>;
+    registerAbortSignal(signal: AbortSignal): Promise<{
+        abortSignalId: number;
+        messenger: AssetWorkerMessenger;
         unregister: () => void;
     }>;
-    addPackage(t: any, { waitForOtherPackages, expectedOtherPackageCount, manualDownload }?: {
-        waitForOtherPackages?: null | undefined;
-        expectedOtherPackageCount?: number | undefined;
-        manualDownload?: boolean | undefined;
-    }): any;
-    waitAndDownloadPack(t: any, e: any, i: any): Promise<void>;
+    addPackage(name: string, { waitForOtherPackages, expectedOtherPackageCount, manualDownload, }?: Partial<AddPackageOpts>): AssetPackage | undefined;
+    waitAndDownloadPack(curPkg: AssetPackage, otherPackages: string[] | null, expOtherPkgCount: number): Promise<void>;
     waitForPackageAdd(): Promise<void>;
-    getPackage(t: any): any;
-    getPackageAsync(t: any): Promise<any>;
-    onWorkerMessage(t: any, cb: any, endOnly?: boolean): void;
-    onWorkerError(t: any, e: any): void;
-    static deserializeThreeObject(t: any): Object3D<import("three").Object3DEventMap> | null;
-    static deserializeThreeObjectRecursive(t: any, e: any): Object3D<import("three").Object3DEventMap>;
+    getPackage(name: string): AssetPackage | undefined;
+    getPackageAsync(name: string): Promise<AssetPackage>;
+    onWorkerMessage(k: any, cb: () => void, endOnly?: boolean): void;
+    onWorkerError(t: any, cb: () => void): void;
+    static deserializeThreeObject(t: any): Object3D | null;
+    static deserializeThreeObjectRecursive(t: any, e: any): Object3D;
     loadGlbViaWorker(t: any, { packageName, teamId, keepCustomProperties, merge, signal, }?: {
-        packageName?: string | undefined;
-        teamId?: number | undefined;
         keepCustomProperties?: never[] | undefined;
         merge?: boolean | undefined;
+        packageName?: string | undefined;
         signal?: null | undefined;
-    }): Promise<Object3D<import("three").Object3DEventMap> | null>;
+        teamId?: number | undefined;
+    }): Promise<Object3D | null>;
+}
+export interface SkinColorMultiplier extends Array<number> {
+    0: number;
+    1: number;
+    2: number;
+}
+export interface SkinData {
+    gender?: string;
+    equippedSkinIds?: string[];
+    unequippedSkinIds?: string[];
+    hairColorMultiplier?: number[];
+    eyebrowColorMultiplier?: number[];
+    beardColorMultiplier?: number[];
+    presetId?: number | null;
+    [key: string]: unknown;
+}
+export interface ShopSkinSide {
+    additions?: Record<string, string[]>;
+    removals?: Record<string, string[]>;
+    replaceAssets?: {
+        asset: string;
+        replaceWith: string;
+    }[];
+    [key: string]: unknown;
+}
+export interface ShopItemSeasonalRange {
+    startDay?: number;
+    endDay?: number;
+    startMonth?: number;
+    endMonth?: number;
+}
+export interface MeleeSkinConfig {
+    meleeId: string;
+    skin: string;
+    [key: string]: unknown;
+}
+export interface ShopItemConfig {
+    id: string;
+    slots?: string[];
+    categories?: string[];
+    requiredPeliEntitlements?: string[];
+    showFullBodyInShopItem?: boolean;
+    shopVisibility?: string;
+    hasRewardedAd?: boolean;
+    price?: number;
+    seasonalRange?: ShopItemSeasonalRange | null;
+    maleSkin?: ShopSkinSide;
+    femaleSkin?: ShopSkinSide;
+    bowSkin?: {
+        bowId: string;
+        skins: string[];
+        [key: string]: unknown;
+    };
+    meleeSkin?: MeleeSkinConfig;
+    arrowSkin?: string;
+    statClasses?: Record<string, number>;
+    legMoveAmount?: number;
+    colorizableCategory?: string;
+    [key: string]: unknown;
+}
+export interface SkinObjectOpts {
+    teamId: number;
+    teamColor?: {
+        r: number;
+        g: number;
+        b: number;
+    };
+    skin: SkinData;
+    rawSkin?: unknown;
 }
 declare class SkinsManager {
-    purchasableItems: Map<any, any>;
-    defaultSkinPresets: never[];
-    skinPresets: never[];
-    classSkins: {};
-    onSkinConfigChangeCbs: Set<unknown>;
+    purchasableItems: Map<string, ShopItemConfig>;
+    defaultSkinPresets: SkinData[];
+    skinPresets: SkinData[];
+    classSkins: Record<string, SkinData>;
+    onSkinConfigChangeCbs: Set<() => void>;
     constructor();
     init(): void;
-    loadSkinPreference(t: any): Promise<any>;
-    loadSkinIdsPreference(t: any): Promise<Set<unknown>>;
+    loadSkinPreference<T = unknown>(key: IDBValidKey): Promise<T | undefined>;
+    loadSkinIdsPreference(key: IDBValidKey): Promise<Set<string>>;
     initBaseSkins(): Promise<void>;
-    skinObjectOptsToCacheKey(t: any): string;
-    getSkinObject(t: any, e: any): Promise<Object3D<import("three").Object3DEventMap> | null>;
-    getBowObject(t: any, e: any): Promise<{
-        bow: Object3D<import("three").Object3DEventMap> | null;
+    skinObjectOptsToCacheKey(opts: SkinObjectOpts): string;
+    getSkinObject(opts: SkinObjectOpts, abortSignal: AbortSignal): Promise<Object3D | null>;
+    getBowObject(bowConfig: Record<string, unknown>, abortSignal: AbortSignal): Promise<{
+        bow: Object3D | null;
         arrowPointIdleMatrix: Matrix4;
         arrowPointLoadedMatrix: Matrix4;
     }>;
-    buildConfigObject(t: any, e: any): Promise<{
-        asset: Object3D<import("three").Object3DEventMap> | null;
+    buildConfigObject(config: Record<string, unknown>, abortSignal: AbortSignal): Promise<{
+        asset: Object3D | null;
     }>;
-    addShopItemToSkinData(t: any, e: any): Set<unknown>;
-    removeShopItemFromSkinData(t: any, e: any): void;
+    addShopItemToSkinData(itemId: string, skinData: SkinData): Set<string>;
+    removeShopItemFromSkinData(itemId: string, skinData: SkinData): void;
     addPreset({ fireConfigChanged }?: {
-        fireConfigChanged?: boolean | undefined;
+        fireConfigChanged?: boolean;
     }): void;
-    duplicatePreset(t: any): void;
-    deletePreset(t: any): void;
-    getPreset(t: any, e?: boolean): {};
-    addShopItemToPreset(t: any, e: any): Set<unknown>;
-    removeShopItemFromPreset(t: any, e: any): void;
-    setPresetGender(t: any, e: any): void;
-    setPresetSkinItemColor(t: any, e: any, i: any): void;
+    duplicatePreset(_presetIndex: number): void;
+    deletePreset(presetIndex: number): void;
+    getPreset(presetIndex: number, throwIfMissing?: boolean): SkinData;
+    addShopItemToPreset(itemId: string, presetId: number): Set<string>;
+    removeShopItemFromPreset(itemId: string, presetId: number): void;
+    setPresetGender(presetId: number, gender: string): void;
+    setPresetSkinItemColor(presetId: number, category: string, colorMultiplier: number[]): void;
     savePresets(): Promise<void>;
-    getClassSkinData(t: any, e: any): any;
-    getClassSkinDataWithAppliedPreset(t: any): {
-        gender: any;
-        equippedSkinIds: unknown[];
-        hairColorMultiplier: any;
-        eyebrowColorMultiplier: any;
-        beardColorMultiplier: any;
-    };
-    setClassPreset(t: any, e: any): void;
-    addShopItemToClass(t: any, e: any): void;
-    removeShopItemFromClass(t: any, e: any): void;
-    setClassGender(t: any, e: any): void;
-    setClassSkinItemColor(t: any, e: any, i: any): void;
+    getClassSkinData(classId: string, createIfMissing: boolean): SkinData;
+    getClassSkinDataWithAppliedPreset(classId: string): SkinData;
+    setClassPreset(classId: string, presetId: number | null): void;
+    addShopItemToClass(itemId: string, classId: string): void;
+    removeShopItemFromClass(itemId: string, classId: string): void;
+    setClassGender(classId: string, gender: string): void;
+    setClassSkinItemColor(classId: string, category: string, colorMultiplier: number[]): void;
     saveClassSkins(): void;
     fireConfigChanged(): void;
-    addItemAndRemoveDuplicateSlots(t: any, e: any): Set<unknown>;
-    getStatClassValuesFromShopSkinIds(t: any, e: any): {
-        statClassValues: Map<any, any>;
+    addItemAndRemoveDuplicateSlots(equippedIds: Set<string>, itemId: string): Set<string>;
+    getStatClassValuesFromShopSkinIds(skinIds: string[], bowId: string | null): {
+        statClassValues: Map<string, number>;
         legMoveAmount: number;
     };
-    skinNetworkDataToSkinConfig(t: any): {
-        equippedItems: {};
+    skinNetworkDataToSkinConfig(skinData: SkinData): {
+        equippedItems: Record<string, string[]>;
         colorizedItems: {
-            assetName: any;
-            colorMultiplier: any;
+            assetName: string;
+            colorMultiplier: number[];
             joints: string[];
         }[];
     };
     skinNetworkDataToBowAssetData(t: any, e: any): {
         skins: unknown[];
-        arrowSkin: any;
+        arrowSkin: string | undefined;
     };
-    skinNetworkDataToMeleeSkinConfig(t: any): any;
-    skinNetworkDataToArrowSkinConfig(t: any): any;
-    getSkinFromShopItem(t: any, e: any): any;
+    skinNetworkDataToMeleeSkinConfig(skinData: SkinData): MeleeSkinConfig | null;
+    skinNetworkDataToArrowSkinConfig(t: any): string | undefined;
+    getSkinFromShopItem(shopItem: ShopItemConfig, gender: string): ShopSkinSide | null;
     getConfigForPreviewShopItemId(t: any, { itemId, colorCategory, colorMultiplier }: {
-        itemId: any;
         colorCategory: any;
         colorMultiplier: any;
+        itemId: any;
     }): {
         gender: any;
         equippedSkinIds: unknown[];
@@ -318,6 +502,44 @@ declare class SkinsManager {
     };
     onSkinConfigChange(t: any): void;
     removeOnSkinConfigChange(t: any): void;
+}
+export interface PagedViewStructure {
+    header?: string;
+    headerVisible?: boolean;
+    itemName?: string;
+    buttonIcon?: string;
+    hasPeliPlusIcon?: boolean;
+    buttonIconSize?: number;
+    buttonVisible?: () => boolean;
+    onBackButtonClick?: () => void;
+    onBecomeVisible?: () => void;
+    rightCorner?: (container: HTMLDivElement) => void;
+    subPages?: PagedViewStructure[];
+    customSubPage?: (container: HTMLDivElement) => void;
+    customSubPageDestroyed?: (container: HTMLDivElement) => void;
+}
+declare class ee {
+    el: HTMLDivElement;
+    createdPageEls: {
+        el: HTMLDivElement;
+        structure: PagedViewStructure;
+        visible: boolean;
+        customSubPageEl: HTMLDivElement | null;
+        createdButtons: {
+            button: CustomButton;
+            structure: PagedViewStructure;
+        }[];
+    }[];
+    rootStructure: PagedViewStructure | null;
+    constructor({ extraClasses }?: {
+        extraClasses?: string[];
+    });
+    setActiveStructure(t: any): void;
+    createAndPushPage(t: any): void;
+    popPage(): void;
+    updateButtonVisibilies(): void;
+    jumpToSubPage(t: any): void;
+    updatePageVisibilities(): void;
 }
 declare class se {
     skeletonPath: any;
@@ -337,12 +559,13 @@ declare class se {
     waitForObjectLinks(): Promise<void>;
     apply(): void;
 }
-declare class ne {
-    player: any;
+type PlayerGender = "male" | "female";
+declare class PlayerSkeleton {
+    player: Player | null;
     isInit: boolean;
-    onInitCbs: Set<unknown>;
+    onInitCbs: Set<() => void>;
     onAllLinkLayerObjectsBuiltCbs: Set<unknown>;
-    _currentGender: string;
+    _currentGender: PlayerGender;
     poseLayers: never[];
     skeletonMatrixObjects: never[];
     baseSkeletonObject: null;
@@ -354,8 +577,8 @@ declare class ne {
     legObjectsR: null;
     initCalled: boolean;
     constructor({ player, gender }?: {
-        player?: null | undefined;
-        gender?: string | undefined;
+        player?: Player | null;
+        gender?: PlayerGender;
     });
     init(): Promise<void>;
     waitForLoad(): Promise<void>;
@@ -363,7 +586,7 @@ declare class ne {
     createPoseLayer(t: any): se;
     addPoseLayer(t: any): se;
     removePoseLayer(t: any): void;
-    get gender(): string;
+    get gender(): PlayerGender;
     setGender(t: any): void;
     linkLayerObjects(t: any): Promise<void>;
     get allObjectLinksBuilt(): boolean;
@@ -406,48 +629,324 @@ declare class GameMaterials {
     static resetWeatherUniforms(t: any): void;
     setLightningValue(t: any): void;
     buildVertexShader({ name, extraVariables, modifyWorldPosFn, modifyWorldPosAfterColorFn, modifyWorldPosBeforeModelMatrixFn, modifyColFn, extraFunctions, fog, needsFogColor, applyWorldColor, useMvp, needsModelPosVarying, needsUv, }?: {
-        name?: string | undefined;
+        applyWorldColor?: boolean | undefined;
+        extraFunctions?: string | undefined;
         extraVariables?: string | undefined;
-        modifyWorldPosFn?: string | undefined;
+        fog?: boolean | undefined;
+        modifyColFn?: string | undefined;
         modifyWorldPosAfterColorFn?: string | undefined;
         modifyWorldPosBeforeModelMatrixFn?: string | undefined;
-        modifyColFn?: string | undefined;
-        extraFunctions?: string | undefined;
-        fog?: boolean | undefined;
+        modifyWorldPosFn?: string | undefined;
+        name?: string | undefined;
         needsFogColor?: boolean | undefined;
-        applyWorldColor?: boolean | undefined;
-        useMvp?: boolean | undefined;
         needsModelPosVarying?: boolean | undefined;
         needsUv?: boolean | undefined;
+        useMvp?: boolean | undefined;
     }): string;
     buildFragShader({ name, extraVariables, modifyColFn, modifyTexColFn, extraFunctions, fog, needsFogColor, needsModelPosVarying, needsUv, }?: {
-        name?: string | undefined;
+        extraFunctions?: string | undefined;
         extraVariables?: string | undefined;
+        fog?: boolean | undefined;
         modifyColFn?: string | undefined;
         modifyTexColFn?: string | undefined;
-        extraFunctions?: string | undefined;
-        fog?: boolean | undefined;
+        name?: string | undefined;
         needsFogColor?: boolean | undefined;
         needsModelPosVarying?: boolean | undefined;
         needsUv?: boolean | undefined;
     }): string;
     createMaterial({ name, vertexShaderOpts, fragmentShaderOpts, exactVertShader, exactFragShader, uniforms, defaultAttributeValues, fog, needsFogColor, applyWorldColor, needsModelPosVarying, needsUv, depthWrite, depthTest, side, }?: {
-        name?: string | undefined;
-        vertexShaderOpts?: {} | undefined;
-        fragmentShaderOpts?: {} | undefined;
-        exactVertShader?: null | undefined;
-        exactFragShader?: null | undefined;
-        uniforms?: {} | undefined;
-        defaultAttributeValues?: {} | undefined;
-        fog?: boolean | undefined;
-        needsFogColor?: boolean | undefined;
         applyWorldColor?: boolean | undefined;
+        defaultAttributeValues?: {} | undefined;
+        depthTest?: boolean | undefined;
+        depthWrite?: boolean | undefined;
+        exactFragShader?: null | undefined;
+        exactVertShader?: null | undefined;
+        fog?: boolean | undefined;
+        fragmentShaderOpts?: {} | undefined;
+        name?: string | undefined;
+        needsFogColor?: boolean | undefined;
         needsModelPosVarying?: boolean | undefined;
         needsUv?: boolean | undefined;
-        depthWrite?: boolean | undefined;
-        depthTest?: boolean | undefined;
-        side?: any;
+        side?: number | undefined;
+        uniforms?: {} | undefined;
+        vertexShaderOpts?: {} | undefined;
     }): ShaderMaterial;
+}
+declare class re {
+    skinObjectOpts: any;
+    isInit: boolean;
+    destructed: boolean;
+    obj: null;
+    materials: never[];
+    lastSetMatrices: null;
+    onInitCbs: Set<unknown>;
+    getSkinAbortController: AbortController;
+    useWorldWeather: boolean;
+    initCalled: boolean;
+    constructor({ skinObjectOpts, init, useWorldWeather }: {
+        init?: boolean | undefined;
+        skinObjectOpts: any;
+        useWorldWeather?: boolean | undefined;
+    });
+    destructor(): void;
+    init(): Promise<void>;
+    waitForInit(): Promise<void>;
+    applySkeleton(t: any): void;
+    setHitFlashMaterialsTime(t: any): void;
+    setHitFlashMaterialsValue(t: any, e: any, i: any): void;
+    computeApproximateBoundingSphere(): Sphere;
+}
+declare class he {
+    obj: Object3D;
+    label: string;
+    useWorldWeather: boolean;
+    currentlyLoadingAbortController: any;
+    currentAssetName: string;
+    currentMeleeAsset: any;
+    onFirstAssetLoadCbs: Set<unknown>;
+    onNewAssetLoadedCbs: Set<unknown>;
+    currentlyLoadedMaterials: any[];
+    constructor({ useWorldWeather, label }?: {
+        label?: string | undefined;
+        useWorldWeather?: boolean | undefined;
+    });
+    destructor(): void;
+    setConfig(t: any): Promise<void>;
+    destroyMaterials(): void;
+    destroyBowMeshes(): void;
+    waitForLoad(): Promise<void>;
+    get isLoadingAsset(): boolean;
+    onNewAssetLoaded(t: any): void;
+}
+declare class ce {
+    obj: Object3D;
+    useWorldWeather: boolean;
+    lastFireAmount01: number;
+    lastVisibleCount: number;
+    currentBowAsset: any;
+    onFirstAssetLoadCbs: Set<unknown>;
+    onAssetChangeCbs: Set<unknown>;
+    currentlyLoadingAbortController: any;
+    currentlyLoadedMaterials: any[];
+    currentArrowObjs: any[];
+    currentArrowOffsets: any[];
+    onArrowDestroyCallbacks: Set<unknown>;
+    arrowAssetLoader: he;
+    arrowObjectsConfig: {
+        arrowCount: number;
+        arrowPositions: string;
+    };
+    arrowPointIdle: Object3D;
+    arrowPointLoaded: Object3D;
+    constructor({ useWorldWeather }?: {
+        useWorldWeather?: boolean | undefined;
+    });
+    destructor(): void;
+    setConfig(t: any): Promise<void>;
+    rebuildArrowObjects(): void;
+    getClonedArrowObject(t: any): Object3D | null;
+    destroyMaterials(): void;
+    destroyBowMeshes(): void;
+    waitForLoad(): Promise<void>;
+    onAssetChange(t: any): void;
+    get isLoadingAsset(): boolean;
+    get assetLoaded(): boolean;
+    getLoadedArrowPointScale(): Vector3;
+    updateFireAmount(t: any, e: any): void;
+    internalUpdateFireAmount(): void;
+}
+export interface StatClassConfig {
+    icon: string;
+    uiName: string;
+    defaultValue: number;
+    min: number;
+    max: number;
+    tooltipCategories: string[];
+}
+export interface StatClassTooltipOptions {
+    zIndex: number;
+    statClasses: Record<string, number>;
+    aboveRect: DOMRect;
+    showTotal?: boolean;
+    category?: string;
+}
+export interface ShopItemRenderOptions {
+    colorMultiplier: number[];
+    gender: string;
+}
+export interface ShopItemOptions {
+    configIndex?: number;
+    usage?: string;
+    renderOptions: ShopItemRenderOptions;
+    dialog: Dialog;
+    scrollingContainer?: HTMLElement;
+}
+declare class me {
+    gameWrapper: HTMLElement;
+    el: HTMLDivElement;
+    shopItems: Map<any, any>;
+    activeConfirmPurchaseDialogs: Set<unknown>;
+    currentHoveringItem: any;
+    onHoveringItemChangeCbs: Set<unknown>;
+    onSelectedItemChangeRequestCbs: Set<unknown>;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    addShopItem(t: any, e: any): void;
+    closeCreatedConfirmPurchaseDialogs(): void;
+    destructShopItems(): void;
+    loadShopItems(t: any, e: any): void;
+    setRenderOptions(t: any): void;
+    setSelectedItems(t: any): void;
+    setSelectedItemState(t: any, e: any): void;
+    onSelectedItemChangeRequest(t: any): void;
+    setPurchasedItems(t: any): void;
+    onHoveringItemChange(t: any): void;
+    sortShopItems(): void;
+    performHighlightShopItemAction(t: any, e: any): void;
+}
+declare class we {
+    destructed: boolean;
+    el: HTMLDivElement;
+    currentlyLoadedSkinData: SkinData | null;
+    currentTeamId: number;
+    tooltipCategory: string;
+    statsTooltip: any;
+    renderView: RenderView;
+    downloadButton: HTMLDivElement;
+    cam: PerspectiveCamera;
+    camTarget: Object3D;
+    rotY: number;
+    currentMouseYMultiplier: number;
+    scene: Scene;
+    modelRotationContainer: Object3D;
+    bowParentObj: Object3D;
+    meleeParentObj: Object3D;
+    smoothCamPosOffset: Vector3;
+    smoothCamTargetRot: number;
+    activeCamFollowingTarget: any;
+    activeSlotPositionId: any;
+    camPositions: Map<any, any>;
+    boundOnMouseMove: (event: MouseEvent) => void;
+    lastMouseX: number;
+    lastMouseY: number;
+    skeleton: PlayerSkeleton;
+    activeExtraPoseLayer: any;
+    bowAssetLoader: ce;
+    hoveringBowAssetLoader: ce;
+    bowSkeletonObj: any;
+    currentVisibleBowId: string | null;
+    currentEquippedSkinIds: string[];
+    hoveringBowVisible: boolean;
+    meleeAssetLoader: he;
+    hoveringMeleeAssetLoader: he;
+    meleeSkeletonObj: any;
+    currentVisibleMeleeSkinAssetName: string | null;
+    hoveringMeleeVisible: boolean;
+    activeModel: any;
+    loadingModel: any;
+    hoveringModel: any;
+    hoveringModelVisible: boolean;
+    lastHoveringModelCacheKey: string;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    initSkeleton(): Promise<void>;
+    addModel(t: any): Promise<void>;
+    removeModel(t: any): void;
+    loop(t: any, i: any): void;
+    setHoveringModel(skinObjectOpts: any): void;
+    setHoveringShopItemId(itemId: string): void;
+    setTemporaryColorCategory(colorCategory: string, colorMultiplier: number[]): void;
+    resetHoveringModel(): void;
+    updateVisibleModelAfterHoveringInit(): Promise<void>;
+    updateSkinModel(): void;
+    setCurrentSkinConfig(skinData: SkinData): void;
+    setTooltipCategory(tooltipCategory: string): void;
+    updateBackgroundColor(): void;
+    replaceLoadingModel(): Promise<void>;
+    onMouseMove(event: MouseEvent): void;
+    getVisibleModel(): any;
+    updateVisibleModel(): void;
+    updateVisibleBow(): void;
+    updateVisibleMelee(): void;
+    updateSkeletonGender(): Promise<void>;
+    updateModelRotation(): void;
+    setActiveSlotPosition(t: any, e?: boolean): void;
+    setSkeletonPose(poseName: string | null): Promise<void>;
+    setBow(bowId: string | null): void;
+    updateBowConfig(): void;
+    setMelee(meleeSkinAssetName: string | null): void;
+    updateMeleeConfig(): void;
+}
+export interface ShopFilterOptions {
+    useSingleWeaponType?: string | null;
+    hideNonBowSkins?: boolean;
+    shopCategoriesFilter?: string[];
+    filterType?: string;
+}
+export interface SkinPreviewOptions {
+    skinPreviewCamPosition?: string | null;
+    skeletonPose?: string | null;
+    bowId?: string | null;
+    meleeSkinAssetName?: string | null;
+}
+export interface GridViewSubPageOptions {
+    itemName: string;
+    buttonIcon?: string;
+    hasPeliPlusIcon?: boolean;
+    buttonIconSize?: number;
+    filterOptions?: ShopFilterOptions;
+    skinPreviewCamPosition?: string | null;
+    skeletonPose?: string | null;
+    bowId?: string | null;
+    meleeSkinAssetName?: string | null;
+    colorButtonsCategory?: string;
+    previewTooltipCategory?: string;
+}
+declare class be {
+    gameWrapper: HTMLElement;
+    el: HTMLDivElement;
+    dialog: Dialog;
+    skinManager: SkinsManager;
+    customizationId: CustomizationId;
+    onBackButtonClickCbs: Set<() => void>;
+    pagedView: ee;
+    createdGrids: Map<HTMLElement, {
+        grid: me;
+        reloadFilteredItems: () => void;
+        pagedViewStructure: unknown;
+    }>;
+    skinPreview: we;
+    filterSubPages: Map<string, unknown>;
+    showHiddenItems: boolean;
+    constructor(gameWrapper: HTMLElement, skinManager: SkinsManager, { id, rootHeader, dialog }: CustomizationViewConfig);
+    destructor(): void;
+    onBackButtonClick(cb: () => void): void;
+    closeCreatedDialogs(): void;
+    loop(now: number, dt: number): void;
+    updateShopState(purchasedItemIds: Set<unknown>): void;
+    highlightOrOpenShopItem(categories: string[], itemId: string, action: string): void;
+    resetSkinPreview({ camPosition }?: {
+        camPosition?: string | undefined;
+    }): void;
+    createBowGridViewConfig(weapon: BowConfig, section: string): SkinPreviewOptions & {
+        filterOptions: ShopFilterOptions;
+    };
+    setSkinPreview({ skinPreviewCamPosition, skeletonPose, bowId, meleeSkinAssetName, }: SkinPreviewOptions): void;
+    createGridViewSubPage({ itemName, buttonIcon, hasPeliPlusIcon, buttonIconSize, filterOptions, skinPreviewCamPosition, skeletonPose, bowId, meleeSkinAssetName, colorButtonsCategory, previewTooltipCategory, }: GridViewSubPageOptions): PagedViewStructure;
+    filterPurchasableItems(items: ShopItemConfig[], gender: string, filterOptions?: ShopFilterOptions): ShopItemConfig[];
+    getShopItemRenderOptions(colorCategory: string): {
+        colorMultiplier: number[];
+        gender: string;
+    };
+    createShopItemsGrid(scrollingContainer: HTMLElement, { filterOptions, pagedViewStructure, colorButtonsCategory, }: {
+        filterOptions?: ShopFilterOptions;
+        pagedViewStructure: PagedViewStructure;
+        colorButtonsCategory?: string;
+    }): void;
+    updateSelectedItemsForClass(classId: string, grid: me): void;
+    getCurrentSkinData(): SkinData;
+    updateSkinPreviewConfig(): void;
+    destroyShopItemsGrid(scrollingContainer: HTMLElement): void;
 }
 declare class ye {
     el: HTMLDivElement;
@@ -463,6 +962,87 @@ declare class ye {
     set needsUpdates(t: any);
     setCssColor(t: any, e: any): void;
 }
+declare class Se {
+    el: HTMLDivElement;
+    onClickCbs: Set<unknown>;
+    classSelectionImage: ye;
+    constructor(t: any);
+    set needsAvatarUpdates(t: any);
+    destructor(): void;
+    onClick(t: any): void;
+}
+declare class Ce {
+    skinManager: any;
+    onPresetOpenClickCbs: Set<unknown>;
+    onBackButtonClickCbs: Set<unknown>;
+    el: HTMLDivElement;
+    presetsList: HTMLDivElement;
+    createdPresetItems: any[];
+    addPresetButton: CustomButton;
+    constructor(t: any);
+    destructor(): void;
+    updatePresetList(): void;
+    onPresetOpenClick(t: any): void;
+    onBackButtonClick(t: any): void;
+}
+export type CustomizationId = {
+    type: "preset";
+    presetId: number;
+} | {
+    type: "class";
+    classId: string;
+};
+export interface CustomizationViewConfig {
+    id: CustomizationId;
+    rootHeader: string;
+    dialog: Dialog;
+}
+declare class ke extends Dialog {
+    currentCustomizationView: be | null;
+    currentPresetsView: Ce | null;
+    mainViewVisible: boolean;
+    ownedCoinsContainer: HTMLDivElement;
+    currencyContainer: CurrencyContainer;
+    classSelectionContainer: HTMLDivElement;
+    presetsButton: CustomButton;
+    classSelectionListEl: HTMLDivElement;
+    createdClassSelectionItems: Se[];
+    boundUpdateShopState: () => void;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    onClose(): void;
+    loop(now: number, dt: number): void;
+    updateShopState(): void;
+    updateMainViewVisibility(): void;
+    showPresetCustomizationView(presetId: number): void;
+    showCustomizationView(config: CustomizationViewConfig): void;
+    hideCustomizationView(): void;
+    showPresetsView(): void;
+    hidePresetsView(): void;
+    openShopItemSubPage(itemId: string, action: string): void;
+    highlightShopItem(itemId: string, action: string): void;
+    openShopItem(itemId: string): void;
+}
+declare class Pe extends Dialog {
+    avatarEl: HTMLDivElement;
+    boundChangeAvatarUrl: (url: string | null) => void;
+    usernameForm: HTMLFormElement;
+    usernameDummyText: HTMLDivElement;
+    usernameInput: HTMLInputElement;
+    usernameEditButton: HTMLButtonElement;
+    boundUpdateProfileState: () => void;
+    stats: Map<string, {
+        valueEl: HTMLDivElement;
+    }>;
+    constructor(gameWrapper: HTMLElement, { showExtraStats }: {
+        showExtraStats?: boolean;
+    });
+    destructor(): void;
+    updateProfileState(): void;
+    submitUsername(): Promise<void>;
+    updateUsernameInputVisibility(): void;
+    changeAvatarUrl(url: string | null): void;
+}
 declare class xe {
     el: HTMLButtonElement;
     clickCbs: Set<unknown>;
@@ -476,6 +1056,86 @@ declare class xe {
     onClick(t: any): void;
     setMainMenuVisibility(t: any): void;
     avatarUrlChanged(t: any): void;
+}
+export interface PromoSeasonalRange {
+    startDay?: number;
+    endDay?: number;
+    startMonth?: number;
+    endMonth?: number;
+}
+export interface PromoItem {
+    id?: string;
+    image?: string;
+    action?: string;
+    actionShopItem?: string;
+    subscribeFlow?: string;
+    seasonalRange?: PromoSeasonalRange | null;
+    maxViewCount?: number;
+    buttonText?: string;
+    buttonIcon?: string;
+    hasPeliPlusIcon?: boolean;
+    actionOpenUrl?: string;
+    actionHighlightMap?: string;
+}
+export interface PromoViewData {
+    id: string;
+    viewCount: number;
+}
+declare class Me {
+    configManager: ConfigManager;
+    mainMenu: MainMenu;
+    gameManager: GameManager;
+    shopStateManager: ShopState;
+    pokiManager: Poki;
+    dialogManager: DialogManager;
+    skinManager: SkinsManager;
+    indexedDb: IndexedDB;
+    promoViewData: Map<string, PromoViewData>;
+    activePromo: PromoItem | null;
+    activePromos: PromoItem[];
+    el: HTMLDivElement;
+    bannerEl: HTMLDivElement;
+    button: CustomButton;
+    constructor(configManager: ConfigManager, mainMenu: MainMenu, gameManager: GameManager, shopStateManager: ShopState, pokiManager: Poki, dialogManager: DialogManager, skinManager: SkinsManager, indexedDb: IndexedDB);
+    init(): Promise<void>;
+    loadNewBestPromo(): void;
+    loadPromoViewData(): Promise<void>;
+    savePromoViewData(): Promise<void>;
+    setActivePromo(promo: PromoItem | null): void;
+    onPromoClick(): Promise<void>;
+    updateVisibility(): void;
+    getPromoViewData(id: string): PromoViewData;
+    updatePromoViewdata(promoId: string, update: (viewData: PromoViewData) => PromoViewData | void): void;
+}
+export interface TextInputOptions {
+    value?: string;
+    placeholder?: string;
+    extraClasses?: string[];
+    onInput?: (() => void) | null;
+    spellCheck?: boolean;
+    maxLength?: number | null;
+}
+declare class Ae {
+    el: HTMLInputElement;
+    constructor({ value, placeholder, extraClasses, onInput, spellCheck, maxLength, }?: TextInputOptions);
+    get value(): string;
+    set value(newValue: string);
+}
+declare class Le extends Dialog {
+    squadManager: any;
+    settings: Map<any, any>;
+    privateSquadOnlySettings: Set<unknown>;
+    privateSquadSetting: Setting<SettingValue, {
+        text: string;
+        type: "toggle";
+    }>;
+    leaderOnlyMessage: HTMLDivElement;
+    constructor(t: any, e: any);
+    destructor(): void;
+    onSquadSettingChange: (t: any, e: any) => void;
+    onMySquadLeaderStateChange: () => void;
+    updateLeaderMessageVisibility(): void;
+    updateDisabledState(): void;
 }
 declare class Te {
     cb: any;
@@ -501,40 +1161,58 @@ declare class Ee {
     loopStart: number;
     loopEnd: number;
     constructor({ startValue, springMultiplier, maxSpring, dampening, loopValue, loopStart, loopEnd, }?: {
-        startValue?: number | undefined;
-        springMultiplier?: number | undefined;
-        maxSpring?: number | undefined;
         dampening?: number | undefined;
-        loopValue?: boolean | undefined;
-        loopStart?: number | undefined;
         loopEnd?: number | undefined;
+        loopStart?: number | undefined;
+        loopValue?: boolean | undefined;
+        maxSpring?: number | undefined;
+        springMultiplier?: number | undefined;
+        startValue?: number | undefined;
     });
     loop(e: any, i: any): void;
-    performValueLoop(t: any): any;
+    performValueLoop(t: any): number;
 }
 declare class De {
     xValue: Ee;
     yValue: Ee;
     zValue: Ee;
     constructor({ startValue, springMultiplier, maxSpring, dampening, }?: {
-        startValue?: Vector3 | undefined;
-        springMultiplier?: number | undefined;
-        maxSpring?: number | undefined;
         dampening?: number | undefined;
+        maxSpring?: number | undefined;
+        springMultiplier?: number | undefined;
+        startValue?: Vector3 | undefined;
     });
     loop(t: any, e: any): void;
     get value(): Vector3;
     set value(t: Vector3);
     get target(): Vector3;
     set target(t: Vector3);
-    addImpulse(t: any): void;
+    addImpulse(impulse: Vector3): void;
+}
+export interface FirstPersonConfig {
+    posOffset: Vector3;
+    rotOffset: Vector3;
+    posFovMultiplierX: number;
+    posFovMultiplierY: number;
+    posBaseFovMultiplierX: number;
+    walkBobMultiplier: number;
+    valuesSmoothing: number;
+    pitchHeightMultiplier: number;
+    minFov: number;
+    maxFov: number;
+}
+export interface HoldingHandlerOptions {
+    holdingObject: Object3D;
+    thirdPersonParentName: string;
+    secondaryThirdPersonParentName?: string | null;
+    firstPersonConfig?: Partial<FirstPersonConfig>;
 }
 declare class Fe {
-    player: any;
-    holdingObject: any;
+    player: Player;
+    holdingObject: Object3D;
     usePrimaryParent: boolean;
-    thirdPersonParentName: any;
-    secondaryThirdPersonParentName: any;
+    thirdPersonParentName: string;
+    secondaryThirdPersonParentName: string | null;
     firstPersonPosOffset: Vector3;
     firstPersonRotOffset: Quaternion;
     smoothFirstPersonPosOffset: Vector3;
@@ -553,48 +1231,37 @@ declare class Fe {
     camPosOffsetPhysics: De;
     camRotOffsetPhysics: Ee;
     renderOverlay: RenderOverlay;
-    firstPersonObjContainer: Object3D<import("three").Object3DEventMap>;
-    linkedThirdPersonObject: any;
-    firstPersonConfig: {
-        posOffset: Vector3;
-        rotOffset: Vector3;
-        posFovMultiplierX: number;
-        posFovMultiplierY: number;
-        posBaseFovMultiplierX: number;
-        walkBobMultiplier: number;
-        valuesSmoothing: number;
-        pitchHeightMultiplier: number;
-        minFov: number;
-        maxFov: number;
-    };
-    constructor(t: any, { holdingObject, thirdPersonParentName, secondaryThirdPersonParentName, firstPersonConfig }: {
-        holdingObject: any;
-        thirdPersonParentName: any;
-        secondaryThirdPersonParentName: any;
-        firstPersonConfig: any;
-    });
+    firstPersonObjContainer: Object3D;
+    linkedThirdPersonObject: Object3D | null;
+    firstPersonConfig: FirstPersonConfig;
+    constructor(player: Player, { holdingObject, thirdPersonParentName, secondaryThirdPersonParentName, firstPersonConfig }: HoldingHandlerOptions);
     destructor(): void;
     updateRenderOverlayEnabled(): void;
-    setUsePrimaryParent(t: any): void;
+    setUsePrimaryParent(usePrimary: boolean): void;
     updateParent(): void;
-    loop(t: any, i: any): void;
-    setFirstPersonConfig(t: any, e?: boolean): void;
+    loop(now: number, dt: number): void;
+    setFirstPersonConfig(config: Partial<FirstPersonConfig>, applyImmediately?: boolean): void;
     updateFirstPersonPosition(): void;
     updateRenderOverlayFovs(): void;
     useFirstPersonUpdated(): void;
     playerObjectChanged(): void;
-    addFirstPersonImpulse(t: any): void;
+    addFirstPersonImpulse(impulse: Vector3): void;
     firstPersonMoveDown(): void;
 }
-declare class Be {
-    rigidBody: any;
-    radius: any;
-    heightOffset: any;
-    bodyPart: any;
-    arrowDamage: any;
-    constructor(t: any, e: any, i: any, s: any, n: any);
-    get center(): any;
-    rayCast(t: any, e: any): any;
+export interface RayCastHit {
+    dist: number;
+    pos: Vector3;
+    collider: unknown;
+}
+declare class Collider {
+    rigidBody: RigidBody;
+    radius: number;
+    heightOffset: number;
+    bodyPart: string;
+    arrowDamage: number;
+    constructor(rigidBody: RigidBody, radius: number, heightOffset: number, bodyPart: string, arrowDamage: number);
+    get center(): Vector3;
+    rayCast(from: Vector3, dir: Vector3): RayCastHit | null;
 }
 declare class Ve {
     invWorldMatrix: any;
@@ -619,25 +1286,25 @@ declare class Ve {
     excludeTeamId: number;
     excludeWearingShopItems: never[];
     constructor(t: any, { ignoreArrows, isLadder, isLadderAllSides, excludeTeamId, excludeWearingShopItems, isDeathTrigger, shootSfx, allowJump, allowWalk, movePlayerUp, slippery, slowDownPlayerAmount, airFrictionModifier, touchDamageAmount, touchDamageDistance, triggerHingeId, triggerAppearingObjectId, }: {
-        ignoreArrows?: boolean | undefined;
-        isLadder?: boolean | undefined;
-        isLadderAllSides?: boolean | undefined;
-        excludeTeamId?: number | undefined;
-        excludeWearingShopItems?: never[] | undefined;
-        isDeathTrigger?: boolean | undefined;
-        shootSfx?: string | undefined;
+        airFrictionModifier?: number | undefined;
         allowJump?: boolean | undefined;
         allowWalk?: boolean | undefined;
+        excludeTeamId?: number | undefined;
+        excludeWearingShopItems?: never[] | undefined;
+        ignoreArrows?: boolean | undefined;
+        isDeathTrigger?: boolean | undefined;
+        isLadder?: boolean | undefined;
+        isLadderAllSides?: boolean | undefined;
         movePlayerUp?: boolean | undefined;
+        shootSfx?: string | undefined;
         slippery?: boolean | undefined;
         slowDownPlayerAmount?: number | undefined;
-        airFrictionModifier?: number | undefined;
         touchDamageAmount?: number | undefined;
         touchDamageDistance?: number | undefined;
-        triggerHingeId?: number | undefined;
         triggerAppearingObjectId?: number | undefined;
+        triggerHingeId?: number | undefined;
     });
-    rayCast(t: any, e: any): void;
+    rayCast(from: Vector3, dir: Vector3): RayCastHit | null;
     getSphereManifold(t: any, e: any): void;
     isTriggerCollider(): boolean;
 }
@@ -657,7 +1324,7 @@ declare class je extends Ve {
     };
     getUpFaces(): any;
     getIsOnFace(t: any, e: any): boolean;
-    rayCast(t: any, e: any): any;
+    rayCast(from: Vector3, dir: Vector3): RayCastHit | null;
 }
 declare class Ge {
     enabled: boolean;
@@ -668,12 +1335,12 @@ declare class Ge {
     endPhysicsSteps(): void;
 }
 declare class RigidBody extends Ge {
-    physicsManager: any;
-    player: any;
+    physicsManager: PhysicsManager;
+    player: Player;
     pos: Vector3;
     velocity: Vector3;
     totalForce: Vector3;
-    colliders: Be[];
+    colliders: Collider[];
     aabb: Box3;
     gravity: Vector3;
     prevLastFloorTouchTime: number;
@@ -696,7 +1363,7 @@ declare class RigidBody extends Ge {
     airFrictionModifier: number;
     fly: boolean;
     noclip: boolean;
-    constructor(t: any, e: any);
+    constructor(physicsManager: PhysicsManager, player: Player);
     beginPhysicsSteps(): void;
     stepVelocity(t: any): void;
     updateLastFloorTouchTime(): void;
@@ -706,17 +1373,35 @@ declare class RigidBody extends Ge {
     get onFloorTime(): number;
     get onJumpableColliderTime(): number;
     getCurrentPlayerAabb(): Box3;
-    getIntersectingOctreeNodes(): any;
-    getPlayerManifolds(t: any, e: any): {
+    getIntersectingOctreeNodes(): Set<OctreeNode>;
+    getPlayerManifolds(t: any, e: any): ({
         manifold: any;
-        mapCollider: any;
+        mapCollider: Collider;
         playerCollider: any;
-    }[];
-    getManifoldsHelper(t: any, e: any, i: any, s: any): {
+    } | {
+        manifold: {
+            colliderType: string;
+            pos: any;
+            normal: any;
+            penetration: any;
+        };
+        mapCollider: null;
+        playerCollider: any;
+    })[];
+    getManifoldsHelper(t: any, e: any, i: any, s: any): ({
         manifold: any;
-        mapCollider: any;
+        mapCollider: Collider;
         playerCollider: any;
-    }[];
+    } | {
+        manifold: {
+            colliderType: string;
+            pos: any;
+            normal: any;
+            penetration: any;
+        };
+        mapCollider: null;
+        playerCollider: any;
+    })[];
     isAboveJumpableCollider(): boolean;
     manifoldShouldMovePlayerUp(t: any, e: any): any;
     resolveMapCollisionsOctree(t: any): void;
@@ -726,11 +1411,126 @@ declare class RigidBody extends Ge {
     jump(t: any): void;
 }
 declare class AntiCheat {
-    reportedPlayerTimes: Map<any, any>;
-    onPlayerNeedsReportCbs: Set<unknown>;
+    reportedPlayerTimes: Map<number, number>;
+    onPlayerNeedsReportCbs: Set<(playerId: number, reportType: number, value: number) => void>;
     constructor();
-    reportPlayer(t: any, e: any, i: any): void;
-    onPlayerNeedsReport(t: any): void;
+    reportPlayer(playerId: number, reportType: number, value: number): void;
+    onPlayerNeedsReport(cb: (playerId: number, reportType: number, value: number) => void): void;
+}
+export interface SkeletonLayerWeight {
+    name: string;
+    weight: number;
+}
+declare class oi {
+    holdingHandler: Fe;
+    upConfig: Partial<FirstPersonConfig>;
+    downConfig: Partial<FirstPersonConfig>;
+    offscreenConfig: Partial<FirstPersonConfig>;
+    minDownVelocity: number;
+    forcedConfig: Partial<FirstPersonConfig> | null;
+    prevUsePrimaryPosition: boolean;
+    usePrimaryPosition: boolean;
+    holdingHandlerDown: boolean;
+    constructor(holdingHandler: Fe, { upConfig, downConfig, offscreenConfig, minDownVelocity }: WeaponHolderOptions["holdingHandlerManagerOptions"]);
+    setUsePrimaryPosition(usePrimary: boolean): void;
+    loop(isUp: boolean, player: Player, { forceDown, forceConfig }?: {
+        forceDown?: boolean;
+        forceConfig?: Partial<FirstPersonConfig> | null;
+    }): void;
+    updateHoldingHandler(applyImmediately?: boolean): void;
+}
+export interface WeaponActionOptions {
+    fromTouchButton: boolean;
+}
+export interface WeaponHolderOptions {
+    thirdPersonParentName: string;
+    secondaryThirdPersonParentName?: string | null;
+    holdingHandlerManagerOptions: {
+        upConfig: Partial<FirstPersonConfig>;
+        downConfig: Partial<FirstPersonConfig>;
+        offscreenConfig?: Partial<FirstPersonConfig>;
+        minDownVelocity?: number;
+    };
+}
+declare class ai {
+    player: Player;
+    actionIsDown: boolean;
+    rawActionIsDown: boolean;
+    firstPersonVisible: boolean;
+    isPrimaryWeapon: boolean;
+    equipSfxName: string;
+    holdingHandler: Fe;
+    holdingHandlerManager: oi;
+    constructor(player: Player, holdingObject: Object3D, options: WeaponHolderOptions);
+    destructor(): void;
+    playerSkinUpdated(): void;
+    actionDown(options?: WeaponActionOptions | null): void;
+    actionUp(options?: WeaponActionOptions | null): void;
+    onActionDown(_options: WeaponActionOptions): void;
+    onActionUp(_options: WeaponActionOptions): void;
+    onPlayerDied(): void;
+    onPlayerRespawned(): void;
+    getToggleCooldownValue(): number;
+    setFirstPersonVisibility(visible: boolean): void;
+    setIsPrimaryWeapon(isPrimary: boolean): void;
+    updatePrimaryPosition(): void;
+    playSfx(sfxName: string, sfxOptions?: Record<string, unknown>): void;
+    loop(_now: number, _dt: number): void;
+    adjustFov(fov: number): number;
+    getWalkSpeedMultiplier(): number;
+    getAdditionalWalkAcceleration(): Vector2 | null;
+    getAdditionalWalkAcceleration3d(): Vector3 | null;
+    getAdditionalWalkAccelerationClampLength(): number;
+    getLookInputMultiplier(): number;
+    getJumpForceMultiplier(): number;
+    getThirdPersonSkeletonLayers(): SkeletonLayerWeight[];
+    getThirdPersonSkeletonMultipliers(_gender: string): Record<string, number>;
+}
+declare class ri extends ai {
+    bowWeaponId: any;
+    bowWeaponTypeId: any;
+    equipSfxName: string;
+    bowAssetLoader: ce;
+    constructor(t: any, e: any, i: any, s: any);
+    destructor(): void;
+    getAutoShootEnabled(): SettingValue | undefined;
+    actionDown(t: any): void;
+    actionUp(t: any): void;
+    shootArrow(t: any): void;
+    verifyArrowFrequency(t: any): boolean;
+    getArrowOpts(t: any): void;
+    loop(t: any, e: any): void;
+    getAutoShootActionUp(): boolean;
+    getAccuracyOffset(): number;
+    getWalkAccuracyMultiplier(): number;
+    getClonedArrowObject(t: any): Object3D | null;
+    getLoadSpeed(t: any, i: any): number;
+}
+declare class di extends ai {
+    #private;
+    get lastSkinAssetName(): null;
+    equipSfxName: string;
+    hitSfxName: string;
+    swingSfxName: string;
+    hitSfxOptions: any;
+    meleeAssetLoader: he;
+    constructor(t: any, e: any);
+    destructor(): void;
+    getRequiredHorizontalAngleMultiplier(): number;
+    getRequiredVerticalAngleMultiplier(): number;
+    attack(): boolean;
+    playHitSfx(): void;
+    validateHit(t: any): boolean;
+    ownedPlayerAttacked(t: any): void;
+    getDamageMultiplier(): number;
+    getStunData(): {
+        amount: number;
+        duration: number;
+        fadeDuration: number;
+    };
+    getRangeMultiplier(): number;
+    getAttackSpeedStat(): number;
+    updateMeleeAsset(skinAssetName: any): void;
 }
 declare class mi {
     keyNumber: any;
@@ -749,7 +1549,7 @@ declare class mi {
     onClick(t: any): void;
     setCssColor(t: any, e: any): void;
 }
-declare class WeaponSelectionDialog extends Ft {
+declare class WeaponSelectionDialog extends Dialog {
     playerVisibility: boolean;
     selectionItemsContainer: HTMLDivElement;
     weaponSelectionItems: mi[];
@@ -778,22 +1578,20 @@ export interface PlayerParams {
     needsSkeleton: boolean;
     isDummyPlayer: boolean;
 }
-declare class Player {
+export declare class Player {
     #private;
-    game: any;
+    game: OnlineGame | OfflineGame;
     inputManager: InputManager;
     sfxManager: SoundFX;
     physicsManager: PhysicsManager;
     settingsManager: SettingsManager;
     hudIconsManager: HudIcons;
     id: number;
-    game: any;
-    id: any;
     hasOwnership: boolean;
     creationTime: number;
     teamId: number;
     isDummyPlayer: boolean;
-    equippedSkinData: {};
+    equippedSkinData: SkinData;
     isSameSquadPlayer: boolean;
     isSquadLeader: boolean;
     iconOwnershipVisibility: boolean;
@@ -807,10 +1605,14 @@ declare class Player {
     ladderClimbSpeed: number;
     ladderTangentWalkSpeed: number;
     playerHasInteracted: boolean;
-    onPlayerHasInteractedChangeCbs: Set<unknown>;
+    onPlayerHasInteractedChangeCbs: Set<() => void>;
     lastHitTime: number;
-    damageReceivedHistory: never[];
-    currentHealthRegenSfx: null;
+    damageReceivedHistory: {
+        damage: number;
+        time: number;
+        appliedDamage: number;
+    }[];
+    currentHealthRegenSfx: SFXSound | null;
     nonActiveWeaponsEffect: number;
     old2dWalkAccelerationEffect: number;
     playerName: string;
@@ -822,7 +1624,10 @@ declare class Player {
     elo: number;
     serverPos: Vector3;
     hasValidPosition: boolean;
-    recentForcedServerPositions: Set<unknown>;
+    recentForcedServerPositions: Set<{
+        pos: Vector3;
+        time: number;
+    }>;
     lastReceivedServerPosTime: number;
     maxPredictedServerPosDistance: number;
     predictedServerPos: Vector3;
@@ -857,19 +1662,19 @@ declare class Player {
     prevPos: Vector3;
     smoothMovementSpeed: number;
     ping: number;
-    positionHistory: never[];
+    positionHistory: Vector3[];
     rigidBody: RigidBody;
     boundOnJumpPress: () => void;
-    boundOnFireDown: (t: any) => void;
-    boundOnFireUp: (t: any) => void;
+    boundOnFireDown: () => void;
+    boundOnFireUp: () => void;
     boundToggleActiveWeapon: () => void;
     boundOnThirdPersonChange: () => void;
     boundUpdateToggleWeaponTouchButtonVisibility: () => void;
-    boundSetHasSmoothCam: (t: any) => void;
+    boundSetHasSmoothCam: (value: SettingValue) => void;
     boundUpdateSmoothCam: () => void;
     boundUpdateActiveWeapon: () => void;
     boundUpdateFly: () => void;
-    boundOnWheel: (e: any) => void;
+    boundOnWheel: (event: WheelEvent) => void;
     lastAirJumpPressTime: number;
     prevWasOnFloor: boolean;
     hasTouchedFloorEver: boolean;
@@ -877,41 +1682,48 @@ declare class Player {
     lastJumpLandTime: number;
     lastJumpLandAmount: number;
     highestInAirPoint: number;
-    currentFallingSfx: any;
+    currentFallingSfx: SFXSound | null;
     hasKeyEvents: boolean;
     useFirstPersonHoldingHandlers: boolean;
     noclip: boolean;
     serverFlyEnabled: boolean;
     flySpeed: number;
-    movementAccuracyOffset: any;
-    holdingFlag: any;
-    sentChangeFlagMessages: any[];
-    statClassValues: any;
-    holdingHandlers: Set<unknown>;
+    movementAccuracyOffset: Bi | null;
+    holdingFlag: Flag | null;
+    sentChangeFlagMessages: {
+        flagId: number;
+        changeOperation: number;
+        sendTime: number;
+    }[];
+    statClassValues: Map<string, number> | null;
+    holdingHandlers: Set<Fe>;
     needsPlayerModel: boolean;
-    loadingModel: any;
-    activeModel: any;
-    skeleton: ne | null;
-    mostRecentWeaponSkeletonLayers: any[];
+    loadingModel: re | null;
+    activeModel: re | null;
+    skeleton: PlayerSkeleton | null;
+    mostRecentWeaponSkeletonLayers: {
+        name: string;
+        weight: number;
+    }[];
     weaponActionIsDown: boolean;
-    bowWeapon: any;
-    meleeWeapon: any;
-    meleeWeaponId: any;
+    bowWeapon: ri | null;
+    meleeWeapon: di | null;
+    meleeWeaponId: string | null;
     hasActiveMeleeWeapon: boolean;
     lastActiveWeaponToggleTime: number;
     didUpdateActiveWeaponAfterToggle: boolean;
-    recentlyDestroyedWeapons: Map<any, any>;
+    recentlyDestroyedWeapons: Map<number, number>;
     lastSentArrowId: number;
-    weaponAccuracyOffset: any;
+    weaponAccuracyOffset: Bi | null;
     gungameWeaponIndex: number;
     allowedWeaponsConfig: {
         allowMelee: boolean;
         availableBowIds: number[];
     };
     lastWeaponLayersKey: string;
-    weaponLayers: any[];
-    recentInvalidArrowTimes: any[];
-    recentArrowCreationTimes: any[];
+    weaponLayers: se[];
+    recentInvalidArrowTimes: number[];
+    recentArrowCreationTimes: number[];
     dead: boolean;
     currentSpawnId: number;
     dieTime: number;
@@ -919,7 +1731,7 @@ declare class Player {
     deadFallForward: boolean;
     deadFromFall: boolean;
     sphereDeathTimer: number;
-    sphereDeathScreenFlash: any;
+    sphereDeathScreenFlash: ScreenFlash | null;
     hasWalkedAwayFromSpawn: boolean;
     lastRespawnPosition: Vector3;
     onWeaponSelectionChangeFromDialog: () => void;
@@ -929,7 +1741,7 @@ declare class Player {
     smoothCamDebug: boolean;
     smoothCam: boolean;
     nextHitFlashIndex: number;
-    obj: any;
+    obj: Object3D | null;
     legsMoveT: number;
     legsMoveAmount: number;
     walkHeadBobAmount: number;
@@ -937,12 +1749,10 @@ declare class Player {
     lastSfxStep: number;
     icon: HudIcon;
     destructed: boolean;
-    constructor(game: any, inputManager: InputManager, sfxManager: SoundFX, physicsManager: PhysicsManager, settingsManager: SettingsManager, hudIconsManager: HudIcons, id: number, { teamId, needsPlayerModel, needsSkeleton, isDummyPlayer }?: {
-        teamId?: number | undefined;
-        needsPlayerModel?: boolean | undefined;
-        needsSkeleton?: boolean | undefined;
-        isDummyPlayer?: boolean | undefined;
-    });
+    equippingWeaponLayer: se | null;
+    deadForwardLayer: se | null;
+    deadBackwardLayer: se | null;
+    constructor(game: OnlineGame | OfflineGame, inputManager: InputManager, sfxManager: SoundFX, physicsManager: PhysicsManager, settingsManager: SettingsManager, hudIconsManager: HudIcons, id: number, { teamId, needsPlayerModel, needsSkeleton, isDummyPlayer }?: Partial<PlayerParams>);
     init(): void;
     set health(t: number);
     get health(): number;
@@ -952,20 +1762,20 @@ declare class Player {
     get sameSquadOrOwned(): boolean;
     removeActiveBowWeapon(): void;
     removeActiveMeleeWeapon(): void;
-    setActiveBowWeapon(t: any, e?: boolean): void;
+    setActiveBowWeapon(bowIndex: number, forceReload?: boolean): void;
     updateActiveMeleeWeapon(): void;
-    setActiveMeleeWeapon(t: any): void;
+    setActiveMeleeWeapon(meleeId: string | null): void;
     updateToggleWeaponTouchButtonVisibility(): void;
     get currentToggleWeaponCooldown(): number;
     get activeWeaponToggleCooldownActive(): boolean;
-    get activeWeapon(): any;
-    getEquippedWeapons(): Generator<any, void, unknown>;
+    get activeWeapon(): di | ri | null;
+    getEquippedWeapons(): Generator<di | ri, void, unknown>;
     getSelectedWeapon(): number;
     updateMySelectedWeapon(t?: boolean): void;
     sendMyEquippedSkinData(): void;
     getSendArrowId(): number;
-    getClonedArrowObject(t: any): any;
-    loop(s: any, n: any): void;
+    getClonedArrowObject(onDestroy: () => void): Object3D | null;
+    loop(nowMs: number, deltaMs: number): void;
     get legsMoveTForCos(): number;
     afterPhysicsLoop(t: any, i: any): void;
     animateLeg(t: any, i: any, s: any, n: any, o: any): void;
@@ -987,32 +1797,37 @@ declare class Player {
     sendPerformAction(t: any): void;
     receivedPerformAction(t: any): void;
     receiveChangeClassFromServer(t: any): void;
-    setHasOwnership(t: any): void;
-    setPlayerName(t: any): void;
+    setHasOwnership(hasOwnership: boolean): void;
+    setPlayerName(playerName: string): void;
     setNamePlayerVerified(): void;
-    setTeamId(t: any): void;
-    setIsSameSquadPlayer(t: any, e: any, i: any): void;
+    setTeamId(teamId: number): void;
+    setIsSameSquadPlayer(isSameSquad: boolean, squadPlayerId: number, isLeader: boolean): void;
     setScores({ scores, elo }: {
-        scores: any;
-        elo: any;
+        scores: {
+            flags: number;
+            kills: number;
+            deaths: number;
+            total: number;
+        };
+        elo: number;
     }): void;
     setHasEvents(t: any): void;
-    setHasSmoothCam(t: any): void;
+    setHasSmoothCam(value: SettingValue): void;
     updateSmoothCam(): void;
     resetSmoothLookRot(): void;
     setHasMovementAccuracyOffset(t: any): void;
-    getStatClassValue(t: any): any;
+    getStatClassValue(statName: string): number;
     reloadPlayerModel(): void;
     updateSkinStats(): void;
-    setPlayerEquippedSkinData(t: any): void;
+    setPlayerEquippedSkinData(skinData: SkinData): void;
     replaceLoadingModel(): Promise<void>;
     setWeaponSelectionDialogVisibility(t: any): void;
     updateModelVisibility(): void;
     updateUseFirstPersonHoldingHandlers(): void;
     onJumpPress(): void;
     jump(): void;
-    onFireDown(t: any): void;
-    onFireUp(t: any): void;
+    onFireDown(options?: WeaponActionOptions | null): void;
+    onFireUp(options?: WeaponActionOptions | null): void;
     startToggleActiveWeaponCooldown(): void;
     updateAllowedWeaponsConfig(): void;
     setGungameWeaponIndex(t: any): void;
@@ -1053,7 +1868,7 @@ declare class Player {
     setServerData(t: any, e: any, i: any, s: any, n: any, o?: boolean): void;
     setPingData(t: any): void;
     getDeltaPositionMsAgo(e: any): Vector3;
-    updateIconOwnershipVisibility(t: any): void;
+    updateIconOwnershipVisibility(myTeamId?: number): void;
     updateIconVisibility(): void;
     getSmallAvatar(): Avatar;
     touchedDamageCollider(t: any): void;
@@ -1103,8 +1918,8 @@ declare class Flag {
     physicsManager: any;
     isOnDefaultPos: boolean;
     rigidBody: Ti;
-    obj: Object3D<import("three").Object3DEventMap>;
-    grabAnimationContainer: Object3D<import("three").Object3DEventMap>;
+    obj: Object3D;
+    grabAnimationContainer: Object3D;
     grabStartTime: number;
     returnProgress: number;
     onNearDefaultPosChangeCbs: Set<unknown>;
@@ -1146,18 +1961,18 @@ declare class ArrowManager {
     destructed: boolean;
     constructor(t: any, e: any, i: any);
     destructor(): void;
-    getSphereGeo(t: any): never;
+    getSphereGeo(t: any): undefined;
     loop(t: any, e: any): void;
     createArrow(t: any, e: any): void;
     getArrowById(t: any, e: any): any;
     receivedHitValidationData(t: any): void;
 }
 declare class Bi {
-    crosshair: any;
+    crosshair: Crosshair;
     _offset: number;
-    constructor(t: any);
+    constructor(crosshair: Crosshair);
     get offset(): number;
-    set offset(t: number);
+    set offset(value: number);
 }
 declare class Crosshair {
     gameWrapper: HTMLElement;
@@ -1193,6 +2008,66 @@ declare class Crosshair {
     updateThirdPersonVisibility(): void;
     updateVisibility(): void;
 }
+declare class qi {
+    el: SVGSVGElement;
+    returnTimerRectId: any;
+    removePointPolygonId: any;
+    points: Vector2[];
+    lastBorderTimerPercent: number;
+    returnTimerRect: any;
+    removePointPolygon: any;
+    removeAnimationTimeout: Te;
+    constructor(t: any);
+    getReturnTimerRect(): any;
+    getRemovePointPolygon(): any;
+    setState(t: any, e: any): void;
+    setRemoved(t: any, e: any): void;
+    setBorderTimerPercent(t: any): void;
+}
+declare class Hi {
+    el: HTMLDivElement;
+    iconEl: SVGSVGElement;
+    teamId: any;
+    onNeedsNotificationCbs: Set<unknown>;
+    hasReceivedScore: boolean;
+    currentMaxScoreCount: number;
+    score: number;
+    grabbedState: string;
+    removeScoreTimerIsRunning: boolean;
+    removeScoreTimer: number;
+    prevNow: number;
+    timerStateReceived: boolean;
+    dots: qi[];
+    constructor(t: any);
+    setScore(t: any): void;
+    setScoreTimerState(t: any): void;
+    getBorderTimerPercent(): number;
+    loop(t: any, e: any): void;
+    setGrabbedState(t: any): void;
+    updatePointIcons(): void;
+    getFinalFlagHeld(): boolean;
+    get hasFullScore(): boolean;
+    getScoreWithGrabbedState(): number;
+    onNeedsNotification(t: any): void;
+    fireNeedsNotification(t: any): void;
+}
+declare class Wi {
+    gameWrapper: HTMLElement;
+    el: HTMLDivElement;
+    onNeedsNotificationCbs: Set<unknown>;
+    scoreItems: Hi[];
+    constructor(gameWrapper: HTMLElement, e: any);
+    destructor(): void;
+    update(t: any): void;
+    setFlagScoreTimerState(t: any): void;
+    loop(t: any, e: any): void;
+    setFlagGrabbedState(t: any, e: any): void;
+    getFinalFlagHeld(): boolean;
+    getWinningTeam(): any;
+    getFlagsRatio(): number;
+    onNeedsNotification(t: any): void;
+    setVisible(t: any): void;
+}
 declare class HealthUi {
     gameWrapper: HTMLElement;
     seed: number;
@@ -1206,7 +2081,7 @@ declare class HealthUi {
     damageProtectionBar: HTMLDivElement;
     borderBar: HTMLDivElement;
     heartContainer: HTMLDivElement;
-    fgEl: Element;
+    fgEl: Element | undefined;
     constructor(gameWrapper: HTMLElement);
     destructor(): void;
     setHealth(t: any): void;
@@ -1238,7 +2113,7 @@ declare class SkipText {
     fireSkipAction(): void;
     waitForSkip(): Promise<void>;
 }
-declare class PlayersListDialog extends Ft {
+declare class PlayersListDialog extends Dialog {
     playersList: any;
     skinManager: any;
     teamWonTitle: HTMLHeadingElement;
@@ -1248,7 +2123,7 @@ declare class PlayersListDialog extends Ft {
     teamEls: {
         containerEl: HTMLDivElement;
         tbody: HTMLTableSectionElement;
-        name: any;
+        name: string;
         colGroupEl: HTMLTableColElement;
         headerRowEl: HTMLTableRowElement;
     }[];
@@ -1288,6 +2163,25 @@ declare class ScoreOffsetNotificationsUi {
     destroyOldNotifications(): void;
     updateNotificationOffsets(): void;
     removeAll(): void;
+}
+declare class GameOverStatsDialog extends Dialog {
+    statsContainer: HTMLDivElement;
+    didWatchRewardedAd: boolean;
+    rewardedAdFailed: boolean;
+    onRewardedAdIsPlayingChangeCbs: Set<unknown>;
+    skipText: SkipText;
+    boundOnResize: () => void;
+    constructor(t: any, { trackedMyPlayerScores, totalScore, myTeamId, receivedCoins, coinsAlreadyDoubled, autoSkipStatsScreen, }: {
+        autoSkipStatsScreen: any;
+        coinsAlreadyDoubled: any;
+        myTeamId: any;
+        receivedCoins: any;
+        totalScore: any;
+        trackedMyPlayerScores: any;
+    });
+    onResize(): void;
+    onRewardedAdIsPlayingChange(t: any): void;
+    fireRewardedAdIsPlayingChange(t: any): void;
 }
 declare class ts {
     timeSeconds: number;
@@ -1368,12 +2262,29 @@ declare class os extends Ve {
         normal: any;
         penetration: any;
     };
-    rayCast(t: any, e: any): any;
+    rayCast(from: Vector3, dir: Vector3): RayCastHit | null;
+}
+declare class OctreeNode {
+    aabb: Box3;
+    depth: number;
+    items: Collider[];
+    allChildren: OctreeNode[];
+    children: Set<OctreeNode>;
+    constructor(aabb: Box3, depth?: number);
+    addItems(items: any): void;
+    subdivideRecursive({ boundsContainsCb, maxDepth, itemCountDivideLimit }: {
+        boundsContainsCb: any;
+        itemCountDivideLimit: any;
+        maxDepth: any;
+    }): void;
+    subdivide(): void;
+    traverseDown(t?: () => boolean): any;
+    findEndNodes(t?: () => boolean): Generator<any, void, unknown>;
 }
 declare class PhysicsManager {
     rigidBodies: Set<unknown>;
-    mapColliders: never[];
-    rootOctreeNode: null;
+    mapColliders: Collider[];
+    rootOctreeNode: OctreeNode | null;
     octreeMaxDepth: number;
     mapBounds: null;
     octreeAxisVoxelCount: number;
@@ -1394,28 +2305,31 @@ declare class PhysicsManager {
     addMapCollider(t: any): je | os;
     removeMapColliders(): void;
     buildOctree(): void;
-    getOctreeNodesInAabb(t: any, e?: boolean): Set<unknown>;
-    getCollidersFromOctreeNodes(t: any): Set<unknown>;
-    getCollidersForAabbUsingOctree(t: any): Set<unknown>;
-    worldToOctreeVoxelSpace(t: any): number[];
+    getOctreeNodesInAabb(box: Box3, e?: boolean): Set<OctreeNode>;
+    getCollidersFromOctreeNodes(octreeNodes: any): Set<Collider>;
+    getCollidersForAabbUsingOctree(box: Box3): Set<Collider>;
+    worldToOctreeVoxelSpace(vec: Vector3): number[];
     octreeVoxelSpaceToNodePath([e, i, s]: [any, any, any]): number[] | null;
-    getOctreeNodeForPath(t: any): null;
-    getColliders(): Generator<Be, void, unknown>;
-    getPlayerColliders(): Generator<Be, void, unknown>;
+    getOctreeNodeForPath(t: number[]): OctreeNode | null;
+    getColliders(): Generator<Collider, void, unknown>;
+    getPlayerColliders(): Generator<Collider, void, unknown>;
     getRayCastCache(t: any, e: any): {
         from: any;
         to: any;
         dir: any;
         length: any;
-        octreeNodes: Set<unknown>;
+        octreeNodes: Set<OctreeNode>;
     } | null;
-    rayCastMapColliders(t: any, e?: null): any;
-    rayCastPlayerColliders(t: any, e?: null): any;
-    rayCastHelper(t: any, e: any, i?: null): any;
+    rayCastMapColliders(t: any, e?: null): RayCastHit | null;
+    rayCastPlayerColliders(t: any, e?: null): RayCastHit | null;
+    rayCastHelper(t: any, colliders: Collider[], i?: null): RayCastHit | null;
 }
+type GlobalVariables = {
+    probability?: number;
+};
 declare class ls {
-    lastReceivedGlobalVariables: {};
-    lastReceivedRandomVariablesArray: never[];
+    lastReceivedGlobalVariables: GlobalVariables;
+    lastReceivedRandomVariablesArray: GlobalVariables[];
     currentVariablesIndex: number;
     variablesIndexSeed: number;
     defaultValues: {
@@ -1451,7 +2365,7 @@ declare class ls {
         saturation: number;
         lightningEnabled: boolean;
     };
-    onVariablesChangedCbs: Set<unknown>;
+    onVariablesChangedCbs: Set<() => void>;
     currentVariables: {
         floorDeathHeight: number;
         sphereDeathRadius: number;
@@ -1487,9 +2401,9 @@ declare class ls {
     };
     constructor();
     init(): void;
-    setVariables(t: any, e: any): void;
+    setVariables(receivedGlobalVariables: GlobalVariables | undefined, lastReceivedRandomVariablesArray: GlobalVariables[]): void;
     updateVariablesIndex(): void;
-    setSeed(t: any): void;
+    setSeed(seed: number): void;
     updateVariablesFromArray(): void;
     onVariablesChanged(t: any): void;
     get(t: any): any;
@@ -1596,11 +2510,72 @@ declare class HingeManager {
     removeOnHingeMove(t: any, e: any): void;
     loop(t: any, e: any): void;
 }
+declare class GameTimerUi {
+    gameWrapper: HTMLElement;
+    gameWrapper: any;
+    visible: boolean;
+    el: HTMLDivElement;
+    tenMinutesEl: HTMLSpanElement;
+    oneMinuteEl: HTMLSpanElement;
+    tenSecondsEl: HTMLSpanElement;
+    oneSecondEl: HTMLSpanElement;
+    timeRemainingData: any;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    addDigitEl(): HTMLSpanElement;
+    setTimeRemaining(remaining: any): void;
+    loop(t: any, e: any): void;
+    setVisible(t: any): void;
+    updateVisibility(): void;
+}
+declare class gs {
+    el: HTMLDivElement;
+    teamId: any;
+    teamColor: string;
+    playerDots: any[];
+    alivePlayers: number;
+    constructor(t: any);
+    setPlayerCount(t: any, e: any): void;
+    get hasAlivePlayer(): boolean;
+}
+declare class EliminationScoreUi {
+    gameWrapper: HTMLElement;
+    el: HTMLDivElement;
+    scoreTeams: gs[];
+    constructor(gameWrapper: HTMLElement, e: any);
+    destructor(): void;
+    setPlayerCount(t: any, e: any, i: any): void;
+    getWinningTeam(): any;
+    setVisible(t: any): void;
+}
+declare class fs {
+    gameWrapper: HTMLElement;
+    el: HTMLDivElement;
+    gamemodeEl: HTMLSpanElement;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    setActiveGamemode(t: any): void;
+    setVisible(t: any): void;
+}
+declare class KingOfTheHillUi {
+    gameWrapper: HTMLElement;
+    visible: boolean;
+    el: HTMLDivElement;
+    progressEls: HTMLDivElement[];
+    redScore: number;
+    blueScore: number;
+    constructor(gameWrapper: HTMLElement);
+    destructor(): void;
+    setProgress(t: any, e: any, i: any): void;
+    getWinningTeam(): 1 | 2 | null;
+    setVisible(t: any): void;
+    updateVisibility(): void;
+}
 declare class OnlineGame {
     #private;
     gameWrapper: HTMLElement;
     teamCount: number;
-    activeGamemode: any;
+    activeGamemode: number;
     physics: PhysicsManager;
     players: Map<number, Player>;
     hingeManager: HingeManager;
@@ -1610,20 +2585,20 @@ declare class OnlineGame {
     appearingObjectsManager: cs;
     gameIsVisible: boolean;
     receivedColliders: boolean;
-    scene: null;
+    scene: Object3D | null;
     onGameIsVisibleCbs: Set<unknown>;
     onUsedForCamShotsOnlyChangeCbs: Set<unknown>;
     _usedForCameraShotsOnly: boolean;
     uiVisible: boolean;
-    activeGamemodeUi: null;
-    flagScoreUi: null;
-    eliminationScoreUi: null;
-    gameTimerUi: null;
-    kingOfTheHillUi: null;
+    activeGamemodeUi: fs | null;
+    flagScoreUi: Wi | null;
+    eliminationScoreUi: EliminationScoreUi | null;
+    gameTimerUi: GameTimerUi | null;
+    kingOfTheHillUi: KingOfTheHillUi | null;
     healthUi: HealthUi;
     weaponSelectionDialog: WeaponSelectionDialog;
     playersListDialog: PlayersListDialog;
-    gameOverStatsDialog: any;
+    gameOverStatsDialog: GameOverStatsDialog | null;
     cornerNotificationsUi: NotificationsUi;
     gameOverNotificationsUi: NotificationsUi;
     crosshairNotificationsUi: NotificationsUi;
@@ -1637,42 +2612,45 @@ declare class OnlineGame {
     gameEndShowStatsDuration: number;
     gameEndRewardedAdDuration: number;
     gameEndShowStatsAfterRewardedDuration: number;
-    trackedMyPlayerScores: Map<any, any>;
-    spawnPositions: any;
+    trackedMyPlayerScores: Map<number, number>;
+    spawnPositions: {
+        pos: Vector3;
+        rot: Quaternion;
+    }[][] | null;
     kingOfTheHillPosition: Vector3;
-    kingOfTheHillSphere: any;
+    kingOfTheHillSphere: Group | null;
     isForegroundGame: boolean;
     gameStartTime: number;
     gameStarted: boolean;
     gameEnded: boolean;
     gameSeed: number;
-    onGameSeedChangeCbs: Set<unknown>;
+    onGameSeedChangeCbs: Set<(seed: number) => void>;
     finishedGameEndFlow: boolean;
     destructed: boolean;
     shouldPlayFinalFlagMusic: boolean;
-    currentFinalFlagMusic: any;
-    currentGameEndWaitingMusic: any;
-    onMyPlayerChangeCbs: Set<unknown>;
-    onGameEndCbs: Set<unknown>;
-    onGameEndFinishCbs: Set<unknown>;
-    gameEndWaitTimers: any[];
+    currentFinalFlagMusic: SFXSound | null;
+    currentGameEndWaitingMusic: SFXSound | null;
+    onMyPlayerChangeCbs: Set<() => void>;
+    onGameEndCbs: Set<() => void>;
+    onGameEndFinishCbs: Set<() => void>;
+    gameEndWaitTimers: ts[];
     gameEndTimerSuddenChangeDisabled: boolean;
-    onEstimatedMaxGameEndWaitTimeSuddenChangeCbs: Set<unknown>;
-    onSdkGameplayStartedChangeCbs: Set<unknown>;
-    onSquadPlayersChangeCbs: Set<unknown>;
-    onGameEndAccountStatsChangeCbs: Set<unknown>;
+    onEstimatedMaxGameEndWaitTimeSuddenChangeCbs: Set<() => void>;
+    onSdkGameplayStartedChangeCbs: Set<() => void>;
+    onSquadPlayersChangeCbs: Set<() => void>;
+    onGameEndAccountStatsChangeCbs: Set<() => void>;
     gameEndStepsReachedStatScreens: boolean;
-    onGameEndStatsScreenCbs: Set<unknown>;
+    onGameEndStatsScreenCbs: Set<() => void>;
     isDoingGameEndSteps: boolean;
     gameEndMyTotalScore: number;
     gameEndReceivedCoins: number;
     gameEndCoinsAlreadyDoubled: boolean;
     gameEndShowStatsScreen: boolean;
-    gameEndStatsShowTimer: any;
-    gameEndAdBreakTimer: any;
-    gameEndRewardedAdTimer: any;
-    gameEndStatsAfterRewardedAdTimer: any;
-    currentLoadedMapHash: any;
+    gameEndStatsShowTimer: ts | null;
+    gameEndAdBreakTimer: ts | null;
+    gameEndRewardedAdTimer: ts | null;
+    gameEndStatsAfterRewardedAdTimer: ts | null;
+    currentLoadedMapHash: string | null;
     boundUpdateUiVisible: () => void;
     boundOnPlayerListDown: () => void;
     boundOnPlayerListUp: () => void;
@@ -1688,18 +2666,31 @@ declare class OnlineGame {
     updateKingOfTheHillRenderPosition(): void;
     setGameTimerTimeRemaining(t: any): void;
     loadMap(t: any): Promise<void>;
-    setMapScene(t: any, e: any): void;
-    updateMapGameplayData(t: any): void;
-    setServerGameTime(t: any): void;
-    setServerGameSeed(t: any): void;
-    onGameSeedChange(t: any): void;
+    setMapScene(scene: Object3D | null, mapHash: string | null): void;
+    updateMapGameplayData(mapGameplayData: {
+        flags: {
+            flagTeamId: number;
+            pos: Vector3;
+            rot: Quaternion;
+        }[];
+        spawnPositions: {
+            pos: Vector3;
+            rot: Quaternion;
+        }[][];
+        mapName: string;
+        assetName: string;
+        kingOfTheHillPosition: Vector3;
+    }): void;
+    setServerGameTime(serverTime: number): void;
+    setServerGameSeed(seed: number): void;
+    onGameSeedChange(cb: (seed: number) => void): void;
     get gameTime(): number;
     notifyServerCurrentMap(): void;
-    createPlayer(id: number, params: any): void;
+    createPlayer(id: number, params?: Partial<PlayerParams>): void;
     destroyPlayer(id: number): void;
     setPlayerOwnership(id: number, ownership: boolean): void;
     getMyTeamColor(): {
-        colors: any;
+        colors: (typeof n_1)[number];
         myTeamId: number;
     };
     updateMyTeamColor(): void;
@@ -1726,7 +2717,10 @@ declare class OnlineGame {
     playerServerDataFrameEnded(): void;
     setPlayerPingData(t: any, e: any): void;
     createServerArrow(t: any, e: any, i: any, s: any, n: any, o: any, a: any, r: any, l: any): void;
-    getSpawnPosition(t: any, e: any): any;
+    getSpawnPosition(team: number, key: number): {
+        pos: Vector3;
+        rot: Quaternion;
+    };
     playerClaimedHitByArrow(t: any, e: any, i: any, s: any): void;
     playerHitByMelee(t: any, e: any): void;
     playerHitByArrow(t: any, e: any): void;
@@ -1740,7 +2734,7 @@ declare class OnlineGame {
     setPlayerGungameWeaponIndex(t: any, e: any): void;
     updateFlagScoreboard(t: any): void;
     updateAllEliminationScoreboards(): void;
-    updateEliminationScoreboard(t: any): void;
+    updateEliminationScoreboard(teamId: number): void;
     updateFlagGrabbedStates(): void;
     updateFinalFlagMusic(): Promise<void>;
     showKillNotification(): void;
@@ -1777,6 +2771,71 @@ declare class OnlineGame {
     reportOwnedPlayerHeadshotKill(t: any): void;
     reportOwnedPlayerHeadshotMiss(): void;
 }
+declare class Ss extends Dialog {
+    networkManager: NetworkManager;
+    squadManager: SquadManager;
+    gameManager: GameManager;
+    avatarsManager: AvatarsManager;
+    skinManager: SkinsManager;
+    currentSquadId: string | null;
+    squadIdText: HTMLDivElement;
+    copyUrlButton: CustomButton;
+    clipboardPermissionGranted: boolean;
+    joinSquadIdInput: Ae;
+    joinSquadIdButton: CustomButton;
+    membersTbody: HTMLTableSectionElement;
+    inSquadButtonsContainer: HTMLDivElement;
+    boundOnReadyToJoinChange: (ready: boolean) => void;
+    startButton: CustomButton;
+    squadSettingsDialog: Le | null;
+    currentAvatarBlobUrlReferences: Set<BlobURLReference>;
+    boundUpdateSquadId: () => void;
+    boundOnSquadIdChange: () => void;
+    boundOnSquadMembersChange: () => void;
+    boundOnLeaderStateChange: () => void;
+    boundOnSquadSettingChange: (setting: string, value: unknown) => void;
+    boundUpdateStartButtonEnabled: () => void;
+    boundUpdateStartButtonEnabledFromStartClicked: () => void;
+    boundOnInGameChange: () => void;
+    constructor(gameWrapper: HTMLElement, networkManager: NetworkManager, squadManager: SquadManager, gameManager: GameManager, avatarsManager: AvatarsManager, skinManager: SkinsManager);
+    destructor(): void;
+    handleRequestInitialSquadId(): Promise<void>;
+    onSquadIdChanged(): void;
+    updateSquadId(): void;
+    queryClipboardPermission(): Promise<void>;
+    updateCopyUrlButtonVisibility(): void;
+    createMemberAvatarEl(memberData: {
+        skinData: SkinData;
+        [key: string]: unknown;
+    }, teamId: number): HTMLDivElement;
+    updateMembersUi(): void;
+    updateJoinButtonVisibility(): void;
+    updateStartButtonEnabled(t?: boolean): void;
+    updateReadyStartButtonVisibility(): void;
+}
+declare class vs {
+    #private;
+    onJoinClickedCbs: Set<() => void>;
+    el: HTMLDivElement;
+    titleEl: HTMLHeadingElement;
+    thumbContainer: HTMLDivElement;
+    constructor(configManager: ConfigManager, mapConfig: ListedMapConfig);
+    destructor(): void;
+    onJoinClicked(cb: () => void): void;
+    highlight(): void;
+}
+declare class Cs extends Dialog {
+    #private;
+    configManager: ConfigManager;
+    preferredMapManager: PreferredMapManager;
+    gameManager: GameManager;
+    mapsContainer: HTMLDivElement;
+    maps: vs[];
+    constructor(gameWrapper: HTMLElement, configManager: ConfigManager, preferredMapManager: PreferredMapManager, gameManager: GameManager);
+    destructor(): void;
+    updateMaps(mapsConfig: MapsConfigData): void;
+    highlightItem(assetName: string): void;
+}
 declare class MainMenu {
     gameWrapper: HTMLElement;
     el: HTMLElement | null;
@@ -1784,21 +2843,21 @@ declare class MainMenu {
     currentJoinState: string;
     loadScreenHidden: boolean;
     toggledVisibilityState: boolean;
-    toggleMenuButton: Et;
+    toggleMenuButton: CustomButton;
     visible: boolean;
     onVisibilityChangeCbs: Set<unknown>;
     contentVisible: boolean;
-    userProfileDialog: any;
+    userProfileDialog: Pe | null;
     cornerProfile: xe;
     menuButtonsContainer: HTMLDivElement;
     loginButton: MainMenuButton;
-    settingsDialog: any;
+    settingsDialog: SettingsDialog | null;
     settingsButton: MainMenuButton;
-    shopDialog: any;
+    shopDialog: ke | null;
     shopButton: MainMenuButton;
-    squadDialog: any;
+    squadDialog: Ss | null;
     squadButton: MainMenuButton;
-    mapsDialog: any;
+    mapsDialog: Cs | null;
     mapsButton: MainMenuButton;
     fullScreenButton: MainMenuButton;
     exitFullScreenButton: MainMenuButton;
@@ -1807,12 +2866,12 @@ declare class MainMenu {
     installPromptAccepted: boolean;
     updateButton: MainMenuButton;
     exitButton: MainMenuButton;
-    promoBanner: any;
-    currentMusicSfx: any;
+    promoBanner: Me | null;
+    currentMusicSfx: SFXSound | null;
     hideUi: boolean;
     constructor(gameWrapper: HTMLElement);
     init(): void;
-    loop(t: any, e: any): void;
+    loop(now: number, dt: number): void;
     updateLoadingImageVisibility(): void;
     setJoinState(t: any): void;
     updateSquadButtonsText(): void;
@@ -1828,10 +2887,10 @@ declare class MainMenu {
     removeOnVisibilityChange(t: any): void;
     get shouldPlayMusic(): boolean;
     updatePlayingMusic(): Promise<void>;
-    openShopDialog(): any;
+    openShopDialog(): ke;
     openUserProfileDialog(t: any): void;
     openSquadDialog(): void;
-    openMapsDialog(): any;
+    openMapsDialog(): Cs;
 }
 declare class AdBanners {
     gameWrapper: HTMLElement;
@@ -1845,21 +2904,21 @@ declare class AdBanners {
     setPageVisibility(t: any, e: any): void;
     updateVisibilities(): void;
 }
-declare class Ws extends Ft {
+declare class Ws extends Dialog {
     indexPriority: number;
     closeOnButtonClick: boolean;
     titleEl: HTMLHeadingElement;
     textEl: HTMLDivElement;
     createdButtons: any[];
     constructor(t: any, { title, text, buttons, closeOnButtonClick, extraArgs, }?: {
-        title?: string | undefined;
-        text?: string | undefined;
         buttons?: {
             text: string;
             testLabel: string;
             onClick: undefined;
         }[] | undefined;
         closeOnButtonClick?: boolean | undefined;
+        text?: string | undefined;
+        title?: string | undefined;
     });
     setButtons(t: any): void;
     setButtonsEnabled(t: any): void;
@@ -1972,11 +3031,35 @@ declare class InputManager {
     _updatePointerLockedState(): void;
     _tryLockPointer(): Promise<void>;
 }
+export interface ListedMapConfig {
+    name?: string;
+    assetName?: string;
+    hash?: string;
+    size?: number;
+    label?: string;
+    hiddenInUi?: boolean;
+    access?: string;
+    thumbLayers?: number[];
+    alternativeMaps?: string[];
+    [key: string]: unknown;
+}
+export interface MapsConfigData {
+    mainMenuMapHash: string;
+    maps: ListedMapConfig[];
+    lastUpdatedTimestamp: number;
+}
+export interface ShopConfigData {
+    purchasableItems: ShopItemConfig[];
+    skinPresets: SkinData[];
+}
+export interface PromosConfigData {
+    activePromos: PromoItem[];
+}
 declare class rn {
     configManager: any;
     configPath: any;
     onConfigChangeCbs: Set<unknown>;
-    loadedConfigData: null;
+    loadedConfigData: unknown;
     constructor(t: any, e: any);
     transformData(t: any): void;
     load(): Promise<void>;
@@ -1985,17 +3068,20 @@ declare class rn {
     waitForConfigLoad(): Promise<void>;
 }
 declare class MapsConfig extends rn {
+    loadedConfigData: MapsConfigData | null;
     transformData(t: any): any;
-    getListedMapConfigByHash(t: any): null;
+    getListedMapConfigByHash(t: any): ListedMapConfig | null;
     hasListedMapConfigByHash(t: any): boolean;
-    getListedMapConfigByAssetName(t: any): any;
+    getListedMapConfigByAssetName(t: any): ListedMapConfig | null;
 }
 declare class PromosConfig extends rn {
+    loadedConfigData: PromosConfigData | null;
     transformData(t: any): any;
 }
 declare class ShopsConfig extends rn {
+    loadedConfigData: ShopConfigData | null;
     transformData(t: any): any;
-    getPurchaseableItem(t: any): null;
+    getPurchaseableItem(t: any): ShopItemConfig | null;
 }
 declare class ConfigManager {
     gameWrapper: HTMLElement;
@@ -2004,10 +3090,15 @@ declare class ConfigManager {
     shopConfig: ShopsConfig;
     promosConfig: PromosConfig;
     mapsConfig: MapsConfig;
-    allConfigs: (ShopsConfig | MapsConfig | PromosConfig)[];
+    allConfigs: (MapsConfig | PromosConfig | ShopsConfig)[];
     constructor(gameWrapper: HTMLElement);
     init(): void;
     loadAllConfigs(): void;
+}
+interface SpawnPosition {
+    index: number;
+    pos: Vector3;
+    rot: Quaternion;
 }
 declare class OfflineGame {
     physics: PhysicsManager;
@@ -2035,11 +3126,7 @@ declare class OfflineGame {
     loop(t: any, e: any): void;
     onMyPlayerChange(t: any): void;
     getMyPlayer(): Player;
-    getSpawnPosition(): {
-        index: number;
-        pos: Vector3;
-        rot: Quaternion;
-    };
+    getSpawnPosition(): SpawnPosition;
     getArrowAssetName(): string;
     updateGameIsVisible(): void;
     onGameIsVisible(t: any): void;
@@ -2050,12 +3137,12 @@ type Game = OfflineGame | OnlineGame;
 export declare class GameManager {
     gameWrapper: HTMLElement;
     gameWrapper: HTMLElement;
-    activeGame: Game;
+    activeGame: Game | null;
     loadingBackgroundGame: null;
     joinedOnce: boolean;
     isInGamesLoop: boolean;
     onIsInGamesLoopChangeCbs: Set<unknown>;
-    onActiveGameChangeCbs: Set<unknown>;
+    onActiveGameChangeCbs: Set<(game: Game | null) => void>;
     readyToJoin: boolean;
     onReadyToJoinChangeCbs: Set<unknown>;
     onGameEndCbs: Set<unknown>;
@@ -2074,8 +3161,8 @@ export declare class GameManager {
     loadRainSfx(): Promise<void>;
     loadInsectsSfx(): Promise<void>;
     setAmbientVolumes(t: any, e: any, i: any, s: any, n: any, o: any): void;
-    onActiveGameChange(t: any): void;
-    removeOnCurrentGameChange(t: any): void;
+    onActiveGameChange(cb: (game: Game | null) => void): void;
+    removeOnCurrentGameChange(cb: (game: Game | null) => void): void;
     fireCurrentGameChangeCbs(): void;
     onIsInGamesLoopChange(t: any): void;
     setIsInGamesLoop(t: any): void;
@@ -2096,7 +3183,25 @@ export declare class GameManager {
     joinGameAfterAd(): Promise<void>;
     estimateMaxWaitTimeSeconds(): number;
     getMyTeamColor(): {
-        colors: any;
+        colors: {
+            id: string;
+            playersListText: string;
+            colorTransform: (e: {
+                h: number;
+                s: number;
+                v: number;
+            }) => void;
+            cssColor: string;
+            cssColorLight: string;
+            cssColorDark: string;
+        } | {
+            colorTransform?: undefined;
+            id: string;
+            playersListText: string;
+            cssColor: string;
+            cssColorLight: string;
+            cssColorDark: string;
+        } | undefined;
         myTeamId: number;
     };
     updateSdkGameplayStarted(): void;
@@ -2154,7 +3259,7 @@ declare class GameCamera {
         to: any;
         dir: any;
         length: any;
-        octreeNodes: Set<unknown>;
+        octreeNodes: Set<OctreeNode>;
     } | null;
     setThirdPersonMode(t: any): void;
     onThirdPersonChange(t: any): void;
@@ -2173,7 +3278,7 @@ declare class HudIcon {
     visible: boolean;
     texture: Texture | null;
     mat: ShaderMaterial;
-    obj: Mesh<PlaneGeometry, ShaderMaterial, import("three").Object3DEventMap>;
+    obj: Mesh<PlaneGeometry, ShaderMaterial>;
     constructor(manager: HudIcons, { size, url, nearest }: HudIconParams);
     destructor(): void;
     updateIconSize(t: any, e: any): void;
@@ -2200,7 +3305,7 @@ declare class ScreenFlash {
     scene: any;
     material: any;
     autoFade: any;
-    obj: Mesh<PlaneGeometry, any, import("three").Object3DEventMap>;
+    obj: Mesh<PlaneGeometry, any>;
     creationTime: number;
     shouldBeDestroyed: boolean;
     constructor(scene: Scene, material: Material, i: any, s: any, n: any, o: any, a: any);
@@ -2217,10 +3322,10 @@ declare class ScreenFlashManager {
     constructor(scene: Scene, camera: PerspectiveCamera);
     setMaterial(material: any): void;
     flash({ arrowHitNormalWorld, vignetteAmount, color, autoFade, hasDirection, }?: {
-        vignetteAmount?: number | undefined;
-        color?: Vector3 | undefined;
         autoFade?: boolean | undefined;
+        color?: Vector3 | undefined;
         hasDirection?: boolean | undefined;
+        vignetteAmount?: number | undefined;
     }): ScreenFlash | undefined;
     getThetaFromArrowHitNormal(t: any): number;
     loop(t: any): void;
@@ -2236,8 +3341,8 @@ declare class RenderView {
     scene: null;
     cam: null;
     constructor({ width, height }?: {
-        width?: number | undefined;
         height?: number | undefined;
+        width?: number | undefined;
     });
     setSize(width: number, height: number): void;
     setRenderObjects(scene: Scene, cam: PerspectiveCamera, dirty?: boolean): void;
@@ -2249,7 +3354,7 @@ declare class RenderView {
     getBlob(): Promise<Blob>;
 }
 declare class RenderOverlay {
-    scene: Scene<import("three").Object3DEventMap>;
+    scene: Scene;
     cam: PerspectiveCamera;
     minFov: number;
     maxFov: number;
@@ -2257,10 +3362,10 @@ declare class RenderOverlay {
     far: number;
     enabled: boolean;
     constructor({ minFov, maxFov, near, far }?: {
-        minFov?: number | undefined;
-        maxFov?: number | undefined;
-        near?: number | undefined;
         far?: number | undefined;
+        maxFov?: number | undefined;
+        minFov?: number | undefined;
+        near?: number | undefined;
     });
     updateProjectionMatrix(): void;
 }
@@ -2309,13 +3414,13 @@ declare class GameRenderer {
     waitForFrameRender(waitCount?: number): Promise<void>;
 }
 declare class SkeletonsManager {
-    cachedPoses: Map<any, any>;
-    loadingPoseCbs: Map<any, any>;
+    cachedPoses: Map<string, Object3D>;
+    loadingPoseCbs: Map<string, Set<(value: Object3D) => void>>;
     constructor();
-    getSkeleton(t: any, { clone, signal }?: {
+    getSkeleton(name: string, { clone, signal }?: {
         clone?: boolean | undefined;
         signal?: null | undefined;
-    }): Promise<any>;
+    }): Promise<Object3D>;
 }
 declare class SFXSound {
     cachedSfx: any;
@@ -2347,7 +3452,7 @@ declare class SFXSound {
     stop(destruct?: boolean): void;
     pause(_?: boolean): void;
     resume(muted?: boolean): void;
-    getEstimatedTime(): any;
+    getEstimatedTime(): number;
 }
 declare class SoundFX {
     supported: boolean;
@@ -2399,81 +3504,129 @@ declare class Waiter<const F extends (...a: Args) => Promise<R>, const Args exte
 }
 declare class MatchMaking {
     matchMakingSocketUrl: string;
-    ws: null;
-    onJoinServerReceivedCbs: Set<unknown>;
+    ws: WebSocket | null;
+    onJoinServerReceivedCbs: Set<(game: JoinedGameInfo) => void>;
     nextCloseIsIntentional: boolean;
-    onConnectionCloseCbs: Set<unknown>;
-    onConnectionOpenCbs: Set<unknown>;
-    onConnectionCloseDuringMatchMakingCbs: Set<unknown>;
-    onSquadMessageCbs: Set<unknown>;
-    onIsMatchMakingChangeCbs: Set<unknown>;
-    matchMakingLoadingText: null;
+    onConnectionCloseCbs: Set<(nextIsIntentional: boolean) => void>;
+    onConnectionOpenCbs: Set<() => void>;
+    onConnectionCloseDuringMatchMakingCbs: Set<() => void>;
+    onSquadMessageCbs: Set<(message: SquadMessage) => void>;
+    onIsMatchMakingChangeCbs: Set<() => void>;
+    matchMakingLoadingText: InfoText | null;
     isMatchMaking: boolean;
     shouldApplyLoadingText: boolean;
     isInUnreadyQueue: boolean;
     lastSentElo: number;
-    initConnectionInstance: Waiter<() => Promise<boolean>, unknown[], unknown>;
+    initConnectionInstance: Waiter<() => Promise<boolean>, [], boolean>;
     constructor();
     init(): void;
-    setIsMatchMaking(t: any): void;
-    setShouldApplyLoadingText(t: any): void;
+    setIsMatchMaking(isMatchMaking: boolean): void;
+    setShouldApplyLoadingText(shouldApply: boolean): void;
     updateLoadingText(): void;
     initConnection(): Promise<unknown>;
     assertInitConnection(): Promise<void>;
-    get connected(): null;
-    attemptSingleWsConnection(): Promise<unknown>;
+    get connected(): boolean | null;
+    attemptSingleWsConnection(): Promise<WebSocket | null>;
     closeMatchMakingConnection(): void;
     markNextCloseAsIntentional(): void;
     fireOnCloseCbs(): void;
     updateQueueState({ isReadyToJoin, maxWaitTimeMs }?: {
-        isReadyToJoin?: boolean | undefined;
+        isReadyToJoin?: boolean;
+        maxWaitTimeMs?: number;
     }): Promise<void>;
     leaveQueue(): Promise<void>;
-    onConnectionOpen(t: any): void;
-    onConnectionClose(t: any): void;
-    onConnectionCloseDuringMatchMaking(t: any): void;
-    onIsMatchMakingChange(t: any): void;
-    send(t: any): void;
+    onConnectionOpen(cb: () => void): void;
+    onConnectionClose(cb: (nextIsIntentional: boolean) => void): void;
+    onConnectionCloseDuringMatchMaking(cb: () => void): void;
+    onIsMatchMakingChange(cb: () => void): void;
+    send(message: Record<string, unknown>): void;
     sendDownloadedMapHashes(): void;
     sendEntitlementsProof(): Promise<void>;
     sendElo(): void;
     sendPreferredGamemodes(): void;
-    onJoinServerReceived(t: any): void;
+    onJoinServerReceived(cb: (game: JoinedGameInfo) => void): void;
     sendRequestSquadId(): Promise<void>;
-    sendJoinSquad(t: any, allowJoinExistingGame: any, allowCreate: any): Promise<void>;
-    onSquadMessage(t: any): void;
-    sendSquadSettingChange(setting: any, value: any): void;
-    sendAllSquadSettings(settings: any): void;
-    sendSquadTeamColor(memberId: any, teamColorId: any): void;
-    sendUsername(username: any): void;
+    sendJoinSquad(squadId: string, allowJoinExistingGame: boolean, allowCreate: boolean): Promise<void>;
+    onSquadMessage(cb: (message: SquadMessage) => void): void;
+    sendSquadSettingChange(setting: string, value: unknown): void;
+    sendAllSquadSettings(settings: SquadSettings): void;
+    sendSquadTeamColor(memberId: number, teamColorId: number): void;
+    sendUsername(username: string): void;
     sendStartSquad(): void;
     sendAllowAutoStartSquad(): void;
-    sendRequestSquadLeadership(token: any): void;
-    sendMySkinData(skinData: any): void;
+    sendRequestSquadLeadership(token: string): void;
+    sendMySkinData(skinData: string): void;
 }
-interface SquadPlayer {
-    id: e.id;
-    squadPlayerId: e.squadPlayerId;
-    name: e.playerName;
-    teamId: e.teamId;
-    skinData: e.equippedSkinData;
-    leader: e.isSquadLeader;
+export interface JoinedGameInfo {
+    gameId: number;
+    joinRequestId?: string;
+    isLocal?: boolean;
+    insecure?: boolean;
+    url4?: string;
+    [key: string]: unknown;
+}
+export interface SquadPlayer {
+    id: number;
+    squadPlayerId: number;
+    name: string;
+    teamId: number;
+    skinData: SkinData;
+    leader: boolean;
+}
+export interface SquadSettings {
+    privateSquad?: boolean;
+    [key: string]: unknown;
+}
+export interface MatchMakeSquadMember {
+    name: string;
+    skinData: SkinData;
+    ready: boolean;
+    leader: boolean;
+    configuredTeamColor: number;
+}
+export interface SquadMemberData {
+    id: number;
+    myPlayer?: boolean;
+    name: string;
+    skinDataStr?: string;
+    ready?: boolean;
+    leader?: boolean;
+    configuredTeamColor?: number;
+    [key: string]: unknown;
+}
+export interface SquadMessage {
+    op: string;
+    squadId?: string;
+    willJoinImmediately?: boolean;
+    errorType?: string;
+    settings?: SquadSettings;
+    setting?: string;
+    value?: unknown;
+    token?: string;
+    isLeader?: boolean;
+    members?: SquadMemberData[];
+    member?: SquadMemberData;
+    id?: number;
+    readyForStart?: boolean;
+    started?: boolean;
 }
 declare class SquadManager {
     networkManager: NetworkManager;
-    matchMakeManager: any;
+    matchMakeManager: MatchMaking;
     gameManager: GameManager;
     isJoiningSquad: boolean;
     matchmakeServerSquadId: string | null;
     gameServerSquadId: string | null;
     onBeforeJoinFired: boolean;
-    lastSentUsername: null;
-    lastSentSkinDataStr: null;
+    lastSentUsername: string | null;
+    lastSentSkinDataStr: string | null;
     shouldShowSquadDialogForCurrentSquadId: boolean;
-    matchMakeSquadMembers: Map<any, any>;
-    matchMakeSquadMembersOnGameJoin: Map<any, any>;
+    matchMakeSquadMembers: Map<number, MatchMakeSquadMember>;
+    matchMakeSquadMembersOnGameJoin: Map<number, MatchMakeSquadMember>;
     includeUnjoinedMembers: boolean;
     includeUnjoinedMembersTimeout: Te;
+    waitingForSquadLoadingText: InfoText | undefined;
+    waitingForSquadStartLoadingText: InfoText | undefined;
     gameSquadPlayers: SquadPlayer[];
     mySquadPlayerId: number;
     matchMakeAllReady: boolean;
@@ -2485,41 +3638,55 @@ declare class SquadManager {
     serverStartClicked: boolean;
     startClicked: boolean;
     onStartClickedChangeCbs: Set<() => void>;
-    prevUserVisibleSquadId: null;
+    prevUserVisibleSquadId: string | null;
     onUserVisibleSquadIdChangeCbs: Set<() => string>;
     onIsJoiningSquadChangeCbs: Set<() => void>;
     onSquadMembersChangeCbs: Set<() => void>;
-    currentSquadSettings: null;
-    beforeMatchmakeConnectSquadSettings: null;
+    currentSquadSettings: SquadSettings | null;
+    beforeMatchmakeConnectSquadSettings: SquadSettings | null;
     myClientIsSquadLeader: boolean;
-    lastSquadLeaderToken: null;
-    onSquadSettingChangeCbs: Set<(setting: string, value: any) => void>;
+    lastSquadLeaderToken: string | null;
+    onSquadSettingChangeCbs: Set<(setting: string, value: unknown) => void>;
     onMySquadLeaderStateChangeCbs: Set<() => void>;
     boundUpdateGameSquadPlayers: () => void;
-    constructor(networkManager: NetworkManager, matchMakeManager: any, gameManager: GameManager);
+    constructor(networkManager: NetworkManager, matchMakeManager: MatchMaking, gameManager: GameManager);
     init(): void;
     get userVisibleSquadId(): string | null;
     get isInSquad(): boolean;
     get startButtonEnabled(): boolean;
     updateGameSquadPlayers(): void;
     getSquadMembers(): Generator<{
-        gameServerId: e.id;
+        gameServerId: number;
         matchmakeServerId: null;
-        name: e.playerName;
+        name: string;
         teamId: number;
         ready: boolean;
         joined: boolean;
-        skinData: e.equippedSkinData;
-        leader: e.isSquadLeader;
+        skinData: SkinData;
+        leader: boolean;
     } | {
         gameServerId: null;
-        matchmakeServerId: any;
-        name: any;
-        teamId: any;
-        ready: any;
+        matchmakeServerId: null;
+        name: string;
+        teamId: number;
+        ready: boolean;
         joined: boolean;
-        skinData: any;
-        leader: any;
+        skinData: {
+            equippedSkinIds: never[];
+            hairColorMultiplier: number[];
+            eyebrowColorMultiplier: number[];
+            beardColorMultiplier: number[];
+        };
+        leader: boolean;
+    } | {
+        gameServerId: null;
+        matchmakeServerId: number;
+        name: string;
+        teamId: number;
+        ready: boolean;
+        joined: boolean;
+        skinData: SkinData;
+        leader: boolean;
     }, void, unknown>;
     get totalSquadMemberCount(): number;
     setSquadSetting(t: any, e: any): void;
@@ -2533,7 +3700,7 @@ declare class SquadManager {
     setMyClientIsSquadLeader(t: any): void;
     setIsJoiningSquad(t: any): void;
     requestInitialSquadId(): Promise<void>;
-    handleSquadJoinError(t: any, e: any): void;
+    handleSquadJoinError(errorType: string, squadId?: string | null): void;
     joinExistingSquad(t: any, e?: boolean, i?: boolean): Promise<undefined>;
     setMatchmakeServerSquadId(t: any): void;
     setGameServerSquadId(t: any): void;
@@ -2570,13 +3737,13 @@ declare class NetworkManager {
     lastSentSkinData: string;
     lastSentSessionData: string;
     lastDisconnectReason: number;
-    lastDisconnectReasonExtra: never[];
+    lastDisconnectReasonExtra: number[];
     nextCloseIsIntentional: boolean;
     isInitialPageLoadConnection: boolean;
-    timeoutDialog: null;
-    nextJoinReconnectToken: null;
+    timeoutDialog: Ws | null;
+    nextJoinReconnectToken: string | null;
     nextJoinGameId: number;
-    nextJoinRequestId: null;
+    nextJoinRequestId: string | null;
     matchMaking: MatchMaking;
     squadManager: SquadManager;
     isInit: boolean;
@@ -2593,7 +3760,7 @@ declare class NetworkManager {
         isInitialPageLoadConnection?: boolean | undefined;
     }): Promise<void>;
     onMessage({ buffer }: {
-        buffer: any;
+        buffer: ArrayBufferLike;
     }): void;
     markNextCloseAsIntentional(): void;
     fireConnectionClosed(): void;
@@ -2633,18 +3800,18 @@ declare class NetworkManager {
     getDefaultSpawnNetworkPositions(t: any): number[][][] | null;
     getKingOfTheHillNetworkPosition(t: any): number[];
     mapWorldPosToNetworkPos(t: any, e: any, i: any, s: any): number[];
-    mapNetworkPosToWorldPos(t: any, e: any, i: any, s: any): any[];
-    mapNetworkVelocityToWorldVelocity(t: any, e: any, i: any): any[];
+    mapNetworkPosToWorldPos(t: any, e: any, i: any, s: any): number[];
+    mapNetworkVelocityToWorldVelocity(t: any, e: any, i: any): number[];
     sendCreateArrow(t: any, e: any, { arrowId, pos, dir, fireAmount01 }: {
         arrowId: any;
-        pos: any;
         dir: any;
         fireAmount01: any;
+        pos: any;
     }): {
         arrowId: any;
         pos: Vector3;
         dir: Vector3;
-        fireAmount01: any;
+        fireAmount01: number;
         networkOffsetPos: Vector3;
     };
     sendChangeFlag(t: any, e: any, i: any): void;
@@ -2653,7 +3820,7 @@ declare class NetworkManager {
     sendDefaultFlagPositions(t: any): void;
     sendDefaultSpawnPositions(t: any): void;
     sendKingOfTheHillPosition(t: any): void;
-    sendReportCheater(t: any, e: any, i: any): void;
+    sendReportCheater(playerId: number, reportType: number, value: number): void;
     sendHitByArrow(t: any, e: any, i: any, s: any, n: any): void;
     sendValidArrowHit(t: any, e: any, i: any): void;
     sendChatMessage(t: any): void;
@@ -2713,8 +3880,8 @@ declare class AuthManager {
     setPeliLoginStateUpdatesDisabled(t: any): void;
     updatePeliSdkLoginState(): void;
     createForcedPeliLogoutDialog({ title, text }: {
-        title: any;
         text: any;
+        title: any;
     }): Promise<boolean>;
     peliSdkLogin(): Promise<{
         success: boolean;
@@ -2745,15 +3912,15 @@ declare class AuthManager {
         error: string;
     }>;
     handleSessionDataResponse(t: any): Promise<void>;
-    handleUnlinkRequest(t: any, e: any, i: any): Promise<any>;
-    unlinkPeliAccount(): Promise<any>;
-    unlinkAccount(t: any): Promise<any>;
+    handleUnlinkRequest(t: any, e: any, i: any): Promise<boolean>;
+    unlinkPeliAccount(): Promise<boolean>;
+    unlinkAccount(t: any): Promise<boolean>;
     get isLoggedIn(): boolean;
     loginIfNotLoggedIn(): Promise<boolean>;
     logoutAfterError(): Promise<boolean>;
     showLoginError(t: any): void;
     logout(): Promise<void>;
-    peliLogout(): Promise<"not-supported" | "already-logged-out" | "logged-out" | "dismissed">;
+    peliLogout(): Promise<"already-logged-out" | "dismissed" | "logged-out" | "not-supported">;
     logoutEverywhere(): Promise<void>;
     clearCurrentSessionData(): Promise<void>;
     getGuestAccountData(): Promise<any>;
@@ -2764,10 +3931,10 @@ declare class AuthManager {
         secureId: any;
         guestData?: undefined;
     } | {
-        type: string;
-        guestData: any;
         token?: undefined;
         secureId?: undefined;
+        type: string;
+        guestData: any;
     }>;
     refreshGuestSessionIfNeeded(): Promise<boolean | undefined>;
     postGuestAccountDataToRestService(): Promise<boolean>;
@@ -2776,7 +3943,10 @@ declare class AuthManager {
     syncGuestDataWithRestServiceFn(): Promise<false | undefined>;
     deleteGuestAccountDataFromRestService(): Promise<boolean>;
     getRestAuthHeader(t?: boolean): Promise<string | null>;
-    requestWithAuthHeader(t: any): Promise<any>;
+    requestWithAuthHeader<R>(cb: (auth: string | null) => Promise<{
+        gotAuthError: boolean;
+        returnValue: R;
+    }>): Promise<R>;
 }
 declare class _n {
     authManager: AuthManager;
@@ -2804,42 +3974,54 @@ declare class _n {
     getCurrentState(): void;
     clearCurrentDataImpl(): void;
 }
+export interface LinkedAccount {
+    issuer: string;
+    email: string;
+    isUnknownEmail?: boolean;
+    [key: string]: unknown;
+}
+export interface UsernameData {
+    username: string;
+    protected?: boolean;
+    verified?: boolean;
+    [key: string]: unknown;
+}
 declare class ProfileState extends _n {
     cachedStateIndexDbKey: string;
     getStateUrl: string;
     isGuest: boolean;
-    stats: {};
+    stats: Record<string, number>;
     maxLinkedAccountsReached: boolean;
     protected: boolean;
     canUnlinkAllAccounts: boolean;
     canBeDeleted: boolean;
     dbId: null;
-    usernameData: null;
+    usernameData: UsernameData | null;
     peliAccountEmail: null;
     isPeliSession: boolean;
     canUnlinkPeliAccount: boolean;
-    linkedAccounts: never[];
+    linkedAccounts: LinkedAccount[];
     constructor(...t: any[]);
     getCurrentState(): {
-        username: any;
+        username: string | null;
         isGuest: boolean;
-        stats: {};
+        stats: Record<string, number>;
         maxLinkedAccountsReached: boolean;
         protected: boolean;
         canUnlinkAllAccounts: boolean;
         canBeDeleted: boolean;
-        linkedAccounts: never[];
+        linkedAccounts: LinkedAccount[];
         dbId: null;
-        usernameData: null;
+        usernameData: UsernameData | null;
         peliAccountEmail: null;
         isPeliSession: boolean;
         canUnlinkPeliAccount: boolean;
     };
     loadStateData(t: any): void;
     clearCurrentDataImpl(): void;
-    getUsername(): any;
-    setUsername(t: any): Promise<any>;
-    getElo(): any;
+    getUsername(): string;
+    setUsername(t: any): Promise<boolean>;
+    getElo(): number;
 }
 declare class ShopState extends _n {
     #private;
@@ -2861,13 +4043,17 @@ declare class ShopState extends _n {
     purchaseItem(t: any, e: any, i: any, s: any): Promise<boolean>;
     getVisibleItemPrice(t: any): any;
     provideNewCoinCount(t: any): void;
-    doubleLastGameCoins(): Promise<any>;
+    doubleLastGameCoins(): Promise<{
+        success: boolean;
+        error: string;
+        newCoinCount: any;
+    }>;
     requestCheatCoins(t: any): Promise<boolean>;
     isPurchasingItem(t: any): boolean;
     itemIsPurchased(t: any): boolean;
     waitForItemPurchase(t: any): Promise<void>;
 }
-declare class Yn {
+declare class Poki {
     pokiInit: boolean;
     pokiErrored: boolean;
     pokiInitErrored: boolean;
@@ -2903,8 +4089,8 @@ declare class Yn {
         success: boolean;
         error: string;
     } | {
-        success: boolean;
         error?: undefined;
+        success: boolean;
     }>;
     rewardedBreakWithErrorDialog(t: any): Promise<boolean>;
     waitForRewardedBreakFinish(): Promise<void>;
@@ -2917,38 +4103,71 @@ declare class Yn {
     openExternalLink(t: any): void;
 }
 declare class QuantcastManager {
-    init(t: any): void;
+    init(idk: boolean): void;
 }
-declare class Qn {
-    onDestructedCbs: Set<unknown>;
-    onBlobUrlCreatedCbs: Set<unknown>;
+declare class BlobURLReference {
+    onDestructedCbs: Set<() => void>;
+    onBlobUrlCreatedCbs: Set<(url: string) => void>;
     blobUrl: null;
     destructed: boolean;
     constructor();
     destructor(): void;
     onDestructed(t: any): void;
-    blobUrlCreated(t: any): void;
+    blobUrlCreated(url: any): void;
     getBlobUrl(): Promise<unknown>;
 }
 declare class Avatar {
-    avatarsManager: any;
+    avatarsManager: AvatarsManager;
     config: any;
     blobUrlReferences: Set<unknown>;
     onDestructedCbs: Set<unknown>;
-    blobUrl: null;
+    blobUrl: string | null;
     createAvatarInstance: Waiter<() => Promise<void>, unknown[], unknown>;
     destructed: boolean;
-    constructor(t: any, e: any);
+    constructor(avatarsManager: AvatarsManager, config: any);
     destructor(): void;
-    getBlobUrlReference(): Qn;
+    getBlobUrlReference(): BlobURLReference;
     onDestructed(t: any): void;
 }
+interface SkinOpts {
+    gender?: PlayerGender;
+}
+interface AvatarConfig {
+    cameraType: string;
+    width: number;
+    height: number;
+    backgroundColor: string;
+    secondBackgroundColor?: string | null;
+    backgroundAlpha: number;
+    clipPathType: string;
+    skeletonPoseLayers: string;
+    bow: null;
+    skinObjectOpts: {
+        teamId: number;
+        skin: SkinOpts;
+    };
+}
+type PartAvatarConfig = Partial<AvatarConfig>;
 declare class AvatarsManager {
-    renderer: any;
+    renderer: GameRenderer;
     createdAvatars: Map<string, Avatar>;
-    constructor(t: any);
-    fillConfigDefaults(config: any): any;
-    generateAvatarBlob(t: any): Promise<{} | null>;
+    constructor(renderer: GameRenderer);
+    fillConfigDefaults(config: PartAvatarConfig): {
+        cameraType: string;
+        width: number;
+        height: number;
+        backgroundColor: string;
+        secondBackgroundColor: string | null;
+        backgroundAlpha: number;
+        clipPathType: string;
+        skeletonPoseLayers: string | string[];
+        bow: null;
+        skinObjectOpts: {
+            teamId: number;
+            skin: SkinOpts;
+        };
+    };
+    generateAvatarBlob(config: PartAvatarConfig): Promise<{} | null>;
     configToCacheKey(config: any): string;
     getAvatar(config: any): Avatar;
 }
@@ -2974,7 +4193,7 @@ declare class ClassSelectionImageManager {
     init(): void;
     markAllAvatarsDirty(): void;
     loadClassBlobUrl(t: any): Promise<void>;
-    createClassBlobUrl(t: any): Qn;
+    createClassBlobUrl(t: any): BlobURLReference;
     setTeamId(t: any): void;
     getOrCreateBlobUrlData(t: any): any;
     createUpdateReference(t: any): eo;
@@ -2990,11 +4209,11 @@ declare class InfoText {
     isLoading: boolean;
     onStateChangeCbs: Set<unknown>;
     constructor(t: any, { startLoading, showPercentage, shouldBounce, showInMainMenu, priority, }?: {
-        startLoading?: boolean | undefined;
-        showPercentage?: boolean | undefined;
+        priority?: number | undefined;
         shouldBounce?: boolean | undefined;
         showInMainMenu?: boolean | undefined;
-        priority?: number | undefined;
+        showPercentage?: boolean | undefined;
+        startLoading?: boolean | undefined;
     });
     setIsLoading(t: any): void;
     onStateChange(t: any): void;
@@ -3050,11 +4269,42 @@ declare class PilgrimAchievementManager {
     constructor(t: any, e: any);
     reportVisitedMap(t: any): void;
 }
+export interface PeliEntitlements {
+    has(entitlement: string): boolean;
+    onChange(cb: () => void): void;
+    removeOnChange(cb: () => void): void;
+    ready: Promise<unknown>;
+    getProof(): Promise<unknown>;
+}
+export interface PeliSubscription {
+    showSubscribeModal(options: {
+        flow: string;
+    }): void;
+    canShowSubscribeModal(options: {
+        flow: string;
+    }): boolean;
+}
+export interface PeliSession {
+    isLoggedIn: boolean;
+    login(): Promise<boolean>;
+    logout(): Promise<boolean>;
+    onLoggedInChange(cb: () => void): void;
+    getAuthCode(options: {
+        scope: string[];
+        refreshable?: boolean;
+        [key: string]: unknown;
+    }): Promise<string>;
+}
+export interface PeliSdk {
+    entitlements: PeliEntitlements;
+    subscription: PeliSubscription;
+    session: PeliSession;
+}
 export declare class Main {
-    peliSdkPromise: Promise<any>;
-    peliSdk: null;
+    peliSdkPromise: Promise<PeliSdk | null>;
+    peliSdk: PeliSdk | null;
     gameWrapper: HTMLElement | null;
-    scene: Scene<import("three").Object3DEventMap>;
+    scene: Scene;
     indexedDb: IndexedDB;
     settingsManager: SettingsManager;
     mainInfoTextManager: MainInfoTextManager;
@@ -3087,7 +4337,7 @@ export declare class Main {
     shopState: ShopState;
     pilgrimAchievementManager: PilgrimAchievementManager;
     quantcastManager: QuantcastManager;
-    poki: Yn;
+    poki: Poki;
     boundLoop: () => void;
     prevNow: number;
     now: number;
@@ -3103,13 +4353,12 @@ export declare class Main {
     darkMedia: MediaQueryList;
     constructor();
     init(): void;
-    getPeliSdk(): null;
-    getPeliSdkAsync(): Promise<any>;
-    getPeliSdkOrThrow(): never;
-    getPeliSdkOrThrowAsync(): Promise<any>;
+    getPeliSdk(): PeliSdk | null;
+    getPeliSdkAsync(): Promise<PeliSdk | null>;
+    getPeliSdkOrThrow(): PeliSdk;
+    getPeliSdkOrThrowAsync(): Promise<PeliSdk>;
     updateTheme(): void;
     vsyncLoop(): void;
     loop(): void;
 }
 export {};
-
