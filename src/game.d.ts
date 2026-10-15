@@ -108,7 +108,11 @@ declare class CurrencyContainer {
     });
     setAmount(amount: number): void;
     /**
+
+
      * @param text converted into a string via `String(text)`
+
+
      */
     _setAmountText(text: number): void;
     get amount(): number;
@@ -323,11 +327,11 @@ declare class AssetsManager {
         [k: string]: AssetPackage;
     };
     lastWorkerRequestId: number;
-    onWorkerMessageCbs: Map<_, Set<{
+    onWorkerMessageCbs: Map<number, Set<{
         cb: () => void;
         endOnly: boolean;
     }>>;
-    onWorkerErrorCbs: Map<_, Set<() => void>>;
+    onWorkerErrorCbs: Map<any, Set<() => void>>;
     messenger: AssetWorkerMessenger;
     workerPromise: Promise<any>;
     abortSignalIds: WeakMap<AbortSignal, number>;
@@ -345,15 +349,15 @@ declare class AssetsManager {
     waitForPackageAdd(): Promise<void>;
     getPackage(name: string): AssetPackage | undefined;
     getPackageAsync(name: string): Promise<AssetPackage>;
-    onWorkerMessage(k: any, cb: () => void, endOnly?: boolean): void;
-    onWorkerError(t: any, cb: () => void): void;
+    onWorkerMessage(k: unknown, cb: () => void, endOnly?: boolean): void;
+    onWorkerError(t: unknown, cb: () => void): void;
     static deserializeThreeObject(t: any): Object3D | null;
     static deserializeThreeObjectRecursive(t: any, e: any): Object3D;
-    loadGlbViaWorker(t: any, { packageName, teamId, keepCustomProperties, merge, signal, }?: {
+    loadGlbViaWorker(t: unknown, { packageName, teamId, keepCustomProperties, merge, signal, }?: {
         keepCustomProperties?: never[] | undefined;
         merge?: boolean | undefined;
         packageName?: string | undefined;
-        signal?: null | undefined;
+        signal?: AbortSignal | null | undefined;
         teamId?: number | undefined;
     }): Promise<Object3D | null>;
 }
@@ -645,9 +649,9 @@ declare class GameMaterials {
     addCachedMaterial(material: Material): void;
     addExtraMaterial(material: Material): void;
     removeExtraMaterial(material: Material): void;
-    applyWeatherParams(t: any): void;
-    static resetWeatherUniforms(t: any): void;
-    setLightningValue(t: any): void;
+    applyWeatherParams(t: unknown): void;
+    static resetWeatherUniforms(t: ShaderMaterial): void;
+    setLightningValue(t: number): void;
     buildVertexShader({ name, extraVariables, modifyWorldPosFn, modifyWorldPosAfterColorFn, modifyWorldPosBeforeModelMatrixFn, modifyColFn, extraFunctions, fog, needsFogColor, applyWorldColor, useMvp, needsModelPosVarying, needsUv, }?: {
         applyWorldColor?: boolean | undefined;
         extraFunctions?: string | undefined;
@@ -1582,8 +1586,12 @@ declare class BowWeapon extends WeaponBase {
     constructor(player: Player, bowWeaponId: number, bowWeaponTypeId: string, s: any);
     destructor(): void;
     getAutoShootEnabled(): SettingValue | undefined;
-    actionDown(t: any): void;
-    actionUp(t: any): void;
+    actionDown(t?: {
+        fromTouchButton?: boolean;
+    }): void;
+    actionUp(t?: {
+        fromTouchButton?: boolean;
+    }): void;
     shootArrow(t: any): void;
     verifyArrowFrequency(t: any): boolean;
     getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts>;
@@ -1944,22 +1952,22 @@ export declare class Player {
     updateSkinStats(): void;
     setPlayerEquippedSkinData(skinData: SkinData): void;
     replaceLoadingModel(): Promise<void>;
-    setWeaponSelectionDialogVisibility(t: any): void;
+    setWeaponSelectionDialogVisibility(t: boolean): void;
     updateModelVisibility(): void;
     updateUseFirstPersonHoldingHandlers(): void;
     onJumpPress(): void;
     jump(): void;
     onFireDown(options?: WeaponActionOptions | null): void;
-    onFireUp(options?: WeaponActionOptions | null): void;
+    onFireUp(): void;
     startToggleActiveWeaponCooldown(): void;
     updateAllowedWeaponsConfig(): void;
-    setGungameWeaponIndex(t: any): void;
+    setGungameWeaponIndex(t: number): void;
     toggleActiveWeapon(): void;
-    receiveChangeWeaponTypeFromServer(t: any): void;
+    receiveChangeWeaponTypeFromServer(t: boolean): void;
     updateActiveWeapon(): void;
-    setServerFlyEnabled(t: any): void;
+    setServerFlyEnabled(t: boolean): void;
     updateFly(): void;
-    onWheel(e: any): void;
+    onWheel(e: WheelEvent): void;
     onThirdPersonChange(): void;
     addHitFlash(t: number): void;
     addMeleeHitFlash(): void;
@@ -1973,45 +1981,45 @@ export declare class Player {
     hitByArrowFromServer(t: unknown): void;
     verifiedKillByServer(t: unknown): void;
     applyStun(stun: Stun): void;
-    getDamageAmountForCurrentArmor(t: any): {
+    getDamageAmountForCurrentArmor(t: number): {
         damageWithoutArmorStrength: number;
         damageWithArmorStrength: number;
     };
-    applyDamage(t: any, e: any, i: any): boolean;
-    computeDamageWithCooldown(t: any): number;
-    forceSetHealthFromServer(t: any): void;
-    setHealthFromHit(t: number, arrowHitNormalWorld: Vector3 | null, i: number, s: number): void;
+    applyDamage(t: number, e: Vector3 | null, i: string): boolean;
+    computeDamageWithCooldown(t: number): number;
+    forceSetHealthFromServer(t: number): void;
+    setHealthFromHit(t: number, arrowHitNormalWorld: Vector3 | null, i: number, s?: number): void;
     getCamPos(): Vector3;
     getCamRot(): Quaternion;
     getFrontThirdPersonCamRot(): Quaternion;
-    computeCamRot(t: any): Quaternion;
+    computeCamRot(t: Vector2): Quaternion;
     getCamXRotQuaternion(): Quaternion;
     getFlatWalkDirection(): Vector3;
     getShootDirection(): Vector3;
-    setServerData(t: any, e: any, i: any, s: any, n: any, o?: boolean): void;
-    setPingData(t: any): void;
-    getDeltaPositionMsAgo(e: any): Vector3;
+    setServerData(t: number, e: number, i: number, s: unknown, n: unknown, o?: boolean): void;
+    setPingData(t: number): void;
+    getDeltaPositionMsAgo(e: number): Vector3;
     updateIconOwnershipVisibility(myTeamId?: number): void;
     updateIconVisibility(): void;
     getSmallAvatar(): Avatar;
-    touchedDamageCollider(t: any): void;
+    touchedDamageCollider(t: unknown): void;
     dieFromFall(): void;
     die(t?: boolean): void;
-    respawn(t: any): void;
-    receivedSpawn(t: any, e: any): void;
+    respawn(t: unknown): void;
+    receivedSpawn(t: number, e: unknown): void;
     resetDeadPoseWeights(): void;
-    onPlayerHasInteractedChange(t: any): void;
+    onPlayerHasInteractedChange(t: boolean): void;
     setPlayerHasInteracted(): void;
     getLookDirection(): Vector3;
     computeDeadFallDirection(): boolean;
     updateHealthUi(t?: number): void;
-    setPosition(t: any): void;
-    sendChangeFlag(flagId: any, changeOperation: any, i?: boolean): void;
-    changeFlagFromServer(t: any, e: any): void;
-    stopHoldingFlag(t: any): void;
-    removeChangeFlagFromQueue(t: any, e: any): undefined;
+    setPosition(t: Vector3): void;
+    sendChangeFlag(flagId: number, changeOperation: number, i?: boolean): void;
+    changeFlagFromServer(t: Flag, e: number): void;
+    stopHoldingFlag(t: Flag | null): void;
+    removeChangeFlagFromQueue(t: number, e: number): undefined;
     updateEliminationScoreboard(): void;
-    report(t: any, e: any): void;
+    report(t: number, e: unknown): void;
 }
 declare class FlagBody extends RigidBody {
     physicsManager: PhysicsManager;
@@ -3108,7 +3116,7 @@ declare class OnlineGame {
     onUsedForCamShotsOnlyChange(t: any): void;
     updateUiVisible(): void;
     setUiVisible(t: boolean): void;
-    reportOwnedPlayerHeadshotKill(t: number): void;
+    reportOwnedPlayerHeadshotKill(t: WeakKey): void;
     reportOwnedPlayerHeadshotMiss(): void;
 }
 declare class SquadDialog extends Dialog {
@@ -3737,10 +3745,11 @@ declare class ScreenFlashManager {
     constructor(scene: Scene, camera: PerspectiveCamera);
     setMaterial(material: any): void;
     flash({ arrowHitNormalWorld, vignetteAmount, color, autoFade, hasDirection, }?: {
-        autoFade?: boolean | undefined;
-        color?: Vector3 | undefined;
-        hasDirection?: boolean | undefined;
-        vignetteAmount?: number | undefined;
+        arrowHitNormalWorld?: Vector3 | null;
+        vignetteAmount?: number;
+        color?: Vector3;
+        autoFade?: boolean;
+        hasDirection?: boolean;
     }): ScreenFlash | undefined;
     getThetaFromArrowHitNormal(t: any): number;
     loop(t: any): void;
@@ -4125,7 +4134,7 @@ declare class SquadManager {
     startClicked: boolean;
     onStartClickedChangeCbs: Set<() => void>;
     prevUserVisibleSquadId: string | null;
-    onUserVisibleSquadIdChangeCbs: Set<() => string>;
+    onUserVisibleSquadIdChangeCbs: Set<(userVisibleSquadId: string) => void>;
     onIsJoiningSquadChangeCbs: Set<() => void>;
     onSquadMembersChangeCbs: Set<() => void>;
     currentSquadSettings: SquadSettings | null;
@@ -4157,12 +4166,7 @@ declare class SquadManager {
         teamId: number;
         ready: boolean;
         joined: boolean;
-        skinData: {
-            equippedSkinIds: never[];
-            hairColorMultiplier: number[];
-            eyebrowColorMultiplier: number[];
-            beardColorMultiplier: number[];
-        };
+        skinData: SkinData;
         leader: boolean;
     } | {
         gameServerId: null;
@@ -4175,39 +4179,39 @@ declare class SquadManager {
         leader: boolean;
     }, void, unknown>;
     get totalSquadMemberCount(): number;
-    setSquadSetting(t: any, e: any): void;
-    onSquadSettingChange(t: any): void;
-    removeOnSquadSettingChange(t: any): void;
-    setConfiguredTeamColor(t: any, e: any): void;
-    onMySquadLeaderStateChange(t: any): void;
-    removeOnMySquadLeaderStateChange(t: any): void;
+    setSquadSetting(t: string, e: unknown): void;
+    onSquadSettingChange(t: (setting: string, value: unknown) => void): void;
+    removeOnSquadSettingChange(t: (setting: string, value: unknown) => void): void;
+    setConfiguredTeamColor(t: number, e: number): void;
+    onMySquadLeaderStateChange(t: () => void): void;
+    removeOnMySquadLeaderStateChange(t: () => void): void;
     sendCurrentUsername(): void;
     sendMySkinIds(): void;
-    setMyClientIsSquadLeader(t: any): void;
-    setIsJoiningSquad(t: any): void;
+    setMyClientIsSquadLeader(t: boolean): void;
+    setIsJoiningSquad(t: boolean): void;
     requestInitialSquadId(): Promise<void>;
     handleSquadJoinError(errorType: string, squadId?: string | null): void;
-    joinExistingSquad(t: any, e?: boolean, i?: boolean): Promise<undefined>;
-    setMatchmakeServerSquadId(t: any): void;
-    setGameServerSquadId(t: any): void;
-    addRecentSquadId(t: any): void;
-    squadIdReceivedFromGameServer(t: any): void;
-    onUserVisibleSquadIdChange(t: any): void;
-    removeOnUserVisibleSquadIdChange(t: any): void;
+    joinExistingSquad(t: string, e?: boolean, i?: boolean): Promise<undefined>;
+    setMatchmakeServerSquadId(t: string | null): void;
+    setGameServerSquadId(t: string | null): void;
+    addRecentSquadId(t: string): void;
+    squadIdReceivedFromGameServer(t: string): void;
+    onUserVisibleSquadIdChange(t: (userVisibleSquadId: string) => void): void;
+    removeOnUserVisibleSquadIdChange(t: (userVisibleSquadId: string) => void): void;
     updateUserVisibleSquadId(): void;
     updateLoadingText(): void;
     updateStartClicked(): void;
     joinSquadFromCurrentHash(t?: boolean): void;
     startSquad(): void;
-    onIsJoiningSquadChange(t: any): void;
-    removeOnIsJoiningSquadChange(t: any): void;
-    onSquadMembersChange(t: any): void;
-    removeOnSquadMembersChange(t: any): void;
-    onServerReadyForStartStateChange(t: any): void;
-    removeOnServerReadyForStartStateChange(t: any): void;
+    onIsJoiningSquadChange(t: () => void): void;
+    removeOnIsJoiningSquadChange(t: () => void): void;
+    onSquadMembersChange(t: () => void): void;
+    removeOnSquadMembersChange(t: () => void): void;
+    onServerReadyForStartStateChange(t: () => void): void;
+    removeOnServerReadyForStartStateChange(t: () => void): void;
     waitForServerReadyForStart(): Promise<void>;
-    onStartClickedChange(t: any): void;
-    removeOnStartClickedChange(t: any): void;
+    onStartClickedChange(t: () => void): void;
+    removeOnStartClickedChange(t: () => void): void;
     updateSquadMembersData(): void;
 }
 export interface WorldBounds {
@@ -4322,7 +4326,7 @@ declare class NetworkManager {
     sendFlagReturnProgress(t: number, e: number): void;
     sendCurrentSession(): Promise<void>;
     sendSession(t: unknown): void;
-    sendSquadData(t: number, e: number, leaderToken: string): void;
+    sendSquadData(t: string, e: number, leaderToken: string): void;
     sendRequestSquadId(): void;
     sendSquadLeaderRequestGameExit(): void;
     sendSquadLeaderChangePlayerTeam(t: number, e: number): void;
