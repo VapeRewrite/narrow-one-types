@@ -4288,7 +4288,7 @@ class SkinModel {
 		if (this.isInit) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		const t = new Promise<undefined>((resolve) => this.onInitCbs.add(() => resolve(undefined)));
 		await t;
 	}
 	applySkeleton(t) {
@@ -4370,7 +4370,7 @@ class PurchaseConfirmDialog extends Dialog {
 			})();
 		}
 	}
-	destructor() {
+	override destructor() {
 		this.shopItem.destructor();
 		super.destructor();
 	}
@@ -5032,7 +5032,6 @@ class ShopItem {
 					? this.requestSelectedState(!this.selected)
 					: this.openConfirmPurchaseDialog());
 		});
-		this.onConfirmPurchaseDialogOpenCbs = new Set();
 		this.renderView = getMain().renderer.createRenderView({
 			width: 200,
 			height: 200,
@@ -5421,8 +5420,8 @@ class ShopItem {
 		}
 		window.requestAnimationFrame(this.boundAnimationLoop);
 	}
-	onHoveringChange(t) {
-		this.onHoveringChangeCbs.add(t);
+	onHoveringChange(cb: (hovering: boolean) => void) {
+		this.onHoveringChangeCbs.add(cb);
 	}
 	addStatsTooltip() {
 		if (this.statsTooltip) {
@@ -5525,34 +5524,29 @@ class ShopItem {
 			this.onSelectedChangeRequestCbs.forEach((e) => e(t));
 		}
 	}
-	onConfirmPurchaseDialogOpen(t) {
-		this.onConfirmPurchaseDialogOpenCbs.add(t);
+	onConfirmPurchaseDialogOpen(cb: (dialog: PurchaseConfirmDialog) => void) {
+		this.onConfirmPurchaseDialogOpenCbs.add(cb);
 	}
 }
 class ShopItemsGrid {
 	el = document.createElement("div");
-	shopItems;
-	activeConfirmPurchaseDialogs;
-	currentHoveringItem;
-	onHoveringItemChangeCbs;
-	onSelectedItemChangeRequestCbs;
+	shopItems = new Map<string, ShopItem>();
+	activeConfirmPurchaseDialogs = new Set();
+	currentHoveringItem: ShopItem | null = null;
+	onHoveringItemChangeCbs = new Set();
+	onSelectedItemChangeRequestCbs = new Set();
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("shop-items-grid-view");
-		this.shopItems = new Map();
-		this.activeConfirmPurchaseDialogs = new Set();
-		this.currentHoveringItem = null;
-		this.onHoveringItemChangeCbs = new Set();
-		this.onSelectedItemChangeRequestCbs = new Set();
 	}
 	destructor() {
 		this.destructShopItems();
 	}
-	addShopItem(t, e) {
-		const i = new ShopItem(this.gameWrapper, t, e);
+	addShopItem(config: ShopItemConfig, options: ShopItemOptions) {
+		const i = new ShopItem(this.gameWrapper, config, options);
 		this.el.appendChild(i.el);
-		i.onHoveringChange((t) => {
+		i.onHoveringChange((hovering) => {
 			const currentHoveringItem = this.currentHoveringItem;
-			if (t) {
+			if (hovering) {
 				this.currentHoveringItem = i;
 			} else if (this.currentHoveringItem == i) {
 				this.currentHoveringItem = null;
@@ -5809,7 +5803,7 @@ class SkinDownloaderDialog extends Dialog {
 		this.skinConfig = s;
 		this.reloadPreview();
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		if (this.currentBlobReference) {
 			this.currentBlobReference.destructor();
@@ -8388,7 +8382,7 @@ class SquadSettingsDialog extends Dialog {
 		this.updateDisabledState();
 		this.updateLeaderMessageVisibility();
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		this.squadManager.removeOnSquadSettingChange(this.onSquadSettingChange);
 		this.squadManager.removeOnMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
@@ -9040,7 +9034,7 @@ const We = 5;
 const Ne = 6;
 class BoxCollider extends ColliderBase {
 	box = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
-	aabb;
+	override aabb;
 	cachedUpFaces;
 	constructor(...t) {
 		super(...t);
@@ -9048,7 +9042,7 @@ class BoxCollider extends ColliderBase {
 		this.aabb.applyMatrix4(this.worldMatrix);
 		this.cachedUpFaces = null;
 	}
-	getSphereManifold(t: Vector3, e: number): SphereManifold {
+	override getSphereManifold(t: Vector3, e: number): SphereManifold {
 		const i = t.clone().applyMatrix4(this.invWorldMatrix);
 		const s = this.box.clampPoint(i, new Vector3());
 		let n = 0;
@@ -9149,7 +9143,7 @@ class BoxCollider extends ColliderBase {
 		}
 		return false;
 	}
-	rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
+	override rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
 		const i = from;
 		from = from.clone().applyMatrix4(this.invWorldMatrix);
 		dir = dir.clone().applyMatrix4(this.invWorldMatrixNoTranslate);
@@ -10052,7 +10046,7 @@ class BowWeapon extends WeaponBase {
 		this.equipSfxName = "weapon/equipBow";
 		this.bowAssetLoader = n;
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		this.bowAssetLoader.destructor();
 	}
@@ -10062,7 +10056,7 @@ class BowWeapon extends WeaponBase {
 		}
 		return getMain().settingsManager.getValue("autoShoot");
 	}
-	actionDown(t) {
+	override actionDown(t) {
 		this.rawActionIsDown = true;
 		if (this.actionIsDown) {
 			return;
@@ -10077,7 +10071,7 @@ class BowWeapon extends WeaponBase {
 			);
 		}
 	}
-	actionUp(t) {
+	override actionUp(t) {
 		this.rawActionIsDown = false;
 		this.actionIsDown &&
 			((this.getAutoShootEnabled() &&
@@ -10157,6 +10151,7 @@ class BowWeapon extends WeaponBase {
 }
 class SmallCrossbow extends BowWeapon {
 	lastFireTime = 0;
+	fireAmount01 = 0;
 	prevArrowVisible = false;
 	lastActionWasTouch = false;
 	lastActionDownStart = 0;
@@ -10187,19 +10182,19 @@ class SmallCrossbow extends BowWeapon {
 		});
 		this.updateBowAsset();
 	}
-	getAccuracyOffset() {
+	override getAccuracyOffset(): number {
 		return 8;
 	}
-	getWalkAccuracyMultiplier() {
+	override getWalkAccuracyMultiplier(): number {
 		return 1.4;
 	}
-	getWalkSpeedMultiplier() {
+	override getWalkSpeedMultiplier(): number {
 		return 1.1;
 	}
-	getToggleCooldownValue() {
+	override getToggleCooldownValue(): number {
 		return 100;
 	}
-	getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
+	override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 		const e = new Vector3();
 		e.set(1, 1, 1);
 		if (this.bowAssetLoader.assetLoaded) {
@@ -10211,14 +10206,14 @@ class SmallCrossbow extends BowWeapon {
 			scale: e,
 		};
 	}
-	onActionDown(t) {
+	override onActionDown(t: { fromTouchButton?: boolean }): void {
 		this.lastActionWasTouch = t.fromTouchButton;
 		this.lastActionDownStart = performance.now();
 		if (!t.fromTouchButton) {
 			this.handleShootOrLoadAction();
 		}
 	}
-	onActionUp(t) {
+	override onActionUp(t: { fromTouchButton?: boolean }): void {
 		this.lastActionWasTouch = t.fromTouchButton;
 		if (t.fromTouchButton) {
 			this.handleShootOrLoadAction();
@@ -10255,7 +10250,7 @@ class SmallCrossbow extends BowWeapon {
 		}
 		return t;
 	}
-	loop(t, e) {
+	override loop(t: number, e: number): void {
 		super.loop(t, e);
 		if (this.getAutoShootEnabled() && this.actionIsDown) {
 			this.handleShootOrLoadAction();
@@ -10285,10 +10280,10 @@ class SmallCrossbow extends BowWeapon {
 		this.loadingActivity.loop(a, e);
 		this.shootingActivity.loop(o, e);
 	}
-	verifyArrowFrequency(t) {
+	override verifyArrowFrequency(t: number): boolean {
 		return t < 0.004;
 	}
-	getThirdPersonSkeletonLayers() {
+	override getThirdPersonSkeletonLayers(): Array<{ name: string; weight: number }> {
 		return [
 			{
 				name: "bows/smallCrossbow/running",
@@ -10304,7 +10299,7 @@ class SmallCrossbow extends BowWeapon {
 			},
 		];
 	}
-	getThirdPersonSkeletonMultipliers(t) {
+	override getThirdPersonSkeletonMultipliers(t: string): unknown {
 		const e = this.shootingActivity.weight * (1 - this.loadingActivity.weight);
 		if (t == "female") {
 			return ei(e, 0.4, 0);
@@ -10314,7 +10309,7 @@ class SmallCrossbow extends BowWeapon {
 		}
 		throw new Error("invalid gender");
 	}
-	playerSkinUpdated() {
+	override playerSkinUpdated(): void {
 		this.updateBowAsset();
 	}
 	updateBowAsset() {
@@ -10355,7 +10350,7 @@ class MeleeWeapon extends WeaponBase {
 	get lastSkinAssetName() {
 		return this.#a;
 	}
-	equipSfxName;
+	override equipSfxName;
 	hitSfxName;
 	swingSfxName;
 	hitSfxOptions;
@@ -10521,11 +10516,11 @@ class RandomConfigPicker {
 	}
 }
 export class ChargedAttack {
-	weapon;
-	prepareDurationMsLowAttackSpeed;
-	prepareDurationMsHighAttackSpeed;
-	cooldownDurationMsLowAttackSpeed;
-	cooldownDurationMsHighAttackSpeed;
+	weapon: unknown;
+	prepareDurationMsLowAttackSpeed: number;
+	prepareDurationMsHighAttackSpeed: number;
+	cooldownDurationMsLowAttackSpeed: number;
+	cooldownDurationMsHighAttackSpeed: number;
 	actionIsDown = false;
 	attackTime = 0;
 	isPreparingAttack = false;
@@ -10536,6 +10531,12 @@ export class ChargedAttack {
 		prepareDurationMsHighAttackSpeed,
 		cooldownDurationMsLowAttackSpeed,
 		cooldownDurationMsHighAttackSpeed,
+	}: {
+		weapon: unknown;
+		prepareDurationMsLowAttackSpeed: number;
+		prepareDurationMsHighAttackSpeed: number;
+		cooldownDurationMsLowAttackSpeed: number;
+		cooldownDurationMsHighAttackSpeed: number;
 	}) {
 		this.weapon = weapon;
 		this.prepareDurationMsLowAttackSpeed = prepareDurationMsLowAttackSpeed;
@@ -10559,7 +10560,8 @@ export class ChargedAttack {
 		}
 		return t;
 	}
-	loop(t, i, s) {
+	loop(t: number, i: number, s: number): void {
+
 		if (this.actionIsDown && !this.cooldownIsActive && !this.isPreparingAttack) {
 			this.isPreparingAttack = true;
 			const t = lerp(this.prepareDurationMsLowAttackSpeed, this.prepareDurationMsHighAttackSpeed, s);
@@ -10631,23 +10633,23 @@ const bowWeapons = {
 			});
 			this.updateBowAsset();
 		}
-		getAccuracyOffset() {
+		override getAccuracyOffset() {
 			return lerp(40, 20, this.fireAmount01);
 		}
-		adjustFov(t) {
+		override adjustFov(t: number): number {
 			const i = this.player.getStatClassValue("shootingFocus");
 			return lerp(t, t - lerp(10, 30, i), this.fireAmount01);
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
 				return 0.5;
 			}
 			return 1;
 		}
-		getToggleCooldownValue() {
+		override getToggleCooldownValue() {
 			return 100;
 		}
-		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
+		override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -10660,7 +10662,7 @@ const bowWeapons = {
 				scale: e,
 			};
 		}
-		onActionUp() {
+		override onActionUp() {
 			if (!this.getFireUpCooldownActive()) {
 				this.shootMultiple(this.arrowCount, this.fireAmount01);
 				this.arrowCount = 1;
@@ -10668,7 +10670,7 @@ const bowWeapons = {
 				this.lastFireUp = getMain().now;
 			}
 		}
-		async shootMultiple(t, e) {
+		async shootMultiple(t: number, e: unknown): Promise<void> {
 			this.isShootingMultiple = true;
 			for (let i = 0; i < t; i++) {
 				this.shootArrow(e);
@@ -10697,7 +10699,7 @@ const bowWeapons = {
 		getIsPullingBow() {
 			return this.actionIsDown && !this.getFireUpCooldownActive();
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			const s = this.getIsPullingBow();
 			this.pullSfx.setPlayingState(s);
@@ -10730,10 +10732,10 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s || this.isShootingMultiple, e);
 		}
-		verifyArrowFrequency(t) {
+		override verifyArrowFrequency(t: number): boolean {
 			return t < 0.006;
 		}
-		getAutoShootActionUp() {
+		override getAutoShootActionUp() {
 			return this.arrowCount >= 3;
 		}
 		playArrowReadySfx() {
@@ -10749,13 +10751,13 @@ const bowWeapons = {
 			}
 			return this.fireAmount01;
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return ii("smallBow", this.shootingActivity, this.getVisualFireAmount());
 		}
-		getThirdPersonSkeletonMultipliers() {
+		override getThirdPersonSkeletonMultipliers() {
 			return ei(this.shootingActivity.weight, 0.6, 0.3);
 		}
-		playerSkinUpdated() {
+		override playerSkinUpdated() {
 			this.updateBowAsset();
 		}
 		updateBowAsset() {
@@ -10810,26 +10812,26 @@ const bowWeapons = {
 			});
 			this.updateBowAsset();
 		}
-		getAccuracyOffset() {
+		override getAccuracyOffset() {
 			return lerp(30, 0, this.fireAmount01);
 		}
-		adjustFov(t) {
+		override adjustFov(t: number): number {
 			const i = this.player.getStatClassValue("shootingFocus");
 			return lerp(t, t - lerp(10, 30, i), this.fireAmount01);
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
 				return 0.3;
 			}
 			return 1;
 		}
-		getJumpForceMultiplier() {
+		override getJumpForceMultiplier() {
 			if (this.getIsPullingBow()) {
 				return 0.8;
 			}
 			return 1;
 		}
-		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
+		override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -10841,7 +10843,7 @@ const bowWeapons = {
 				scale: e,
 			};
 		}
-		onActionUp() {
+		override onActionUp() {
 			if (!this.getFireUpCooldownActive()) {
 				this.shootArrow(this.fireAmount01);
 				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * this.fireAmount01));
@@ -10861,7 +10863,7 @@ const bowWeapons = {
 		getIsPullingBow() {
 			return this.actionIsDown && !this.getFireUpCooldownActive();
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			const s = this.getIsPullingBow();
 			this.pullSfx.setPlayingState(s);
@@ -10886,16 +10888,16 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s, e);
 		}
-		verifyArrowFrequency(t) {
+		override verifyArrowFrequency(t: number): boolean {
 			return t < 0.004;
 		}
-		getAutoShootActionUp() {
+		override getAutoShootActionUp() {
 			return this.fireAmount01 >= 1;
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return ii("mediumBow", this.shootingActivity, this.fireAmount01);
 		}
-		getThirdPersonSkeletonMultipliers(t) {
+		override getThirdPersonSkeletonMultipliers(t: string): Record<string, number> {
 			if (t == "female") {
 				return ei(this.shootingActivity.weight, 0.4, -0.2);
 			}
@@ -10904,7 +10906,7 @@ const bowWeapons = {
 			}
 			throw new Error("Invalid gender");
 		}
-		playerSkinUpdated() {
+		override playerSkinUpdated() {
 			this.updateBowAsset();
 		}
 		updateBowAsset() {
@@ -10964,30 +10966,30 @@ const bowWeapons = {
 			});
 			this.updateBowAsset();
 		}
-		getAccuracyOffset() {
+		override getAccuracyOffset() {
 			return lerp(30, 0, this.fireAmount01);
 		}
-		adjustFov(t) {
+		override adjustFov(t: number): number {
 			const i = this.player.getStatClassValue("shootingFocus");
 			const s = lerp(40, 10, i);
 			return lerp(t, s, this.fireAmount01);
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
 				return 0.1;
 			}
 			return 0.8;
 		}
-		getJumpForceMultiplier() {
+		override getJumpForceMultiplier() {
 			if (this.getIsPullingBow()) {
 				return 0.8;
 			}
 			return 1;
 		}
-		getToggleCooldownValue() {
+		override getToggleCooldownValue() {
 			return 500;
 		}
-		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
+		override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -11002,7 +11004,7 @@ const bowWeapons = {
 				trailDurationMultiplier: 5,
 			};
 		}
-		onActionUp() {
+		override onActionUp() {
 			if (!this.getFireCooldownActive()) {
 				this.shootArrow(this.fireAmount01);
 				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.01 * this.fireAmount01));
@@ -11030,7 +11032,7 @@ const bowWeapons = {
 		getIsPullingBow() {
 			return this.actionIsDown && !this.getFireCooldownActive();
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			const s = this.getIsPullingBow();
 			if (s != this.isPullingBow) {
@@ -11061,19 +11063,19 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s, e);
 		}
-		verifyArrowFrequency(t) {
+		override verifyArrowFrequency(t: number): boolean {
 			return t < 0.003;
 		}
-		getAutoShootActionUp() {
+		override getAutoShootActionUp() {
 			return this.fireAmount01 >= 1;
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return ii("largeBow", this.shootingActivity, this.fireAmount01);
 		}
-		getThirdPersonSkeletonMultipliers() {
+		override getThirdPersonSkeletonMultipliers() {
 			return ei(this.shootingActivity.weight, 0.4, -0.2);
 		}
-		playerSkinUpdated() {
+		override playerSkinUpdated() {
 			this.updateBowAsset();
 		}
 		updateBowAsset() {
@@ -11099,8 +11101,8 @@ const bowWeapons = {
 		loadingActivity = new Activity();
 		loadingEndActivity = new Activity();
 		shootingActivity = new Activity();
-		currentHandleObject = null;
-		currentArrowBoxObject = null;
+		currentHandleObject: Object3D | null = null;
+		currentArrowBoxObject: Object3D | null = null;
 		emptyFirstPersonConfig;
 		loadingFirstPersonConfig;
 		constructor(...t: [Player, number]) {
@@ -11132,7 +11134,7 @@ const bowWeapons = {
 					minDownVelocity: 6,
 				},
 			});
-			this.bowAssetLoader.onAssetChange((t) => {
+			this.bowAssetLoader.onAssetChange((t: Object3D) => {
 				this.currentHandleObject = t.getObjectByName("handleRotation");
 				this.currentArrowBoxObject = t.getObjectByName("arrowBoxRotation");
 			});
@@ -11152,7 +11154,7 @@ const bowWeapons = {
 			};
 			this.updateBowAsset();
 		}
-		getAccuracyOffset() {
+		override getAccuracyOffset() {
 			if (this.actionIsDown) {
 				const t = this.player.rigidBody.velocity.clone();
 				t.y = 0;
@@ -11162,20 +11164,20 @@ const bowWeapons = {
 			}
 			return 10;
 		}
-		adjustFov(t) {
+		override adjustFov(t: number): number {
 			if (this.isFiringArrows()) {
 				const i = this.player.getStatClassValue("shootingFocus");
 				return t - lerp(10, 30, i);
 			}
 			return t;
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.isFiringArrows()) {
 				return 0.2;
 			}
 			return 0.8;
 		}
-		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
+		override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -11187,15 +11189,15 @@ const bowWeapons = {
 				scale: e,
 			};
 		}
-		onActionDown() {
+		override onActionDown() {
 			if (this.player.lookRot.y < -1.5 && this.loadedArrowCount < 10) {
 				this.loadingOrShootingState = true;
 			}
 		}
-		onActionUp() {
+		override onActionUp() {
 			this.hasReleasedAction = true;
 		}
-		onPlayerRespawned() {
+		override onPlayerRespawned() {
 			this.loadingOrShootingState = false;
 			this.loadedArrowCount = 10;
 			this.shootOrLoadTimer = 0;
@@ -11212,7 +11214,7 @@ const bowWeapons = {
 			}
 			return 0;
 		}
-		loop(t, i) {
+		override loop(t: number, i: number): void {
 			super.loop(t, i);
 			if (this.loadingOrShootingState) {
 				if (!this.isPrimaryWeapon) {
@@ -11277,13 +11279,13 @@ const bowWeapons = {
 				this.currentArrowBoxObject.rotation.x = lerp(0, 0.2, o * (1 - this.loadingActivity.weight));
 			}
 		}
-		verifyArrowFrequency(t) {
+		override verifyArrowFrequency(t: number): boolean {
 			return t < 0.007;
 		}
-		getAutoShootActionUp() {
+		override getAutoShootActionUp() {
 			return !this.hasReleasedAction;
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			const weight = this.shootingActivity.weight;
 			const weight_1 = this.loadingActivity.weight;
 			return [
@@ -11309,10 +11311,10 @@ const bowWeapons = {
 				},
 			];
 		}
-		getThirdPersonSkeletonMultipliers() {
+		override getThirdPersonSkeletonMultipliers() {
 			return ei(this.shootingActivity.weight, 0.4, 0.2);
 		}
-		playerSkinUpdated() {
+		override playerSkinUpdated() {
 			this.updateBowAsset();
 		}
 		updateBowAsset() {
@@ -11480,13 +11482,13 @@ const bowWeapons = {
 			this.loadWeightStart.loop(s, dt);
 			this.shootingWeight.loop(this.weaponIsLoaded(), dt);
 		}
-		verifyArrowFrequency(t) {
+		override verifyArrowFrequency(t: number): boolean {
 			return t < 0.003;
 		}
-		getAutoShootActionUp() {
+		override getAutoShootActionUp() {
 			return !this.isLoadingWeapon();
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return [
 				{
 					name: "bows/largeCrossbow/running",
@@ -11506,7 +11508,7 @@ const bowWeapons = {
 				},
 			];
 		}
-		getThirdPersonSkeletonMultipliers(t) {
+		override getThirdPersonSkeletonMultipliers(t: string): Record<string, number> {
 			const weight = this.shootingWeight.weight;
 			if (t == "female") {
 				return ei(weight, 0.5, 0.5);
@@ -11516,7 +11518,7 @@ const bowWeapons = {
 			}
 			throw new Error("Invalid gender");
 		}
-		playerSkinUpdated() {
+		override playerSkinUpdated() {
 			this.updateBowAsset();
 		}
 		updateBowAsset() {
@@ -11535,7 +11537,7 @@ const bowWeapons = {
 };
 const gi = {
 	bladedLight: class extends MeleeWeapon {
-		hitSfxName = "weapon/melee/bladedHit";
+		override hitSfxName = "weapon/melee/bladedHit";
 		attackT = 0;
 		stamina = 1;
 		isAttacking = false;
@@ -11590,7 +11592,7 @@ const gi = {
 				minFov: 60,
 				maxFov: 90,
 			};
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.playSfx("weapon/melee/bladedSwing", {
 						minPitch: 1.1,
@@ -11605,19 +11607,19 @@ const gi = {
 				}
 			});
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.isAttacking) {
 				return lerp(0.7, 1.1, this.stamina);
 			}
 			return 1.1;
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 0.2;
 		}
-		getToggleCooldownValue() {
+		override getToggleCooldownValue() {
 			return 100;
 		}
-		loop(t, s) {
+		override loop(t: number, s: number): void {
 			super.loop(t, s);
 			let n = null;
 			let o = false;
@@ -11655,17 +11657,17 @@ const gi = {
 			this.attackEndActivity.loop(a, s);
 			this.longAttackHelper.loop();
 		}
-		onActionDown() {
+		override onActionDown() {
 			if (!this.isAttacking) {
 				this.attackT = 0;
 			}
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("bladedLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
 	bladedHeavy: class extends MeleeWeapon {
-		hitSfxName = "weapon/melee/bladedHit";
+		override hitSfxName = "weapon/melee/bladedHit";
 		holdAttack;
 		longAttackHelper;
 		attackStartActivity = new Activity();
@@ -11703,7 +11705,7 @@ const gi = {
 				cooldownDurationMsHighAttackSpeed: 200,
 			});
 			this.longAttackHelper = new LongAttackHelper(this);
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.longAttackHelper.startAttacking();
 					this.playSfx("weapon/melee/bladedSwing", {
@@ -11753,22 +11755,22 @@ const gi = {
 				},
 			]);
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 0.6;
 		}
-		onActionUp() {
+		override onActionUp() {
 			this.holdAttack.onActionUp();
 		}
-		onActionDown() {
+		override onActionDown() {
 			this.holdAttack.onActionDown();
 		}
-		getRequiredVerticalAngleMultiplier() {
+		override getRequiredVerticalAngleMultiplier() {
 			return 0.7;
 		}
-		getRequiredHorizontalAngleMultiplier() {
+		override getRequiredHorizontalAngleMultiplier() {
 			return 2;
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			const { preparing, cooldownActive } = this.holdAttack.loop(t, e, this.getAttackSpeedStat());
 			let n = null;
@@ -11792,13 +11794,13 @@ const gi = {
 			this.attackEndActivity.loop(a, e);
 			this.longAttackHelper.loop();
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("bladedHeavy", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
 	bluntLight: class extends MeleeWeapon {
-		hitSfxName = "weapon/melee/bluntHit";
-		hitSfxOptions = {
+		override hitSfxName = "weapon/melee/bluntHit";
+		override hitSfxOptions = {
 			minPitch: 1.3,
 			maxPitch: 1.4,
 		};
@@ -11856,7 +11858,7 @@ const gi = {
 				},
 			});
 			this.longAttackHelper = new LongAttackHelper(this);
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.playSfx("weapon/melee/bluntSwing", {
 						minPitch: 1.4,
@@ -11867,17 +11869,17 @@ const gi = {
 				}
 			});
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 0.6;
 		}
-		getStunData() {
+		override getStunData() {
 			return {
 				amount: 0.5,
 				duration: 200,
 				fadeDuration: 1100,
 			};
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.attackEndActivity.active && !this.didHit) {
 				return 0.8;
 			}
@@ -11890,7 +11892,7 @@ const gi = {
 		getAnimationDurationMultiplier() {
 			return lerp(1.5, 0.8, this.getAttackSpeedStat());
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			let i = null;
 			let s = false;
@@ -11925,17 +11927,17 @@ const gi = {
 				this.lastHitTime = t;
 			}
 		}
-		onActionDown() {
+		override onActionDown() {
 			if (!this.getCooldownIsActive()) {
 				this.lastActionDownTime = getMain().now;
 			}
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("bluntLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
 	bluntHeavy: class extends MeleeWeapon {
-		hitSfxName = "weapon/melee/bluntHit";
+		override hitSfxName = "weapon/melee/bluntHit";
 		holdAttack;
 		longAttackHelper;
 		attackStartTime = 0;
@@ -11976,13 +11978,13 @@ const gi = {
 				cooldownDurationMsHighAttackSpeed: 200,
 			});
 			this.longAttackHelper = new LongAttackHelper(this);
-			this.attackStartActivity.onActiveChange((t) => {
+			this.attackStartActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.attackStartTime = getMain().now;
 				}
 			});
 			this.attackEndActivity = new Activity();
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.longAttackHelper.startAttacking();
 					this.playSfx("weapon/melee/bluntSwing", {
@@ -12008,7 +12010,7 @@ const gi = {
 				maxFov: 90,
 			};
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.attackStartActivity.active) {
 				const t = getMain().now - this.attackStartTime;
 				const i = lerp(800, 500, this.getAttackSpeedStat());
@@ -12019,32 +12021,32 @@ const gi = {
 			}
 			return 0.9;
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 1;
 		}
-		getStunData() {
+		override getStunData() {
 			return {
 				amount: 0.7,
 				duration: 700,
 				fadeDuration: 500,
 			};
 		}
-		getToggleCooldownValue() {
+		override getToggleCooldownValue() {
 			return 600;
 		}
-		onActionDown() {
+		override onActionDown() {
 			this.holdAttack.onActionDown();
 		}
-		onActionUp() {
+		override onActionUp() {
 			this.holdAttack.onActionUp();
 		}
-		getRequiredVerticalAngleMultiplier() {
+		override getRequiredVerticalAngleMultiplier() {
 			return 2;
 		}
-		getRequiredHorizontalAngleMultiplier() {
+		override getRequiredHorizontalAngleMultiplier() {
 			return 0.7;
 		}
-		loop(t, e) {
+		override loop(t: number, e: number): void {
 			super.loop(t, e);
 			const { cooldownActive, preparing } = this.holdAttack.loop(t, e, this.getAttackSpeedStat());
 			let n = null;
@@ -12067,16 +12069,16 @@ const gi = {
 			this.attackEndActivity.loop(a, e);
 			this.longAttackHelper.loop();
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("bluntHeavy", this.attackStartActivity, this.attackEndActivity);
 		}
-		ownedPlayerAttacked(t) {
+		override ownedPlayerAttacked(t: Player): void {
 			t.ownedPlayerDidBluntHeavyHit();
 		}
 	},
 	pokeLight: class extends MeleeWeapon {
-		#r = null;
-		hitSfxName = "weapon/melee/pokeHit";
+		#r: Vector3 | null = null;
+		override hitSfxName = "weapon/melee/pokeHit";
 		lastActionDownTime = 0;
 		stamina = 1;
 		isAttacking = false;
@@ -12133,7 +12135,7 @@ const gi = {
 				minFov: 60,
 				maxFov: 90,
 			};
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.playSfx("weapon/melee/pokeSwing", {
 						minPitch: 1.2,
@@ -12150,10 +12152,10 @@ const gi = {
 				}
 			});
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 0.4;
 		}
-		getAdditionalWalkAcceleration() {
+		override getAdditionalWalkAcceleration() {
 			let t = 0;
 			if (this.isAttacking && this.attackEndActiveCountSinceStaminaReset < 3) {
 				t = this.attackEndActivity.active ? 3.5 : -1.5;
@@ -12163,7 +12165,7 @@ const gi = {
 			}
 			return new Vector2(0, -t);
 		}
-		getAdditionalWalkAcceleration3d() {
+		override getAdditionalWalkAcceleration3d() {
 			let t = 0;
 			if (this.isAttacking && this.attackEndActiveCountSinceStaminaReset < 3) {
 				t = this.attackEndActivity.active ? 3.5 : -1.5;
@@ -12173,33 +12175,33 @@ const gi = {
 				if (!this.#r) {
 					this.#r = this.player.getLookDirection();
 				}
-				return this.#r.clone().multiplyScalar(-t);
+				return this.#r!.clone().multiplyScalar(-t);
 			}
 			this.#r = null;
 			return null;
 		}
-		getAdditionalWalkAccelerationClampLength() {
+		override getAdditionalWalkAccelerationClampLength() {
 			return 3.5;
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.actionIsDown) {
 				return lerp(0.5, 1, this.stamina);
 			}
 			return 1;
 		}
-		getLookInputMultiplier() {
+		override getLookInputMultiplier() {
 			if (this.isAttacking) {
 				return 0.8;
 			}
 			return 1;
 		}
-		getRangeMultiplier() {
+		override getRangeMultiplier() {
 			return 1.3;
 		}
-		getToggleCooldownValue() {
+		override getToggleCooldownValue() {
 			return 200;
 		}
-		loop(t, s) {
+		override loop(t: number, s: number): void {
 			super.loop(t, s);
 			let n = null;
 			let o = false;
@@ -12239,17 +12241,17 @@ const gi = {
 			this.attackEndActivity.loop(a, s);
 			this.longAttackHelper.loop();
 		}
-		onActionDown() {
+		override onActionDown() {
 			if (!this.isAttacking) {
 				this.lastActionDownTime = getMain().now;
 			}
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("pokeLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
 	pokeHeavy: class extends MeleeWeapon {
-		hitSfxName = "weapon/melee/pokeHit";
+		override hitSfxName = "weapon/melee/pokeHit";
 		chargeDuration = 0;
 		lastChargeDuration = 0;
 		lastActionUpTime = 0;
@@ -12259,7 +12261,7 @@ const gi = {
 		didHitCurrentAttack;
 		attackStartConfig;
 		attackEndConfig;
-		lastActionDownTime;
+		lastActionDownTime = 0;
 		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
@@ -12287,7 +12289,7 @@ const gi = {
 				},
 			});
 			this.longAttackHelper = new LongAttackHelper(this);
-			this.attackEndActivity.onActiveChange((t) => {
+			this.attackEndActivity.onActiveChange((t: unknown) => {
 				if (t) {
 					this.playSfx("weapon/melee/pokeSwing", {
 						minPitch: 0.9,
@@ -12335,7 +12337,7 @@ const gi = {
 			}
 			return 1;
 		}
-		override getCooldownDuration() {
+		getCooldownDuration() {
 			return lerp(700, 400, this.getAttackSpeedStat());
 		}
 		override getAdditionalWalkAcceleration() {
@@ -12356,26 +12358,26 @@ const gi = {
 			e.multiplyScalar(-t);
 			return e;
 		}
-		getAdditionalWalkAccelerationClampLength() {
+		override getAdditionalWalkAccelerationClampLength() {
 			return 3;
 		}
-		getLookInputMultiplier() {
+		override getLookInputMultiplier() {
 			return q(200, 500, 0, 1, getMain().now - this.lastActionUpTime, true);
 		}
 		getAttackCooldownActive() {
 			return getMain().now - this.lastActionUpTime < this.getCooldownDuration();
 		}
-		onActionUp() {
+		override onActionUp() {
 			if (!this.getAttackCooldownActive()) {
 				this.lastActionUpTime = getMain().now;
 				this.lastChargeDuration = this.chargeDuration;
 				this.chargeDuration = 0;
 			}
 		}
-		getRequiredVerticalAngleMultiplier() {
+		override getRequiredVerticalAngleMultiplier() {
 			return 0.4;
 		}
-		getRequiredHorizontalAngleMultiplier() {
+		override getRequiredHorizontalAngleMultiplier() {
 			return 0.4;
 		}
 		getIsCharging() {
@@ -12566,7 +12568,7 @@ class WeaponSelectionDialog extends Dialog {
 			}
 		})();
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		this.prevKey.removeCb(this.boundPrevPress);
 		this.nextKey.removeCb(this.boundNextPress);
@@ -12781,7 +12783,7 @@ export class Player {
 	deadFallForward: boolean;
 	deadFromFall: boolean;
 	sphereDeathTimer: number;
-	sphereDeathScreenFlash: ScreenFlash | null;
+	sphereDeathScreenFlash: ScreenFlash | undefined;
 	hasWalkedAwayFromSpawn: boolean;
 	lastRespawnPosition: Vector3;
 	onWeaponSelectionChangeFromDialog: () => void;
@@ -12886,7 +12888,7 @@ export class Player {
 		this.deadFallForward = false;
 		this.deadFromFall = false;
 		this.sphereDeathTimer = 0;
-		this.sphereDeathScreenFlash = null;
+		this.sphereDeathScreenFlash = undefined;
 		this.hasWalkedAwayFromSpawn = false;
 		this.lastRespawnPosition = new Vector3();
 		this.onWeaponSelectionChangeFromDialog = () => {
@@ -13375,7 +13377,7 @@ export class Player {
 				this.sphereDeathTimer = Math.max(0, this.sphereDeathTimer);
 				if (this.sphereDeathScreenFlash && this.sphereDeathTimer <= 0) {
 					this.sphereDeathScreenFlash.shouldBeDestroyed = true;
-					this.sphereDeathScreenFlash = null;
+					this.sphereDeathScreenFlash = undefined;
 				}
 			}
 			if (this.sphereDeathScreenFlash) {
@@ -13536,7 +13538,7 @@ export class Player {
 	get legsMoveTForCos() {
 		return this.legsMoveT * this.legsMoveSpeed;
 	}
-	afterPhysicsLoop(t, i) {
+	afterPhysicsLoop(t: number, i: unknown) {
 		if (this.prevWasOnFloor != this.rigidBody.isOnFloor) {
 			this.prevWasOnFloor = this.rigidBody.isOnFloor;
 			if (this.rigidBody.isOnFloor && this.rigidBody.prevInAirTime > 300) {
@@ -13550,7 +13552,7 @@ export class Player {
 				}
 				const e = this.highestInAirPoint - this.pos.y;
 				if (e > 0) {
-					const i = this.sfxManager.cachedSfx["player/land"];
+					const i = this.sfxManager.cachedSfx["player/land"]!;
 					const volume = q(0.5, 20, 0, i.opts.volume || 0, e, true);
 					if (volume > 0) {
 						this.sfxManager.playSound("player/land", {
@@ -13622,12 +13624,12 @@ export class Player {
 					this.lastWeaponLayersKey = n;
 				}
 				for (const [t, e] of i.entries()) {
-					this.weaponLayers[t].weight = e.weight;
+					this.weaponLayers[t]!.weight = e.weight;
 				}
 				this.skeleton.applyLayers();
 				let o = {};
 				if (this.activeWeapon) {
-					o = this.activeWeapon.getThirdPersonSkeletonMultipliers(this.gender);
+					o = this.activeWeapon.getThirdPersonSkeletonMultipliers(this.gender as PlayerGender);
 				}
 				let a = this.lookRot;
 				if (this.dead) {
@@ -13645,7 +13647,7 @@ export class Player {
 		s.y += 2.2;
 		this.icon.setPos(s);
 		for (const e of this.holdingHandlers) {
-			e.loop(t, i);
+			e.loop(t, i as number);
 		}
 		this.hasOwnership &&
 			t - this.lastPosSentTime > 50 &&
@@ -13655,7 +13657,7 @@ export class Player {
 					this.noSentDataChangeUpdateCount < 3 && this.sendPlayerDataToServer())
 				: ((this.noSentDataChangeUpdateCount = 0), this.sendPlayerDataToServer()));
 	}
-	animateLeg(t, i, s, n, o) {
+	animateLeg(t: { upper: Object3D; lower: Object3D; foot: Object3D } | null, i: number, s: number, n: number, o: number): void {
 		if (!t) {
 			return;
 		}
@@ -13670,12 +13672,12 @@ export class Player {
 		t.lower.rotation.x *= this.skinLegMoveAmount;
 		t.foot.rotation.x *= this.skinLegMoveAmount;
 	}
-	createHoldingHandler(t) {
+	createHoldingHandler(t: HoldingHandlerOptions) {
 		const e = new HoldingHandler(this, t);
 		this.holdingHandlers.add(e);
 		return e;
 	}
-	removeHoldingHandler(t) {
+	removeHoldingHandler(t: HoldingHandler) {
 		this.holdingHandlers.delete(t);
 	}
 	getSfxPos(): Vector3 | null {
@@ -13697,7 +13699,7 @@ export class Player {
 				t.stop();
 			}
 		} else {
-			this.currentFallingSfx = t;
+			this.currentFallingSfx = t ?? null;
 		}
 	}
 	stopFallSound() {
@@ -13716,7 +13718,7 @@ export class Player {
 				t.stop();
 			}
 		} else {
-			this.currentHealthRegenSfx = t;
+			this.currentHealthRegenSfx = t ?? null;
 		}
 	}
 	stopHealthRegenSound() {
@@ -13751,12 +13753,12 @@ export class Player {
 			DIE: 4,
 		};
 	}
-	sendPerformAction(t) {
+	sendPerformAction(t: number) {
 		if (this.hasOwnership) {
 			getMain().network.sendPlayerPerformAction(this.id, t);
 		}
 	}
-	receivedPerformAction(t) {
+	receivedPerformAction(t: number) {
 		if (!this.hasOwnership) {
 			this.lastReceivedActionTime = getMain().now;
 			if (t == Player.PlayerAction.JUMP) {
@@ -13770,7 +13772,7 @@ export class Player {
 			}
 		}
 	}
-	receiveChangeClassFromServer(t) {
+	receiveChangeClassFromServer(t: any) {
 		if (!this.hasOwnership) {
 			this.setActiveBowWeapon(t);
 		}
@@ -13785,8 +13787,8 @@ export class Player {
 				this.game.crosshair.deleteAccuracyOffset(this.weaponAccuracyOffset);
 				this.weaponAccuracyOffset = null;
 			}
-			this.setHasEvents(t);
-			this.setHasMovementAccuracyOffset(t);
+			this.setHasEvents(hasOwnership);
+			this.setHasMovementAccuracyOffset(hasOwnership);
 			this.updateModelVisibility();
 			this.updateUseFirstPersonHoldingHandlers();
 			this.updateToggleWeaponTouchButtonVisibility();
@@ -13829,7 +13831,7 @@ export class Player {
 		this.scoreTotal = total;
 		this.elo = elo;
 	}
-	setHasEvents(t) {
+	setHasEvents(t: boolean) {
 		if (t == this.hasKeyEvents) {
 			return;
 		}
@@ -13851,7 +13853,7 @@ export class Player {
 			e.settingsManager.onValueChange("showFirstPersonWeapon", this.boundUpdateActiveWeapon);
 			e.settingsManager.onValueChange("flyInSpectateTeam", this.boundUpdateFly);
 			document.body.addEventListener("wheel", this.boundOnWheel);
-			this.smoothCamSetting = e.settingsManager.getValue("smoothCam");
+			this.smoothCamSetting = Boolean(e.settingsManager.getValue("smoothCam"));
 			this.updateSmoothCam();
 		} else {
 			i.removeCb(this.boundOnJumpPress);
@@ -13887,7 +13889,7 @@ export class Player {
 	resetSmoothLookRot() {
 		this.smoothLookRotTarget.copy(this.lookRot);
 	}
-	setHasMovementAccuracyOffset(t) {
+	setHasMovementAccuracyOffset(t: boolean) {
 		t
 			? this.movementAccuracyOffset ||
 				(this.movementAccuracyOffset = this.game.crosshair.createAccuracyOffset())
@@ -13948,7 +13950,7 @@ export class Player {
 			});
 			this.gender = skinData.gender || "male";
 			if (this.skeleton) {
-				this.skeleton.setGender(this.gender);
+				this.skeleton.setGender(this.gender as PlayerGender);
 			}
 			this.replaceLoadingModel();
 		}
@@ -13972,10 +13974,10 @@ export class Player {
 		if (this.obj) {
 			getMain().scene.remove(this.obj);
 		}
-		const obj = this.activeModel.obj;
+		const obj = (this.activeModel ? ((this.activeModel as any).obj ?? null) : null);
 		this.obj = obj;
 		if (obj) {
-			obj.name = "player";
+			if (obj) obj.name = "player";
 			getMain().scene.add(obj);
 		}
 		for (const t of this.holdingHandlers) {
@@ -13986,7 +13988,7 @@ export class Player {
 	}
 	setWeaponSelectionDialogVisibility(t) {
 		if (this.game instanceof OnlineGame) {
-			this.game.weaponSelectionDialog.setPlayerVisibility(t);
+			this.game.weaponSelectionDialog.setPlayerVisibility(Boolean(t));
 		}
 	}
 	updateModelVisibility() {
@@ -14163,7 +14165,7 @@ export class Player {
 		}
 	}
 	updateActiveWeapon() {
-		const t = getMain().settingsManager.getValue("showFirstPersonWeapon") && !this.noclip;
+		const t = Boolean(getMain().settingsManager.getValue("showFirstPersonWeapon")) && !this.noclip;
 		if (this.bowWeapon) {
 			this.bowWeapon.setIsPrimaryWeapon(
 				!this.hasActiveMeleeWeapon && !this.activeWeaponToggleCooldownActive,
@@ -14209,7 +14211,7 @@ export class Player {
 		this.updateModelVisibility();
 		this.updateUseFirstPersonHoldingHandlers();
 	}
-	addHitFlash(t) {
+	addHitFlash(t: number) {
 		const e = new Vector3();
 		if (t == 0) {
 			e.y = 0.2;
@@ -14233,7 +14235,7 @@ export class Player {
 	addMeleeHitFlash() {
 		this.addHitFlash(1);
 	}
-	playerClaimedHitByArrow(player: Player, e, i) {
+	playerClaimedHitByArrow(player: Player, e: number, i: number) {
 		const s = this.rigidBody.colliders[i];
 		if (s) {
 			const i = this.game.arrowManager.getArrowById(player.id, e);
@@ -14248,7 +14250,7 @@ export class Player {
 			}
 			const o = 3;
 			let a = false;
-			[].push([s.center.clone(), s.center.clone().add(new Vector3(0, 5, 0)), 16777215]);
+			([] as unknown[]).push([s.center.clone(), s.center.clone().add(new Vector3(0, 5, 0)), 16777215]);
 			if (n) {
 				if (i.prevPos) {
 					let t = Infinity;
@@ -14314,7 +14316,7 @@ export class Player {
 			});
 		}
 	}
-	markValidArrowHit(player: Player, e, i) {
+	markValidArrowHit(player: Player, e: Arrow, i: any) {
 		const network = getMain().network;
 		e.consume();
 		let i_arrowDamage = i.arrowDamage;
@@ -14346,7 +14348,7 @@ export class Player {
 		let t = 0;
 		for (let e = 0; e < this.recentArrowCreationTimes.length; e++) {
 			const recentArrowCreationTime = this.recentArrowCreationTimes[e];
-			if (!(performance.now() - recentArrowCreationTime > 2000)) {
+			if (recentArrowCreationTime === undefined || !(performance.now() - recentArrowCreationTime > 2000)) {
 				break;
 			}
 			t = e;
@@ -14356,7 +14358,7 @@ export class Player {
 	get avgArrowCreationFrequency() {
 		return this.recentArrowCreationTimes.length / 2000;
 	}
-	getMeleeDamage(t) {
+	getMeleeDamage(t: Player) {
 		if (!t.meleeWeapon) {
 			return 0;
 		}
@@ -14365,7 +14367,7 @@ export class Player {
 			lerp(0.5, 1.5, t.getStatClassValue("meleeAttackStrength"))
 		);
 	}
-	hitByMeleeFromServer(t) {
+	hitByMeleeFromServer(t: Player) {
 		if (!t.meleeWeapon) {
 			return;
 		}
@@ -14396,11 +14398,11 @@ export class Player {
 			}
 		}
 	}
-	addOwnedPlayerForkDamage(t) {
+	addOwnedPlayerForkDamage(t: number) {
 		this.#c += t;
 	}
-	hitByArrowFromServer(t) {}
-	verifiedKillByServer(t) {
+	hitByArrowFromServer(t: unknown) {}
+	verifiedKillByServer(t: unknown) {
 		const e = this.getStatClassValue("bloodlust");
 		if (e > 0) {
 			this.health += 0.1 * e;
@@ -14418,7 +14420,7 @@ export class Player {
 	getDamageAmountForCurrentArmor(t) {
 		const i = performance.now();
 		for (let t = this.damageReceivedHistory.length - 1; t >= 0; t--) {
-			if (!(i - this.damageReceivedHistory[t].time > 1000)) {
+			if (!(i - this.damageReceivedHistory[t as number].time > 1000)) {
 				break;
 			}
 			this.damageReceivedHistory.splice(t, 1);
@@ -14468,7 +14470,7 @@ export class Player {
 			this.setHealthFromHit(t, null, e);
 		}
 	}
-	setHealthFromHit(t, arrowHitNormalWorld, i, s) {
+	setHealthFromHit(t: number, arrowHitNormalWorld: Vector3 | null, i: number, s: number) {
 		this.health = t;
 		this.lastHitTime = getMain().now;
 		if (this.hasOwnership) {
@@ -14879,7 +14881,7 @@ export class Player {
 		}
 		return false;
 	}
-	updateHealthUi(t) {
+	updateHealthUi(t?: number): void {
 		if (this.game instanceof OnlineGame) {
 			this.game.healthUi.setHealth(this.health);
 			if (t !== undefined) {
@@ -16788,7 +16790,7 @@ class PlayersListDialog extends Dialog {
 		observeResize(this.boundOnResize);
 		this.onResize();
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		observeResize(this.boundOnResize);
 		for (const t of this.currentAvatarBlobUrlReferences) {
@@ -16796,7 +16798,7 @@ class PlayersListDialog extends Dialog {
 		}
 		this.currentAvatarBlobUrlReferences.clear();
 	}
-	onVisibilityChange() {
+	override onVisibilityChange() {
 		if (this.playersListDirty) {
 			this.updatePlayersList();
 			this.playersListDirty = false;
@@ -17802,10 +17804,10 @@ class MapCollider extends ColliderBase {
 		const i = this.pos.clone().addScalar(this.radius);
 		this.aabb = new Box3(e, i);
 	}
-	getSphereManifold(t: Vector3, e: number): SphereManifold {
+	override getSphereManifold(t: Vector3, e: number): SphereManifold {
 		return ze(t, e, this.pos, this.radius);
 	}
-	rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
+	override rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
 		const i = this.pos.clone().sub(from);
 		const s = i.length();
 		if (s < this.radius) {
@@ -19467,7 +19469,7 @@ class KingOfTheHillUi {
 }
 const bs = 1000;
 class OnlineGame {
-	#S = null;
+	#S: number | null = null;
 	teamCount = 3;
 	activeGamemode = _;
 	physics = new PhysicsManager();
@@ -19784,14 +19786,14 @@ class OnlineGame {
 			this.gameTimerUi.setTimeRemaining(timeRemainingMs);
 		}
 	}
-	async loadMap(t) {
-		const e = (data) => {
+	async loadMap(t: string) {
+		const e = (data: { type: string; gameplayData?: GameplayData; scene?: Object3D; hinges?: unknown; appearingObjects?: unknown; colliders?: unknown }) => {
 			if (data.type == "gameplay-data") {
-				this.updateMapGameplayData(data.gameplayData);
+				this.updateMapGameplayData(data.gameplayData!);
 			} else if (data.type == "colliders") {
 				this.physics.removeMapColliders();
-				for (const t of data.colliders) {
-					this.physics.addMapCollider(t);
+				for (const t of (data.colliders as any[]) ?? []) {
+					this.physics.addMapCollider(t as any);
 				}
 				this.physics.buildOctree();
 				this.receivedColliders = true;
@@ -19799,12 +19801,12 @@ class OnlineGame {
 			} else {
 				if (data.type == "scene") {
 					if (this.destructed) {
-						MapLoader.disposeMapGeometries(data.scene);
+						MapLoader.disposeMapGeometries(data.scene!);
 					} else {
-						this.setMapScene(data.scene, t);
+						this.setMapScene(data.scene ?? null, t);
 					}
-					this.hingeManager.setHingeObjects(data.hinges);
-					this.appearingObjectsManager.setAppearingObjects(data.appearingObjects);
+					this.hingeManager.setHingeObjects(data.hinges as any);
+					this.appearingObjectsManager.setAppearingObjects(data.appearingObjects as any);
 				}
 			}
 		};
@@ -19841,10 +19843,10 @@ class OnlineGame {
 	#C: string | null = null;
 	updateMapGameplayData(mapGameplayData: {
 		flags: { flagTeamId: number; pos: number[]; rot: number[] }[];
-		spawnPositions: { pos: number[]; rot: number[] }[][];
+		spawnPositions: { pos: Vector3; rot: Quaternion }[][];
 		mapName: string;
 		assetName: string;
-		kingOfTheHillPosition: number[];
+		kingOfTheHillPosition: Vector3;
 	}): void {
 		if (!this.destructed) {
 			for (const t of this.flags) {
@@ -19962,7 +19964,7 @@ class OnlineGame {
 		this.healthUi.setCssColor(colors.cssColor, colors.cssColorDark);
 		getMain().classSelectionImageManager.setTeamId(myTeamId);
 	}
-	setPlayerName(t, e) {
+	setPlayerName(t: number, e: string) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setPlayerName(e);
@@ -19972,14 +19974,14 @@ class OnlineGame {
 			}
 		}
 	}
-	setPlayerNameVerified(t) {
+	setPlayerNameVerified(t: number) {
 		const e = this.players.get(t);
 		if (e) {
 			e.setNamePlayerVerified();
 			this.playersListDialog.playersListChanged();
 		}
 	}
-	setPlayerTeamId(t, e) {
+	setPlayerTeamId(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setTeamId(e);
@@ -19990,13 +19992,13 @@ class OnlineGame {
 			this.fireSquadPlayersChange();
 		}
 	}
-	setPlayerServerFlyEnabled(t, e) {
+	setPlayerServerFlyEnabled(t: number, e: boolean) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setServerFlyEnabled(e);
 		}
 	}
-	setSameSquadPlayerData(t) {
+	setSameSquadPlayerData(t: any) {
 		let e = false;
 		for (const { playerId, squadPlayerId, isLeader } of t) {
 			const t = this.players.get(playerId);
@@ -20010,20 +20012,20 @@ class OnlineGame {
 			this.playersListDialog.playersListChanged();
 		}
 	}
-	onSquadPlayersChange(t) {
+	onSquadPlayersChange(t: any) {
 		this.onSquadPlayersChangeCbs.add(t);
 	}
 	fireSquadPlayersChange() {
 		this.onSquadPlayersChangeCbs.forEach((t) => t());
 	}
-	setPlayerScores(t) {
-		const e = this.players.get(t.playerId);
+	setPlayerScores(t: unknown) {
+		const e = this.players.get((t as { playerId?: number }).playerId!);
 		if (e) {
 			e.setScores(t);
 		}
 		this.playersListDialog.playersListChanged();
 	}
-	createFlag(teamId: number, position, rotation) {
+	createFlag(teamId: number, position: Vector3, rotation: Quaternion) {
 		const s = new Flag(this.flags.length, teamId, position, rotation, this, this.physics);
 		s.onCurrentHoldingPlayerChange(() => {
 			this.updateFlagGrabbedStates();
@@ -20053,7 +20055,7 @@ class OnlineGame {
 			}
 		}
 	}
-	playerChangeFlag(t, e, i) {
+	playerChangeFlag(t: number, e: number, i: number) {
 		const s = this.flags[e];
 		if (s) {
 			const e = this.players.get(t);
@@ -20068,7 +20070,7 @@ class OnlineGame {
 			}
 		}
 	}
-	showFlagNotification(t) {
+	showFlagNotification(t: any) {
 		const t_type = t.type;
 		let i;
 		if (t.teamId == 1) {
@@ -20077,7 +20079,7 @@ class OnlineGame {
 			i = 1;
 		}
 		if (i) {
-			const s = `static/img/notificationIcons/flag/${n_1[i].id}/${t_type}.svg`;
+			const s = `static/img/notificationIcons/flag/${n_1[i]!.id}/${t_type}.svg`;
 			if (this.uiVisible) {
 				this.cornerNotificationsUi.showIcon(s);
 			}
@@ -20093,13 +20095,13 @@ class OnlineGame {
 		}
 		this.updateFinalFlagMusic();
 	}
-	setFlagDroppedPosition(t, e, i, s, n, o, a) {
+	setFlagDroppedPosition(t: number, e: number, i: number, s: number, n: number, o: number, a: number) {
 		const r = this.flags[t];
 		if (r) {
 			r.setDroppedPosition(e, i, s, n, o, a);
 		}
 	}
-	loop(e, s) {
+	loop(e: number, s: number) {
 		for (const t of this.players.values()) {
 			t.loop(e, s);
 		}
@@ -20209,7 +20211,7 @@ class OnlineGame {
 	updateWaitingForPlayersText() {
 		this.waitingForPlayersInfoText.setIsLoading(!this.gameStarted);
 	}
-	setPlayerServerData(t, e, i, s, n, o, a = false) {
+	setPlayerServerData(t: number, e: number, i: number, s: number, n: number, o: number, a = false) {
 		const r = this.players.get(t);
 		if (r) {
 			r.setServerData(e, i, s, n, o, a);
@@ -20220,7 +20222,7 @@ class OnlineGame {
 		const t = Array.from(this.players.values()).map((t) => t.serverPos);
 		this.appearingObjectsManager.updatePlayerPositions(t);
 	}
-	setPlayerPingData(t, e) {
+	setPlayerPingData(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setPingData(e);
@@ -20229,7 +20231,7 @@ class OnlineGame {
 			}
 		}
 	}
-	createServerArrow(t, e, i, s, n, o, a, r, l) {
+	createServerArrow(t: number, e: number, i: number, s: number, n: number, o: number, a: number, r: number, l: number) {
 		const h = this.players.get(t);
 		if (h) {
 			if (h.dead) {
@@ -20284,65 +20286,65 @@ class OnlineGame {
 			rot: new Quaternion(),
 		};
 	}
-	playerClaimedHitByArrow(t, e, i, s) {
+	playerClaimedHitByArrow(t: number, e: number, i: number, s: number) {
 		const n = this.players.get(t);
 		const o = this.players.get(e);
 		if (n && o) {
 			n.playerClaimedHitByArrow(o, i, s);
 		}
 	}
-	playerHitByMelee(t, e) {
+	playerHitByMelee(t: number, e: number) {
 		const i = this.players.get(t);
 		const s = this.players.get(e);
 		if (i && s) {
 			i.hitByMeleeFromServer(s);
 		}
 	}
-	playerHitByArrow(t, e) {
+	playerHitByArrow(t: number, e: number) {
 		const i = this.players.get(t);
 		const s = this.players.get(e);
 		if (i && s) {
 			i.hitByArrowFromServer(s);
 		}
 	}
-	verifiedKillByServer(t, e) {
+	verifiedKillByServer(t: number, e: number) {
 		const i = this.players.get(t);
 		const s = this.players.get(e);
 		if (i && s) {
 			s.verifiedKillByServer(i);
 		}
 	}
-	forceSetPlayerHealthFromServer(t, e) {
+	forceSetPlayerHealthFromServer(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.forceSetHealthFromServer(e);
 		}
 	}
-	receivedPlayerPerformAction(t, e) {
+	receivedPlayerPerformAction(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.receivedPerformAction(e);
 		}
 	}
-	receivedPlayerSpawn(t, e, i) {
+	receivedPlayerSpawn(t: number, e: number, i: number) {
 		const s = this.players.get(t);
 		if (s) {
 			s.receivedSpawn(e, i);
 		}
 	}
-	receivePlayerChangeClass(t, e) {
+	receivePlayerChangeClass(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.receiveChangeClassFromServer(e);
 		}
 	}
-	receivePlayerChangeWeaponType(t, e) {
+	receivePlayerChangeWeaponType(t: number, e: number) {
 		const i = this.players.get(t);
 		if (i) {
 			i.receiveChangeWeaponTypeFromServer(e);
 		}
 	}
-	setPlayerEquippedSkinData(t, e) {
+	setPlayerEquippedSkinData(t: number, e: SkinData) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setPlayerEquippedSkinData(e);
@@ -20352,13 +20354,13 @@ class OnlineGame {
 			this.fireSquadPlayersChange();
 		}
 	}
-	setPlayerGungameWeaponIndex(t, e) {
+	setPlayerGungameWeaponIndex(t: number, e: any) {
 		const i = this.players.get(t);
 		if (i) {
 			i.setGungameWeaponIndex(e);
 		}
 	}
-	updateFlagScoreboard(t) {
+	updateFlagScoreboard(t: any) {
 		if (this.flagScoreUi) {
 			this.flagScoreUi.update(t);
 		}
@@ -20426,7 +20428,7 @@ class OnlineGame {
 						t.stop();
 					}
 				} else {
-					this.currentFinalFlagMusic = t;
+					this.currentFinalFlagMusic = t ?? null;
 				}
 			} else {
 				if (this.currentFinalFlagMusic) {
@@ -20446,7 +20448,7 @@ class OnlineGame {
 			this.crosshairNotificationsUi.showIcon("static/img/notificationIcons/crosshair/killed.svg");
 		}
 	}
-	offsetPlayerScore(t, e, i) {
+	offsetPlayerScore(t: number, e: number, i: number) {
 		if (this.gameEnded) {
 			return;
 		}
@@ -20479,13 +20481,13 @@ class OnlineGame {
 	notifyGameStarted() {
 		this.gameStarted = true;
 		this.#S = performance.now();
-		this.cornerStatsUi.updateVisibility();
+		this.cornerStatsUi?.updateVisibility();
 		this.updateWaitingForPlayersText();
 		for (const t of this.players.values()) {
 			t.updateFly();
 		}
 	}
-	receivedGameEndAccountStats(t) {
+	receivedGameEndAccountStats(t: any) {
 		this.gameEndReceivedCoins = t.receivedCoins;
 		this.gameEndCoinsAlreadyDoubled = t.alreadyDoubled;
 		if (t.receivedCoins > 0) {
@@ -20508,7 +20510,7 @@ class OnlineGame {
 		this.gameEnded = true;
 		this.updateFinalFlagMusic();
 		this.updateUsedForCameraShotsOnly();
-		this.cornerStatsUi.updateVisibility();
+		this.cornerStatsUi?.updateVisibility();
 		getMain().network.markNextCloseAsIntentional();
 		getMain().recentGameTracker.setRecentGameNetworkData(null);
 		this.fireSdkGameplayStartedChange();
@@ -20618,7 +20620,7 @@ class OnlineGame {
 			return;
 		}
 		if (!this.currentGameEndWaitingMusic) {
-			this.currentGameEndWaitingMusic = await t.sfx.playSound("music/waiting");
+			this.currentGameEndWaitingMusic = (await t.sfx.playSound("music/waiting")) ?? null;
 		}
 		r.clear();
 		this.playersListDialog.setGameEndState(o);
@@ -20742,7 +20744,7 @@ class OnlineGame {
 		this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
 		return i;
 	}
-	onEstimatedMaxGameEndWaitTimeSuddenChange(t) {
+	onEstimatedMaxGameEndWaitTimeSuddenChange(t: any) {
 		this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.add(t);
 	}
 	fireEstimatedMaxGameEndWaitTimeSuddenChange() {
@@ -20750,16 +20752,16 @@ class OnlineGame {
 			this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.forEach((t) => t());
 		}
 	}
-	onMyPlayerChange(t) {
+	onMyPlayerChange(t: any) {
 		this.onMyPlayerChangeCbs.add(t);
 	}
-	onGameEnd(t) {
+	onGameEnd(t: any) {
 		this.onGameEndCbs.add(t);
 	}
-	onGameEndFinish(t) {
+	onGameEndFinish(t: any) {
 		this.onGameEndFinishCbs.add(t);
 	}
-	onGameEndStatsScreen(t) {
+	onGameEndStatsScreen(t: any) {
 		this.onGameEndStatsScreenCbs.add(t);
 	}
 	closeGameOverStatsDialog() {
@@ -20804,7 +20806,7 @@ class OnlineGame {
 		const t = Boolean(this.isForegroundGame && this.gameEnded && !this.getMyPlayer());
 		if (t != this._usedForCameraShotsOnly) {
 			this._usedForCameraShotsOnly = t;
-			this.onUsedForCamShotsOnlyChangeCbs.forEach((t) => t());
+			this.onUsedForCamShotsOnlyChangeCbs.forEach((t) => (t as () => void)());
 		}
 	}
 	becameForegroundGame() {
@@ -20823,14 +20825,14 @@ class OnlineGame {
 		if (t != this.gameIsVisible) {
 			this.gameIsVisible = t;
 			this.updateSceneVisibility();
-			this.onGameIsVisibleCbs.forEach((t) => t());
+			this.onGameIsVisibleCbs.forEach((t) => (t as () => void)());
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
-	onGameIsVisible(t) {
+	onGameIsVisible(t: boolean) {
 		this.onGameIsVisibleCbs.add(t);
 	}
-	onUsedForCamShotsOnlyChange(t) {
+	onUsedForCamShotsOnlyChange(t: any) {
 		this.onUsedForCamShotsOnlyChangeCbs.add(t);
 	}
 	#P = false;
@@ -20856,7 +20858,7 @@ class OnlineGame {
 		this.setUiVisible(t);
 		getMain().hudIcons.setGlobalVisibility(t);
 	}
-	setUiVisible(t) {
+	setUiVisible(t: boolean) {
 		this.uiVisible = t;
 		this.healthUi.setVisible(t);
 		if (this.activeGamemodeUi) {
@@ -20881,11 +20883,11 @@ class OnlineGame {
 			this.scoreOffsetNotificationsUi.removeAll();
 		}
 	}
-	#x = new WeakSet();
+	#x = new WeakSet<WeakKey>();
 	#M = 0;
-	reportOwnedPlayerHeadshotKill(t) {
-		if (!this.#x.has(t)) {
-			this.#x.add(t);
+	reportOwnedPlayerHeadshotKill(t: number) {
+		if (!this.#x.has(t as WeakKey)) {
+			this.#x.add(t as WeakKey);
 			this.#M++;
 			if (this.#M >= 10) {
 				activateSteamAchievement("headshotTenNoMisses");
@@ -20893,7 +20895,7 @@ class OnlineGame {
 		}
 	}
 	reportOwnedPlayerHeadshotMiss() {
-		this.#x = new WeakSet();
+		this.#x = new WeakSet<WeakKey>();
 		this.#M = 0;
 	}
 }
@@ -22338,9 +22340,9 @@ class AdBanners {
 	}
 }
 class AlertDialog extends Dialog {
-	indexPriority = 3;
+	override indexPriority = 3;
 	closeOnButtonClick;
-	titleEl = document.createElement("h2");
+	override titleEl = document.createElement("h2");
 	textEl;
 	createdButtons;
 	constructor(
@@ -22620,15 +22622,16 @@ class DialogManager {
 	}
 }
 class InputKey {
-	keyCodes;
-	mouseButtons;
-	gamepadButtons;
+	keyCodes: string[] = [];
+	mouseButtons: number[] = [];
+	gamepadButtons: number[] = [];
 	pressed = false;
 	pressedGamepad = false;
-	onPressedChangeCbs = new Set();
-	onPressedDownCbs = new Set();
-	onPressedUpCbs = new Set();
-	constructor({ keyCodes = [], mouseButtons = [], gamepadButtons = [] } = {}) {
+	onPressedChangeCbs = new Set<(t: boolean) => boolean>();
+	onPressedDownCbs = new Set<(i: { fromTouchButton?: boolean }) => boolean>();
+	onPressedUpCbs = new Set<(i: { fromTouchButton?: boolean }) => boolean>();
+	constructor(opts: { keyCodes?: string[]; mouseButtons?: number[]; gamepadButtons?: number[] } = {}) {
+		const { keyCodes = [], mouseButtons = [], gamepadButtons = [] } = opts;
 		this.keyCodes = keyCodes;
 		this.mouseButtons = mouseButtons;
 		this.gamepadButtons = gamepadButtons;
@@ -22768,7 +22771,7 @@ class TouchCircleArea extends TouchResponseArea {
 		this.pos = t || new Vector2();
 		this.radius = e;
 	}
-	testTouchInResponsiveArea(t) {
+	override testTouchInResponsiveArea(t) {
 		return new Vector2(t.clientX, t.clientY).distanceTo(this.pos) < this.radius;
 	}
 }
@@ -22800,7 +22803,7 @@ class TouchJoystick extends TouchControl {
 		this.doubleTapped = false;
 		this.setDefaultPos(defaultPos);
 	}
-	onUpdateTouch(t) {
+	override onUpdateTouch(t) {
 		const e = new Vector2(t.clientX, t.clientY);
 		if (this.currentUsingTouchId == null) {
 			this.onIsTouchingChange(true);
@@ -22811,7 +22814,7 @@ class TouchJoystick extends TouchControl {
 			this.currentUsingTouchId == t.identifier && (this.setStickPos(e), this.setOpacity(0.1), true)
 		);
 	}
-	onEndTouch() {
+	override onEndTouch() {
 		this.onIsTouchingChange(false);
 		this.resetPos();
 		this.setOpacity(1);
@@ -22866,7 +22869,7 @@ class TouchLookInput extends TouchControl {
 	constructor() {
 		super();
 	}
-	onUpdateTouch(t) {
+	override onUpdateTouch(t) {
 		if (this.currentTouchId == null) {
 			this.currentTouchId = t.identifier;
 		}
@@ -22881,7 +22884,7 @@ class TouchLookInput extends TouchControl {
 		this.prevTouchPos.copy(e);
 		return true;
 	}
-	onEndTouch() {
+	override onEndTouch() {
 		this.lastDeltaPos = new Vector2();
 		this.currentTouchId = null;
 	}
@@ -22952,11 +22955,11 @@ class TouchButton extends TouchControl {
 			this.responsiveArea.pos.set(t, e);
 		}
 	}
-	onUpdateTouch(t) {
+	override onUpdateTouch(t) {
 		this.setPressed(true);
 		return true;
 	}
-	onEndTouch() {
+	override onEndTouch() {
 		this.setPressed(false);
 	}
 	setPressed(t) {
@@ -22971,7 +22974,7 @@ class TouchButton extends TouchControl {
 	setPressedClass() {
 		this.el.classList.toggle("touching", this.pressed);
 	}
-	setVisibility(t) {
+	override setVisibility(t) {
 		this.el.classList.toggle("hidden", !t);
 	}
 	addInputKey(t) {
@@ -22990,7 +22993,7 @@ class TouchScreenRegion extends TouchResponseArea {
 		this.top = i;
 		this.bottom = s;
 	}
-	testTouchInResponsiveArea(t) {
+	override testTouchInResponsiveArea(t) {
 		const e = t.clientX / window.innerWidth;
 		const i = t.clientY / window.innerHeight;
 		return e > this.left && e < this.right && i > this.top && i < this.bottom;
@@ -23314,8 +23317,6 @@ class InputManager {
 	wheelMoveAmount;
 	lastFiredWheelButtonTime;
 	recentWheelButtonCount;
-	onPointerLockChangeCbs;
-	onDesiredPointerLockChangeCbs;
 	_lastPointerLockChangeByApplicationTime;
 	stickDeadZone;
 	gamepadLookSensivity;
@@ -23323,8 +23324,10 @@ class InputManager {
 	mouseMove;
 	walkInput;
 	lookInput;
-	gamepadAxes;
-	constructor(t) {
+	gamepadAxes: Vector2[] = [];
+	onPointerLockChangeCbs = new Set<(pointerLocked: boolean, userInitiated: boolean) => void>();
+	onDesiredPointerLockChangeCbs = new Set<(desired: boolean) => void>();
+	constructor(t: HTMLElement) {
 		this.keys.set(
 			"left",
 			new InputKey({
@@ -23553,7 +23556,7 @@ class InputManager {
 		});
 		this.touch.init();
 	}
-	loop(t, e) {
+	loop(t: number, e: number) {
 		this.touch.loop(t, e);
 		const i = getMain();
 		if (i.mainMenu.visible) {
@@ -23562,8 +23565,8 @@ class InputManager {
 			this.lookInput.copy(this.mouseMove);
 			this.lookInput.addScaledVector(this.touch.lastDeltaLook, 3);
 			const t = i.settingsManager;
-			this.lookInput.multiplyScalar(t.getValue("mouseSensitivity"));
-			if (t.getValue("invertMouseY")) {
+			this.lookInput.multiplyScalar(Number(t.getValue("mouseSensitivity")));
+			if (Boolean(t.getValue("invertMouseY"))) {
 				this.lookInput.y *= -1;
 			}
 		}
@@ -23574,9 +23577,9 @@ class InputManager {
 		}
 		this.touch.afterLoop();
 	}
-	updateGamepadStates(t, e) {
+	updateGamepadStates(t: number, e: number) {
 		this.gamepadAxes = [];
-		let i = [];
+		let i: (Gamepad | null)[] = [];
 		try {
 			i = navigator.getGamepads();
 		} catch {}
@@ -23611,7 +23614,7 @@ class InputManager {
 			this.updateAxisInputs();
 		}
 		if (this.gamepadAxes.length > 1) {
-			this.lookInput.addScaledVector(this.gamepadAxes[1], this.gamepadLookSensivity * e);
+			this.lookInput.addScaledVector(this.gamepadAxes[1]!, this.gamepadLookSensivity * e);
 		}
 	}
 	get pointerLocked() {
@@ -23699,7 +23702,7 @@ class InputManager {
 			this.walkInput.y = 1;
 		}
 		if (this.gamepadAxes.length > 0) {
-			this.walkInput.add(this.gamepadAxes[0]);
+			this.walkInput.add(this.gamepadAxes[0]!);
 		}
 		this.walkInput.add(this.touch.joyStickValue);
 		this.walkInput.clampLength(0, 1);
@@ -23726,7 +23729,7 @@ class InputManager {
 		const e = Array.from(t).sort().join(",");
 		if (e != this.currentLockedKeys) {
 			try {
-				await navigator.keyboard.lock(Array.from(t));
+				await ((globalThis.navigator as { keyboard?: { lock: (keys: string[]) => Promise<void> } }).keyboard?.lock(Array.from(t)));
 			} catch (error) {
 				if (error instanceof DOMException && error.name == "InvalidAccessError") {
 					throw error;
@@ -23993,7 +23996,7 @@ class ConfigLoaderBase {
 }
 class MapsConfig extends ConfigLoaderBase {
 	override loadedConfigData: MapsConfigData | null = null;
-	transformData(t) {
+	override transformData(t) {
 		if (!t) {
 			return {
 				mainMenuMapHash: "",
@@ -24047,7 +24050,7 @@ class MapsConfig extends ConfigLoaderBase {
 }
 class PromosConfig extends ConfigLoaderBase {
 	override loadedConfigData: PromosConfigData | null = null;
-	transformData(t) {
+	override transformData(t) {
 		if (t) {
 			if (t.activePromos) {
 				t.activePromos = t.activePromos.filter((t) => t.id && t.image);
@@ -24063,7 +24066,7 @@ class PromosConfig extends ConfigLoaderBase {
 }
 class ShopsConfig extends ConfigLoaderBase {
 	override loadedConfigData: ShopConfigData | null = null;
-	transformData(t) {
+	override transformData(t) {
 		if (t) {
 			if (t.purchasableItems) {
 				t.purchasableItems = t.purchasableItems.filter((t) => t.id);
@@ -24251,7 +24254,7 @@ class OfflineGame {
 		}
 		this.myPlayer.afterPhysicsLoop(t, e);
 	}
-	onMyPlayerChange(t) {}
+	onMyPlayerChange(t: any) {}
 	getMyPlayer(): Player {
 		return this.myPlayer;
 	}
@@ -24269,19 +24272,19 @@ class OfflineGame {
 		const t = Boolean(this.scene && this.receivedColliders);
 		if (t != this.gameIsVisible) {
 			this.gameIsVisible = t;
-			this.onGameIsVisibleCbs.forEach((t) => t());
+			this.onGameIsVisibleCbs.forEach((t) => (t as () => void)());
 			this.updateSdkGameplayStarted();
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
-	onGameIsVisible(t) {
+	onGameIsVisible(t: boolean) {
 		this.onGameIsVisibleCbs.add(t);
 	}
 	updateUiVisible() {
 		const t = !getMain().mainMenu.visible && !getMain().mainMenu.hideUi;
 		this.setUiVisible(t);
 	}
-	setUiVisible(t) {
+	setUiVisible(t: boolean) {
 		this.crosshair.setGameUiVisibility(t);
 	}
 }
@@ -24474,7 +24477,7 @@ export class GameManager {
 		});
 		this.fireCurrentGameChangeCbs();
 	}
-	onGameEnd(t) {
+	onGameEnd(t: any) {
 		this.onGameEndCbs.add(t);
 	}
 	setJoinedOnce() {
@@ -25062,26 +25065,25 @@ class HudIcons {
 	}
 }
 class ScreenFlash {
-	scene;
-	material;
-	autoFade;
-	obj;
-	creationTime;
-	shouldBeDestroyed;
+	material: ShaderMaterial;
+	autoFade: boolean;
+	obj: Mesh;
+	creationTime: number;
+	shouldBeDestroyed = false;
 	constructor(
 		public scene: Scene,
 		material: Material,
-		i,
-		s,
-		n,
-		o,
-		a,
+		i: number,
+		s: number,
+		n: number,
+		o: boolean,
+		a: boolean,
 	) {
-		this.material = material.clone();
-		this.material.uniforms.vignetteAmount.value = i;
-		this.material.uniforms.theta.value = s;
-		this.material.uniforms.color.value = n;
-		this.material.uniforms.hasDirection.value = a ? 1 : 0;
+		this.material = material.clone() as ShaderMaterial;
+		this.material.uniforms.vignetteAmount!.value = i;
+		this.material.uniforms.theta!.value = s;
+		this.material.uniforms.color!.value = n;
+		this.material.uniforms.hasDirection!.value = a ? 1 : 0;
 		this.autoFade = o;
 		const l = new PlaneGeometry(2, 2);
 		this.obj = new Mesh(l, this.material);
@@ -25094,7 +25096,7 @@ class ScreenFlash {
 		this.scene.remove(this.obj);
 		this.material.dispose();
 	}
-	loop(t) {
+	loop(t: number): void {
 		if (!this.autoFade) {
 			return;
 		}
@@ -25104,11 +25106,11 @@ class ScreenFlash {
 			this.shouldBeDestroyed = true;
 		}
 	}
-	set opacity(t) {
-		this.material.uniforms.opacity.value = t;
+	set opacity(t: number) {
+		this.material.uniforms.opacity!.value = t;
 	}
-	set baseOpacity(t) {
-		this.material.uniforms.baseOpacity.value = t;
+	set baseOpacity(t: number) {
+		this.material.uniforms.baseOpacity!.value = t;
 	}
 }
 class ScreenFlashManager {
@@ -27903,9 +27905,9 @@ class NetworkManager {
 				const r = new Uint16Array(a.buffer);
 				s += n;
 				const l = r[0];
-				const [h, d, c] = this.mapNetworkPosToWorldPos(t, r[1], r[2], r[3]);
-				const u = Un(r[4], 2 * Math.PI);
-				const p = Rn(r[5], 0.5 * Math.PI);
+				const [h, d, c] = this.mapNetworkPosToWorldPos(t, r[1]!, r[2]!, r[3]!);
+				const u = Un(r[4]!, 2 * Math.PI);
+				const p = Rn(r[5]!, 0.5 * Math.PI);
 				t.setPlayerServerData(l, h, d, c, u, p, i);
 			}
 			t.playerServerDataFrameEnded();
@@ -27915,11 +27917,11 @@ class NetworkManager {
 				return;
 			}
 			const [, , e, i] = o;
-			const [s, n, a] = this.mapNetworkPosToWorldPos(t, o[4], o[5], o[6]);
-			const r = Bn(o[7], -1, 1);
-			const l = Bn(o[8], -1, 1);
-			const h = Bn(o[9], -1, 1);
-			const d = Vn(o[10]);
+			const [s, n, a] = this.mapNetworkPosToWorldPos(t, o[4]!, o[5]!, o[6]!);
+			const r = Bn(o[7]!, -1, 1);
+			const l = Bn(o[8]!, -1, 1);
+			const h = Bn(o[9]!, -1, 1);
+			const d = Vn(o[10]!);
 			t.createServerArrow(e, i, s, n, a, r, l, h, d);
 		} else if (s[0] == 6) {
 			const t = getMain().gameManager.getOnlineGame();
@@ -27971,7 +27973,7 @@ class NetworkManager {
 				return;
 			}
 			const e = o[2];
-			const [i, s, n] = this.mapNetworkPosToWorldPos(t, o[3], o[4], o[5]);
+			const [i, s, n] = this.mapNetworkPosToWorldPos(t, o[3]!, o[4]!, o[5]!);
 			const [a, r, l] = this.mapNetworkVelocityToWorldVelocity(o[6], o[7], o[8]);
 			t.setFlagDroppedPosition(e, i, s, n, a, r, l);
 		} else if (s[0] == 9) {
@@ -28285,8 +28287,8 @@ class NetworkManager {
 					})();
 				}
 			}
-		} else if (s[0] == 59);
-		else if (s[0] == 60) {
+		} else if (s[0] == 59) {
+		} else if (s[0] == 60) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
@@ -28499,7 +28501,7 @@ class NetworkManager {
 	sendJoinReconnectToken(t) {
 		this.sendStringMessage(13, t);
 	}
-	sendJoinGameId(t, e = null) {
+	sendJoinGameId(t: any, e: string | null = null) {
 		let i = 8;
 		if (e) {
 			i += 16;
@@ -29065,7 +29067,7 @@ class AccountExistsDialog extends Dialog {
 	#O;
 	#F;
 	#B;
-	visible;
+	override visible;
 	constructor(t) {
 		super(t, {
 			startVisible: false,
@@ -29096,7 +29098,7 @@ class AccountExistsDialog extends Dialog {
 		this.visible = true;
 		getMain().profileState.onStateChanged(this.#V);
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		getMain().profileState.removeOnStateChanged(this.#V);
 	}
@@ -29109,29 +29111,29 @@ class AccountExistsDialog extends Dialog {
 }
 class AuthManager {
 	oAuthProviderConfigs = new Map();
-	prevSessionNonce;
-	sessionNonce;
-	currentSessionData;
-	currentGuestSessionData;
-	openOAuthWindows;
-	onOAuthWindowCloseCbs;
-	isHandlingAuthToken;
-	onAuthTokenHandleFinishCbs;
-	mostRecentAuthTokenHandleResult;
-	onLoggedInAccountChangeCbs;
-	onGuestSessionDataChangeCbs;
+	prevSessionNonce: unknown;
+	sessionNonce: string | null = null;
+	currentSessionData: { expires: number; secureId: string; token: string } | null = null;
+	currentGuestSessionData: { expires: number; secureId: string; token: string } | null = null;
+	openOAuthWindows = new Set<Window>();
+	onOAuthWindowCloseCbs = new Set<() => void>();
+	isHandlingAuthToken = false;
+	onAuthTokenHandleFinishCbs = new Set<(result: unknown) => void>();
+	mostRecentAuthTokenHandleResult: unknown;
+	onLoggedInAccountChangeCbs = new Set<() => void>();
+	onGuestSessionDataChangeCbs = new Set<() => void>();
 	lastPeliLoginCounter;
-	guestAccountData;
+	guestAccountData: unknown;
 	guestAccountDataSetOnce;
-	loginErrorAlert;
+	loginErrorAlert: unknown;
 	refreshSessionInstance;
 	refreshSessionIfNeededInstance;
 	syncGuestDataWithRestServiceInstance;
-	currentPeliLoginMigrationFlow;
+	currentPeliLoginMigrationFlow: { abort(): void; start(): void } | null = null;
 	peliLoginStateUpdatesDisabled;
 	updatePeliSdkLoginStateInstance;
 	isInit;
-	onInitCbs;
+	onInitCbs = new Set<() => void>();
 	constructor(public gameWrapper: HTMLElement) {
 		this.oAuthProviderConfigs.set("google", {
 			loginButtonText: "Log in with Google",
@@ -29166,13 +29168,13 @@ class AuthManager {
 		this.sessionNonce = null;
 		this.currentSessionData = null;
 		this.currentGuestSessionData = null;
-		this.openOAuthWindows = new Set();
-		this.onOAuthWindowCloseCbs = new Set();
+		this.openOAuthWindows = new Set<Window>();
+		this.onOAuthWindowCloseCbs = new Set<() => void>();
 		this.isHandlingAuthToken = false;
-		this.onAuthTokenHandleFinishCbs = new Set();
+		this.onAuthTokenHandleFinishCbs = new Set<(result: unknown) => void>();
 		this.mostRecentAuthTokenHandleResult = null;
-		this.onLoggedInAccountChangeCbs = new Set();
-		this.onGuestSessionDataChangeCbs = new Set();
+		this.onLoggedInAccountChangeCbs = new Set<() => void>();
+		this.onGuestSessionDataChangeCbs = new Set<() => void>();
 		this.lastPeliLoginCounter = 0;
 		this.guestAccountData = null;
 		this.guestAccountDataSetOnce = false;
@@ -29182,12 +29184,12 @@ class AuthManager {
 				const e = t.source;
 				if (t.data.type == "requestOpenerOrigin") {
 					if (t.source) {
-						e.postMessage(
+						(e as any).postMessage(
 							{
 								type: "openerOrigin",
 								openerOrigin: location.origin,
 							},
-							"*",
+							"*" as any,
 						);
 					}
 				} else if (t.data.type == "oAuthCallback") {
@@ -29196,7 +29198,7 @@ class AuthManager {
 							{
 								type: "oAuthTokenReceived",
 							},
-							"*",
+							"*" as any,
 						);
 					}
 					let i = null;
@@ -29262,7 +29264,7 @@ class AuthManager {
 										const t = await this.createPeliSession();
 										this.handleLinkAccountResultNotifications(t);
 									},
-									setPeliLoginStateUpdatesDisabled: (t) => {
+									setPeliLoginStateUpdatesDisabled: (t: boolean) => {
 										this.setPeliLoginStateUpdatesDisabled(t);
 									},
 								},
@@ -29278,11 +29280,11 @@ class AuthManager {
 			}
 		});
 		this.isInit = false;
-		this.onInitCbs = new Set();
+		this.onInitCbs = new Set<() => void>();
 	}
 	async init() {
 		try {
-			this.currentSessionData = await getMain().indexedDb.get("currentAuthSessionData");
+			this.currentSessionData = (await getMain().indexedDb.get("currentAuthSessionData")) as { expires: number; secureId?: string; token?: string } | null;
 			this.prevSessionNonce = await getMain().indexedDb.get("prevSessionNonce");
 		} catch {}
 		this.isInit = true;
@@ -29329,29 +29331,29 @@ class AuthManager {
 		if (this.isInit) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		const t = new Promise<undefined>((resolve) => this.onInitCbs.add(() => resolve(undefined)));
 		await t;
 	}
-	onLoggedInAccountChange(t) {
+	onLoggedInAccountChange(t: () => void) {
 		this.onLoggedInAccountChangeCbs.add(t);
 	}
-	removeOnLoggedInAccountChange(t) {
+	removeOnLoggedInAccountChange(t: () => void) {
 		this.onLoggedInAccountChangeCbs.delete(t);
 	}
 	fireLoggedInAccountChange() {
 		this.onLoggedInAccountChangeCbs.forEach((t) => t());
 	}
-	onGuestSessionDataChange(t) {
+	onGuestSessionDataChange(t: () => void) {
 		this.onGuestSessionDataChangeCbs.add(t);
 	}
-	async showLoginDialog(t = "login") {
+	async showLoginDialog(t = "login"): Promise<{ error?: string } | undefined> {
 		const e = new LoginDialog(this.gameWrapper, t);
 		getMain().dialogManager.addDialog(e);
 		const i = await e.waitForFlowEnd();
 		if (t == "linknew") {
 			this.handleLinkAccountResultNotifications(i);
 		}
-		return i;
+		return i as { error?: string } | undefined;
 	}
 	async showLoginDialogWithErrorHandling() {
 		const t = await this.showLoginDialog();
@@ -29363,7 +29365,7 @@ class AuthManager {
 			console.error(`Login error: ${t.error}`);
 		}
 	}
-	getSessionNonce() {
+	getSessionNonce(): string {
 		if (this.sessionNonce) {
 			return this.sessionNonce;
 		}
@@ -29388,19 +29390,19 @@ class AuthManager {
 		this.setPrevSessionNonce(this.sessionNonce);
 		return i;
 	}
-	async setPrevSessionNonce(t) {
+	async setPrevSessionNonce(nonce: string | null) {
 		try {
-			await getMain().indexedDb.set("prevSessionNonce", t);
+			await getMain().indexedDb.set("prevSessionNonce", nonce);
 		} catch {}
 	}
-	setPeliLoginStateUpdatesDisabled(t) {
-		this.peliLoginStateUpdatesDisabled = t;
+	setPeliLoginStateUpdatesDisabled(disabled: boolean) {
+		this.peliLoginStateUpdatesDisabled = disabled;
 		this.updatePeliSdkLoginState();
 	}
 	updatePeliSdkLoginState() {
 		this.updatePeliSdkLoginStateInstance.run();
 	}
-	async createForcedPeliLogoutDialog({ title, text }) {
+	async createForcedPeliLogoutDialog({ title, text }: { title: string; text: string }) {
 		const i = getMain().getPeliSdk();
 		if (!i) {
 			return false;
@@ -29420,7 +29422,7 @@ class AuthManager {
 							onClick: async () => {
 								if ((await this.peliLogout()) != "dismissed") {
 									s.close();
-									resolve();
+									resolve(undefined);
 								}
 							},
 						},
@@ -29520,7 +29522,7 @@ class AuthManager {
 			};
 		}
 	}
-	handleLinkAccountResultNotifications(t) {
+	handleLinkAccountResultNotifications(t: { success: boolean; usedPelicanParty: boolean } | null) {
 		if (t) {
 			if (t.success) {
 				if (t.usedPelicanParty) {
@@ -29561,7 +29563,7 @@ class AuthManager {
 			}
 		}
 	}
-	async getOAuthUrl(t, signal) {
+	async getOAuthUrl(t: string, signal: AbortSignal) {
 		await this.waitForInit();
 		if (signal.aborted) {
 			return null;
@@ -29639,8 +29641,8 @@ class AuthManager {
 		l.searchParams.set("nonce", this.getSessionNonce());
 		return l.href;
 	}
-	async oAuthLogin(t, e) {
-		let i = null;
+	async oAuthLogin(t: string, e: AbortSignal) {
+		let i: Window | null = null;
 		const s = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
 		if (!(t == "apple" && s)) {
 			i = window.open();
@@ -29671,7 +29673,7 @@ class AuthManager {
 			i.location.href = n;
 			this.openOAuthWindows.add(i);
 			const e = this.mostRecentAuthTokenHandleResult;
-			const s = new Promise((resolve) => {
+			const s = new Promise<void>((resolve) => {
 				const i = setInterval(() => {
 					this.onOAuthWindowCloseCbs.add(() => {
 						resolve();
@@ -29699,7 +29701,7 @@ class AuthManager {
 				return null;
 			}
 			window.location.href = n;
-			const t = new Promise((resolve) => {
+			const t = new Promise<void>((resolve) => {
 				window.addEventListener(
 					"focus",
 					() => {
@@ -29726,7 +29728,7 @@ class AuthManager {
 		}
 		this.onOAuthWindowCloseCbs.clear();
 	}
-	async handleAuthToken(t, e, i = false) {
+	async handleAuthToken(t: { type: string; accessToken?: string; issuer?: string; idToken?: string }, e: string, i = false) {
 		this.isHandlingAuthToken = true;
 		await this.waitForInit();
 		let s = false;
@@ -29783,7 +29785,7 @@ class AuthManager {
 		}
 		return await new Promise((resolve) => this.onAuthTokenHandleFinishCbs.add(resolve));
 	}
-	setAuthTokenBody(t, e) {
+	setAuthTokenBody(t: { type: string; accessToken?: string; issuer?: string; idToken?: string }, e: URLSearchParams) {
 		if (t.type == "accessToken") {
 			e.set("accessToken", t.accessToken);
 			e.set("issuer", t.issuer);
@@ -29805,7 +29807,7 @@ class AuthManager {
 		}
 		const e = apiPath("auth/mergeGuestAccount");
 		const i = new URLSearchParams();
-		i.set("guestData", t);
+		i.set("guestData", String(t ?? ""));
 		let s = null;
 		try {
 			s = await Mt(e.href, {
@@ -29842,7 +29844,7 @@ class AuthManager {
 		}
 		return true;
 	}
-	async fetchAuthSessionData(t, e, { fromRefreshAttempt = false, ignoreFailures = false } = {}) {
+	async fetchAuthSessionData(t: URL, e: URLSearchParams, { fromRefreshAttempt = false, ignoreFailures = false } = {}) {
 		let n;
 		let o = "unknown";
 		try {
@@ -29885,7 +29887,7 @@ class AuthManager {
 			error: o,
 		};
 	}
-	async handleSessionDataResponse(t) {
+	async handleSessionDataResponse(t: Response) {
 		const e = await t.json();
 		if (e.showGoogleWorkspaceWarning) {
 			getMain().dialogManager.showAlert({
@@ -29905,7 +29907,7 @@ class AuthManager {
 		};
 		this.fireLoggedInAccountChange();
 	}
-	async handleUnlinkRequest(t, e, i) {
+	async handleUnlinkRequest(t: URL, e: URLSearchParams | null, i: boolean) {
 		const s = await this.requestWithAuthHeader(async (i) => {
 			if (!i) {
 				return {
@@ -29968,7 +29970,7 @@ class AuthManager {
 		const t = apiPath("auth/unlinkPeliAccount");
 		return await this.handleUnlinkRequest(t, null, true);
 	}
-	async unlinkAccount(t) {
+	async unlinkAccount(t: { issuer: string; email: string }) {
 		const e = apiPath("auth/unlinkAccount");
 		const i = new URLSearchParams();
 		i.set("issuer", t.issuer);
@@ -29995,7 +29997,7 @@ class AuthManager {
 	async logoutAfterError() {
 		return !!this.isLoggedIn && (await this.refreshSessionInstance.run(), this.isLoggedIn);
 	}
-	showLoginError(t) {
+	showLoginError(t: boolean) {
 		if (this.loginErrorAlert) {
 			return;
 		}
@@ -30099,7 +30101,7 @@ class AuthManager {
 			return e;
 		}
 	}
-	async setGuestAccountData(t, e = true) {
+	async setGuestAccountData(t: unknown, e = true) {
 		this.guestAccountData = t;
 		this.guestAccountDataSetOnce = true;
 		try {
@@ -30140,7 +30142,7 @@ class AuthManager {
 		const t = await this.getGuestAccountData();
 		const e = apiPath("auth/guestAccountData");
 		const i = new URLSearchParams();
-		i.set("guestData", t ?? "");
+		i.set("guestData", String(t ?? ""));
 		const s = await fetch(e.href, {
 			method: "POST",
 			body: i,
@@ -30394,7 +30396,7 @@ class ProfileState extends State {
 	constructor(...t: unknown[]) {
 		super(...t as any[]);
 	}
-	getCurrentState() {
+	override getCurrentState() {
 		return {
 			username: this.usernameData ? this.usernameData.username : null,
 			isGuest: this.isGuest,
@@ -30427,7 +30429,7 @@ class ProfileState extends State {
 			this.canUnlinkPeliAccount = t.canUnlinkPeliAccount;
 		}
 	}
-	clearCurrentDataImpl() {
+	override clearCurrentDataImpl() {
 		this.isGuest = true;
 		this.stats = {};
 		this.dbId = null;
@@ -30735,7 +30737,7 @@ class Poki {
 					document.head.appendChild(e);
 					const i = new Promise((resolve, reject) => {
 						const n = () => {
-							resolve();
+							resolve(undefined);
 							e.removeEventListener("load", n);
 						};
 						e.addEventListener("load", n);
@@ -30785,7 +30787,7 @@ class Poki {
 		if (this.pokiInit) {
 			return;
 		}
-		const t = new Promise((resolve) => {
+		const t = new Promise<void>((resolve) => {
 			this.onPokiInitCbs.push(resolve);
 		});
 		await t;
@@ -31160,7 +31162,7 @@ class BlobURLReference {
 		if (this.blobUrl) {
 			return this.blobUrl;
 		}
-		const t = new Promise((resolve) => {
+		const t = new Promise<void>((resolve) => {
 			this.onBlobUrlCreatedCbs.add(resolve);
 		});
 		return await t;
