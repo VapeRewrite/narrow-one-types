@@ -716,6 +716,18 @@ declare class SkinModel {
     setHitFlashMaterialsValue(t: any, e: any, i: any): void;
     computeApproximateBoundingSphere(): Sphere;
 }
+declare class PurchaseConfirmDialog extends Dialog {
+    onPurchaseSuccessCbs: Set<unknown>;
+    shopItem: ShopItem;
+    purchaseButton: CustomButton;
+    constructor(t: any, e: any, { renderOptions }: {
+        renderOptions: any;
+    });
+    destructor(): void;
+    setButtonEnabled(t: any): void;
+    purchaseButtonClick(): Promise<void>;
+    onPurchaseSuccess(t: any): void;
+}
 declare class SingleAssetLoader {
     obj: Object3D;
     label: string;
@@ -790,6 +802,11 @@ export interface StatClassTooltipOptions {
     showTotal?: boolean;
     category?: string;
 }
+declare class StatClassTooltip {
+    el: HTMLDivElement;
+    constructor({ zIndex, statClasses, aboveRect, showTotal, category }: StatClassTooltipOptions);
+    destructor(): void;
+}
 export interface ShopItemRenderOptions {
     colorMultiplier: ColorArray;
     gender: PlayerGender;
@@ -801,17 +818,82 @@ export interface ShopItemOptions {
     dialog: Dialog;
     scrollingContainer?: HTMLElement;
 }
+declare class ShopItem {
+    gameWrapper: HTMLElement;
+    el: HTMLButtonElement | HTMLDivElement;
+    configIndex: number;
+    config: ShopItemConfig;
+    usage: string;
+    renderOptions: ShopItemRenderOptions;
+    dialog: Dialog;
+    destructed: boolean;
+    onSelectedChangeRequestCbs: Set<(selected: boolean) => void>;
+    statsTooltip: StatClassTooltip | null;
+    onHoveringChangeCbs: Set<(hovering: boolean) => void>;
+    selected: boolean;
+    owned: boolean;
+    isHovering: boolean;
+    isLooping: boolean;
+    shouldStopLooping: boolean;
+    prevNow: number;
+    boundAnimationLoop: () => void;
+    boundRemoveStatsTooltip: () => void;
+    scrollingContainer?: HTMLElement;
+    onConfirmPurchaseDialogOpenCbs: Set<(dialog: PurchaseConfirmDialog) => void>;
+    renderView: RenderView;
+    cam: PerspectiveCamera;
+    camTarget: Object3D;
+    rotY: number;
+    defaultRotY: number;
+    scene: Scene;
+    skeleton: PlayerSkeleton;
+    loadingModelSym: symbol | null;
+    loadingModel: SkinModel | null;
+    visibleModel: SkinModel | null;
+    skinObject: Object3D | null;
+    bowAsset: BowAssetLoader | null;
+    skinObjectAsset: SingleAssetLoader | null;
+    currencyWrapperEl?: HTMLDivElement | null;
+    currencyContainer?: CurrencyContainer | null;
+    lockEl: HTMLDivElement;
+    elementVisible: boolean;
+    skinObjectDirty: boolean;
+    intersectionObserver: IntersectionObserver;
+    constructor(gameWrapper: HTMLElement, config: ShopItemConfig, { configIndex, usage, renderOptions, dialog, scrollingContainer }: ShopItemOptions);
+    get id(): string;
+    get requiresPeliEntitlements(): boolean | undefined;
+    destructor(): void;
+    setRenderOptions(t: any): void;
+    setDefaultRotY(t: any): void;
+    reloadSkinObjectNow(): Promise<void>;
+    onSelectedChangeRequest(t: any): void;
+    setOwned(t: any): void;
+    setIsHovering(t: any): void;
+    startLooping(): void;
+    stopLooping(): void;
+    animationLoop(): undefined;
+    onHoveringChange(cb: (hovering: boolean) => void): void;
+    addStatsTooltip(): void;
+    removeStatsTooltip(): void;
+    setSelectedState(t: any): void;
+    updateAriaLabel(): void;
+    getSkinSlots(): Generator<string, void, unknown>;
+    highlight(): void;
+    openConfirmPurchaseDialog(): Promise<void>;
+    requestSelectedState(t: any): void;
+    onConfirmPurchaseDialogOpen(cb: (dialog: PurchaseConfirmDialog) => void): void;
+}
 declare class ShopItemsGrid {
     gameWrapper: HTMLElement;
     el: HTMLDivElement;
-    shopItems: Map<any, any>;
+    shopItems: Map<string, ShopItem>;
     activeConfirmPurchaseDialogs: Set<unknown>;
-    currentHoveringItem: any;
+    currentHoveringItem: ShopItem | null;
     onHoveringItemChangeCbs: Set<unknown>;
     onSelectedItemChangeRequestCbs: Set<unknown>;
     constructor(gameWrapper: HTMLElement);
     destructor(): void;
-    addShopItem(t: any, e: any): void;
+    addShopItem(config: ShopItemConfig, options: ShopItemOptions): void;
     closeCreatedConfirmPurchaseDialogs(): void;
     destructShopItems(): void;
     loadShopItems(t: any, e: any): void;
@@ -1539,29 +1621,26 @@ declare class MeleeWeapon extends WeaponBase {
     updateMeleeAsset(skinAssetName: any): void;
 }
 export declare class ChargedAttack {
-    weapon: any;
-    prepareDurationMsLowAttackSpeed: any;
-    prepareDurationMsHighAttackSpeed: any;
-    cooldownDurationMsLowAttackSpeed: any;
-    cooldownDurationMsHighAttackSpeed: any;
+    weapon: unknown;
+    prepareDurationMsLowAttackSpeed: number;
+    prepareDurationMsHighAttackSpeed: number;
+    cooldownDurationMsLowAttackSpeed: number;
+    cooldownDurationMsHighAttackSpeed: number;
     actionIsDown: boolean;
     attackTime: number;
     isPreparingAttack: boolean;
     cooldownIsActive: boolean;
     constructor({ weapon, prepareDurationMsLowAttackSpeed, prepareDurationMsHighAttackSpeed, cooldownDurationMsLowAttackSpeed, cooldownDurationMsHighAttackSpeed, }: {
-        cooldownDurationMsHighAttackSpeed: any;
-        cooldownDurationMsLowAttackSpeed: any;
-        prepareDurationMsHighAttackSpeed: any;
-        prepareDurationMsLowAttackSpeed: any;
-        weapon: any;
+        weapon: unknown;
+        prepareDurationMsLowAttackSpeed: number;
+        prepareDurationMsHighAttackSpeed: number;
+        cooldownDurationMsLowAttackSpeed: number;
+        cooldownDurationMsHighAttackSpeed: number;
     });
     onActionDown(): void;
     onActionUp(): void;
     get timeSinceAttack(): number;
-    loop(t: any, i: any, s: any): {
-        preparing: boolean;
-        cooldownActive: boolean;
-    };
+    loop(t: number, i: number, s: number): void;
 }
 declare class WeaponSelectionItem {
     keyNumber: any;
@@ -1771,7 +1850,7 @@ export declare class Player {
     deadFallForward: boolean;
     deadFromFall: boolean;
     sphereDeathTimer: number;
-    sphereDeathScreenFlash: ScreenFlash | null;
+    sphereDeathScreenFlash: ScreenFlash | undefined;
     hasWalkedAwayFromSpawn: boolean;
     lastRespawnPosition: Vector3;
     onWeaponSelectionChangeFromDialog: () => void;
@@ -1817,10 +1896,14 @@ export declare class Player {
     getClonedArrowObject(onDestroy: () => void): Object3D | null;
     loop(nowMs: number, deltaMs: number): void;
     get legsMoveTForCos(): number;
-    afterPhysicsLoop(t: any, i: any): void;
-    animateLeg(t: any, i: any, s: any, n: any, o: any): void;
-    createHoldingHandler(t: any): HoldingHandler;
-    removeHoldingHandler(t: any): void;
+    afterPhysicsLoop(t: number, i: unknown): void;
+    animateLeg(t: {
+        upper: Object3D;
+        lower: Object3D;
+        foot: Object3D;
+    } | null, i: number, s: number, n: number, o: number): void;
+    createHoldingHandler(t: HoldingHandlerOptions): HoldingHandler;
+    removeHoldingHandler(t: HoldingHandler): void;
     getSfxPos(): Vector3 | null;
     startFallSound(): Promise<void>;
     stopFallSound(): void;
@@ -1834,8 +1917,8 @@ export declare class Player {
         SPAWN: number;
         DIE: number;
     };
-    sendPerformAction(t: any): void;
-    receivedPerformAction(t: any): void;
+    sendPerformAction(t: number): void;
+    receivedPerformAction(t: number): void;
     receiveChangeClassFromServer(t: any): void;
     setHasOwnership(hasOwnership: boolean): void;
     setPlayerName(playerName: string): void;
@@ -1851,11 +1934,11 @@ export declare class Player {
         };
         elo: number;
     }): void;
-    setHasEvents(t: any): void;
+    setHasEvents(t: boolean): void;
     setHasSmoothCam(value: SettingValue): void;
     updateSmoothCam(): void;
     resetSmoothLookRot(): void;
-    setHasMovementAccuracyOffset(t: any): void;
+    setHasMovementAccuracyOffset(t: boolean): void;
     getStatClassValue(statName: string): number;
     reloadPlayerModel(): void;
     updateSkinStats(): void;
@@ -1878,17 +1961,17 @@ export declare class Player {
     updateFly(): void;
     onWheel(e: any): void;
     onThirdPersonChange(): void;
-    addHitFlash(t: any): void;
+    addHitFlash(t: number): void;
     addMeleeHitFlash(): void;
-    playerClaimedHitByArrow(player: Player, e: any, i: any): void;
-    markValidArrowHit(player: Player, e: any, i: any): void;
+    playerClaimedHitByArrow(player: Player, e: number, i: number): void;
+    markValidArrowHit(player: Player, e: Arrow, i: any): void;
     serverArrowCreated(): void;
     get avgArrowCreationFrequency(): number;
-    getMeleeDamage(t: any): number;
-    hitByMeleeFromServer(t: any): void;
-    addOwnedPlayerForkDamage(t: any): void;
-    hitByArrowFromServer(t: any): void;
-    verifiedKillByServer(t: any): void;
+    getMeleeDamage(t: Player): number;
+    hitByMeleeFromServer(t: Player): void;
+    addOwnedPlayerForkDamage(t: number): void;
+    hitByArrowFromServer(t: unknown): void;
+    verifiedKillByServer(t: unknown): void;
     applyStun(stun: Stun): void;
     getDamageAmountForCurrentArmor(t: any): {
         damageWithoutArmorStrength: number;
@@ -1897,7 +1980,7 @@ export declare class Player {
     applyDamage(t: any, e: any, i: any): boolean;
     computeDamageWithCooldown(t: any): number;
     forceSetHealthFromServer(t: any): void;
-    setHealthFromHit(t: any, arrowHitNormalWorld: any, i: any, s: any): void;
+    setHealthFromHit(t: number, arrowHitNormalWorld: Vector3 | null, i: number, s: number): void;
     getCamPos(): Vector3;
     getCamRot(): Quaternion;
     getFrontThirdPersonCamRot(): Quaternion;
@@ -1921,7 +2004,7 @@ export declare class Player {
     setPlayerHasInteracted(): void;
     getLookDirection(): Vector3;
     computeDeadFallDirection(): boolean;
-    updateHealthUi(t: any): void;
+    updateHealthUi(t?: number): void;
     setPosition(t: any): void;
     sendChangeFlag(flagId: any, changeOperation: any, i?: boolean): void;
     changeFlagFromServer(t: any, e: any): void;
@@ -2922,7 +3005,7 @@ declare class OnlineGame {
     createKingOfTheHillSphereIfNeeded(): void;
     updateKingOfTheHillRenderPosition(): void;
     setGameTimerTimeRemaining(timeRemainingMs: number): void;
-    loadMap(t: any): Promise<void>;
+    loadMap(t: string): Promise<void>;
     setMapScene(scene: Object3D | null, mapHash: string | null): void;
     updateMapGameplayData(mapGameplayData: {
         flags: {
@@ -2931,12 +3014,12 @@ declare class OnlineGame {
             rot: number[];
         }[];
         spawnPositions: {
-            pos: number[];
-            rot: number[];
+            pos: Vector3;
+            rot: Quaternion;
         }[][];
         mapName: string;
         assetName: string;
-        kingOfTheHillPosition: number[];
+        kingOfTheHillPosition: Vector3;
     }): void;
     setServerGameTime(serverTime: number): void;
     setServerGameSeed(seed: number): void;
@@ -2951,44 +3034,44 @@ declare class OnlineGame {
         myTeamId: number;
     };
     updateMyTeamColor(): void;
-    setPlayerName(t: any, e: any): void;
-    setPlayerNameVerified(t: any): void;
-    setPlayerTeamId(t: any, e: any): void;
-    setPlayerServerFlyEnabled(t: any, e: any): void;
+    setPlayerName(t: number, e: string): void;
+    setPlayerNameVerified(t: number): void;
+    setPlayerTeamId(t: number, e: number): void;
+    setPlayerServerFlyEnabled(t: number, e: boolean): void;
     setSameSquadPlayerData(t: any): void;
     onSquadPlayersChange(t: any): void;
     fireSquadPlayersChange(): void;
-    setPlayerScores(t: any): void;
-    createFlag(teamId: number, position: any, rotation: any): void;
+    setPlayerScores(t: unknown): void;
+    createFlag(teamId: number, position: Vector3, rotation: Quaternion): void;
     getMyFlags(t?: number): Generator<Flag, void, unknown>;
     getEnemyFlags(t?: number): Generator<Flag, void, unknown>;
-    playerChangeFlag(t: any, e: any, i: any): void;
+    playerChangeFlag(t: number, e: number, i: number): void;
     showFlagNotification(t: any): void;
-    setFlagDroppedPosition(t: any, e: any, i: any, s: any, n: any, o: any, a: any): void;
-    loop(e: any, s: any): void;
+    setFlagDroppedPosition(t: number, e: number, i: number, s: number, n: number, o: number, a: number): void;
+    loop(e: number, s: number): void;
     getMyPlayer(): Player | null;
     getMyTeamId(): number;
     updatePlayerIconVisibilities(): void;
     updateWaitingForPlayersText(): void;
-    setPlayerServerData(t: any, e: any, i: any, s: any, n: any, o: any, a?: boolean): void;
+    setPlayerServerData(t: number, e: number, i: number, s: number, n: number, o: number, a?: boolean): void;
     playerServerDataFrameEnded(): void;
-    setPlayerPingData(t: any, e: any): void;
-    createServerArrow(t: any, e: any, i: any, s: any, n: any, o: any, a: any, r: any, l: any): void;
+    setPlayerPingData(t: number, e: number): void;
+    createServerArrow(t: number, e: number, i: number, s: number, n: number, o: number, a: number, r: number, l: number): void;
     getSpawnPosition(team: number, key: number): {
         pos: Vector3;
         rot: Quaternion;
     };
-    playerClaimedHitByArrow(t: any, e: any, i: any, s: any): void;
-    playerHitByMelee(t: any, e: any): void;
-    playerHitByArrow(t: any, e: any): void;
-    verifiedKillByServer(t: any, e: any): void;
-    forceSetPlayerHealthFromServer(t: any, e: any): void;
-    receivedPlayerPerformAction(t: any, e: any): void;
-    receivedPlayerSpawn(t: any, e: any, i: any): void;
-    receivePlayerChangeClass(t: any, e: any): void;
-    receivePlayerChangeWeaponType(t: any, e: any): void;
-    setPlayerEquippedSkinData(t: any, e: any): void;
-    setPlayerGungameWeaponIndex(t: any, e: any): void;
+    playerClaimedHitByArrow(t: number, e: number, i: number, s: number): void;
+    playerHitByMelee(t: number, e: number): void;
+    playerHitByArrow(t: number, e: number): void;
+    verifiedKillByServer(t: number, e: number): void;
+    forceSetPlayerHealthFromServer(t: number, e: number): void;
+    receivedPlayerPerformAction(t: number, e: number): void;
+    receivedPlayerSpawn(t: number, e: number, i: number): void;
+    receivePlayerChangeClass(t: number, e: number): void;
+    receivePlayerChangeWeaponType(t: number, e: number): void;
+    setPlayerEquippedSkinData(t: number, e: SkinData): void;
+    setPlayerGungameWeaponIndex(t: number, e: any): void;
     updateFlagScoreboard(t: any): void;
     updateAllEliminationScoreboards(): void;
     updateEliminationScoreboard(teamId: number): void;
@@ -2996,7 +3079,7 @@ declare class OnlineGame {
     updateFinalFlagMusic(): Promise<void>;
     showKillNotification(): void;
     showKilledNotification(): void;
-    offsetPlayerScore(t: any, e: any, i: any): void;
+    offsetPlayerScore(t: number, e: number, i: number): void;
     ownedPlayerDied(): void;
     notifyGameStarted(): void;
     receivedGameEndAccountStats(t: any): void;
@@ -3021,11 +3104,11 @@ declare class OnlineGame {
     becameForegroundGame(): void;
     updateSceneVisibility(): void;
     updateGameIsVisible(): void;
-    onGameIsVisible(t: any): void;
+    onGameIsVisible(t: boolean): void;
     onUsedForCamShotsOnlyChange(t: any): void;
     updateUiVisible(): void;
-    setUiVisible(t: any): void;
-    reportOwnedPlayerHeadshotKill(t: any): void;
+    setUiVisible(t: boolean): void;
+    reportOwnedPlayerHeadshotKill(t: number): void;
     reportOwnedPlayerHeadshotMiss(): void;
 }
 declare class SquadDialog extends Dialog {
@@ -3339,8 +3422,6 @@ declare class InputManager {
     wheelMoveAmount: number;
     lastFiredWheelButtonTime: number;
     recentWheelButtonCount: number;
-    onPointerLockChangeCbs: Set<unknown>;
-    onDesiredPointerLockChangeCbs: Set<unknown>;
     _lastPointerLockChangeByApplicationTime: number;
     stickDeadZone: number;
     gamepadLookSensivity: number;
@@ -3348,11 +3429,13 @@ declare class InputManager {
     mouseMove: Vector2;
     walkInput: Vector2;
     lookInput: Vector2;
-    gamepadAxes: any[];
-    constructor(t: any);
+    gamepadAxes: Vector2[];
+    onPointerLockChangeCbs: Set<(pointerLocked: boolean, userInitiated: boolean) => void>;
+    onDesiredPointerLockChangeCbs: Set<(desired: boolean) => void>;
+    constructor(t: HTMLElement);
     init(): void;
-    loop(t: any, e: any): void;
-    updateGamepadStates(t: any, e: any): void;
+    loop(t: number, e: number): void;
+    updateGamepadStates(t: number, e: number): void;
     get pointerLocked(): boolean;
     inputHasFocus(): boolean | null;
     setKeyCodePressed(t: any, e: any): void;
@@ -3468,9 +3551,9 @@ declare class OfflineGame {
     getSpawnPosition(): SpawnPosition;
     getArrowAssetName(): string;
     updateGameIsVisible(): void;
-    onGameIsVisible(t: any): void;
+    onGameIsVisible(t: boolean): void;
     updateUiVisible(): void;
-    setUiVisible(t: any): void;
+    setUiVisible(t: boolean): void;
 }
 type Game = OfflineGame | OnlineGame;
 export declare class GameManager {
@@ -3635,17 +3718,16 @@ declare class HudIcons {
 }
 declare class ScreenFlash {
     scene: Scene;
-    scene: any;
-    material: Material;
-    autoFade: any;
-    obj: Mesh<PlaneGeometry, Material>;
+    material: ShaderMaterial;
+    autoFade: boolean;
+    obj: Mesh;
     creationTime: number;
     shouldBeDestroyed: boolean;
-    constructor(scene: Scene, material: Material, i: any, s: any, n: any, o: any, a: any);
+    constructor(scene: Scene, material: Material, i: number, s: number, n: number, o: boolean, a: boolean);
     destructor(): void;
-    loop(t: any): void;
-    set opacity(t: any);
-    set baseOpacity(t: any);
+    loop(t: number): void;
+    set opacity(t: number);
+    set baseOpacity(t: number);
 }
 declare class ScreenFlashManager {
     scene: Scene;
@@ -4193,14 +4275,14 @@ declare class NetworkManager {
     onBeforeConnectGameServer(t: () => void): void;
     get hasGameServerConnection(): boolean | null;
     showAfkKickAlert(): Promise<undefined>;
-    send(t: any): true | undefined;
-    sendStringMessage(t: any, e: any): void;
-    sendJsonMessage(t: any, e: any): void;
+    send(t: Uint32Array<ArrayBuffer> | Uint8Array<ArrayBuffer> | ArrayBuffer | number[]): true | undefined;
+    sendStringMessage(t: number, e: string): void;
+    sendJsonMessage(t: number, e: unknown): void;
     sendCurrentVersion(): void;
-    sendMySkinData(t: any): void;
-    sendJoinReconnectToken(t: any): void;
-    sendJoinGameId(t: any, e?: null): void;
-    sendPlayerData(t: any, e: any, { posX, posY, posZ, rotX, rotY }?: {
+    sendMySkinData(t: unknown): void;
+    sendJoinReconnectToken(t: string): void;
+    sendJoinGameId(t: any, e?: string | null): void;
+    sendPlayerData(t: OnlineGame, e: number, { posX, posY, posZ, rotX, rotY }?: {
         posX?: number | undefined;
         posY?: number | undefined;
         posZ?: number | undefined;
@@ -4220,74 +4302,87 @@ declare class NetworkManager {
         dir: Vector3;
         fireAmount01: number;
     }): CreatedArrow;
-    sendChangeFlag(t: any, e: any, i: any): void;
-    sendCurrentLoadedMapHash(t: any): void;
-    sendWorldBounds(t: any): void;
-    sendDefaultFlagPositions(t: any): void;
-    sendDefaultSpawnPositions(t: any): void;
-    sendKingOfTheHillPosition(t: any): void;
+    sendChangeFlag(t: number, e: number, i: number): void;
+    sendCurrentLoadedMapHash(t: string): void;
+    sendWorldBounds(t: OnlineGame): void;
+    sendDefaultFlagPositions(t: OnlineGame): void;
+    sendDefaultSpawnPositions(t: OnlineGame): void;
+    sendKingOfTheHillPosition(t: OnlineGame): void;
     sendReportCheater(playerId: number, reportType: number, value: number): void;
-    sendHitByArrow(t: any, e: any, i: any, s: any, n: any): void;
-    sendValidArrowHit(t: any, e: any, i: any): void;
-    sendChatMessage(t: any): void;
-    sendRequestMapHash(t: any): void;
+    sendHitByArrow(t: number, e: number, i: number, s: number, n: number): void;
+    sendValidArrowHit(t: number, e: number, i: number): void;
+    sendChatMessage(t: string): void;
+    sendRequestMapHash(t: string): void;
     sendRequestNextGameState(): void;
-    sendPlayerPerformAction(t: any, e: any): void;
-    sendRequestRespawn(t: any): void;
-    sendChangeSelectedClass(t: any, e: any): void;
-    sendChangeActiveWeaponType(t: any, e: any): void;
-    sendMeleeHitPlayer(t: any, e: any, i: any): void;
-    sendFlagReturnProgress(t: any, e: any): void;
+    sendPlayerPerformAction(t: number, e: number): void;
+    sendRequestRespawn(t: number): void;
+    sendChangeSelectedClass(t: number, e: number): void;
+    sendChangeActiveWeaponType(t: number, e: boolean): void;
+    sendMeleeHitPlayer(t: number, e: number, i: number): void;
+    sendFlagReturnProgress(t: number, e: number): void;
     sendCurrentSession(): Promise<void>;
-    sendSession(t: any): void;
-    sendSquadData(t: any, e: any, leaderToken: any): void;
+    sendSession(t: unknown): void;
+    sendSquadData(t: number, e: number, leaderToken: string): void;
     sendRequestSquadId(): void;
     sendSquadLeaderRequestGameExit(): void;
-    sendSquadLeaderChangePlayerTeam(t: any, e: any): void;
+    sendSquadLeaderChangePlayerTeam(t: number, e: number): void;
     sendPlayerFlySetting(): void;
 }
 declare class AuthManager {
     gameWrapper: HTMLElement;
     oAuthProviderConfigs: Map<any, any>;
-    prevSessionNonce: any;
-    sessionNonce: any;
-    currentSessionData: any;
-    currentGuestSessionData: any;
-    openOAuthWindows: Set<unknown>;
-    onOAuthWindowCloseCbs: Set<unknown>;
+    prevSessionNonce: unknown;
+    sessionNonce: string | null;
+    currentSessionData: {
+        expires: number;
+        secureId: string;
+        token: string;
+    } | null;
+    currentGuestSessionData: {
+        expires: number;
+        secureId: string;
+        token: string;
+    } | null;
+    openOAuthWindows: Set<Window>;
+    onOAuthWindowCloseCbs: Set<() => void>;
     isHandlingAuthToken: boolean;
-    onAuthTokenHandleFinishCbs: Set<unknown>;
-    mostRecentAuthTokenHandleResult: any;
-    onLoggedInAccountChangeCbs: Set<unknown>;
-    onGuestSessionDataChangeCbs: Set<unknown>;
+    onAuthTokenHandleFinishCbs: Set<(result: unknown) => void>;
+    mostRecentAuthTokenHandleResult: unknown;
+    onLoggedInAccountChangeCbs: Set<() => void>;
+    onGuestSessionDataChangeCbs: Set<() => void>;
     lastPeliLoginCounter: number;
-    guestAccountData: any;
+    guestAccountData: unknown;
     guestAccountDataSetOnce: boolean;
-    loginErrorAlert: any;
+    loginErrorAlert: unknown;
     refreshSessionInstance: Waiter<() => Promise<void>, unknown[], unknown>;
     refreshSessionIfNeededInstance: Waiter<() => Promise<void>, unknown[], unknown>;
     syncGuestDataWithRestServiceInstance: Waiter<() => Promise<false | undefined>, unknown[], unknown>;
-    currentPeliLoginMigrationFlow: any;
+    currentPeliLoginMigrationFlow: {
+        abort(): void;
+        start(): void;
+    } | null;
     peliLoginStateUpdatesDisabled: boolean;
     updatePeliSdkLoginStateInstance: Waiter<() => Promise<void>, unknown[], unknown>;
     isInit: boolean;
-    onInitCbs: Set<unknown>;
+    onInitCbs: Set<() => void>;
     constructor(gameWrapper: HTMLElement);
     init(): Promise<void>;
     waitForInit(): Promise<void>;
-    onLoggedInAccountChange(t: any): void;
-    removeOnLoggedInAccountChange(t: any): void;
+    onLoggedInAccountChange(t: () => void): void;
+    removeOnLoggedInAccountChange(t: () => void): void;
     fireLoggedInAccountChange(): void;
-    onGuestSessionDataChange(t: any): void;
-    showLoginDialog(t?: string): Promise<unknown>;
+    onGuestSessionDataChange(t: () => void): void;
+    showLoginDialog(t?: string): Promise<{
+        error?: string;
+    } | undefined>;
     showLoginDialogWithErrorHandling(): Promise<void>;
-    getSessionNonce(): any;
-    setPrevSessionNonce(t: any): Promise<void>;
-    setPeliLoginStateUpdatesDisabled(t: any): void;
+    getSessionNonce(): string;
+    setPrevSessionNonce(nonce: string | null): Promise<void>;
+    setPeliLoginStateUpdatesDisabled(disabled: boolean): void;
     updatePeliSdkLoginState(): void;
     createForcedPeliLogoutDialog({ title, text }: {
-        text: any;
-        title: any;
+        title: string;
+        text: string;
     }): Promise<boolean>;
     peliSdkLogin(): Promise<{
         success: boolean;
@@ -4299,15 +4394,28 @@ declare class AuthManager {
         error: string | null;
         usedPelicanParty: boolean;
     }>;
-    handleLinkAccountResultNotifications(t: any): void;
-    getOAuthUrl(t: any, signal: any): Promise<string | null>;
-    oAuthLogin(t: any, e: any): Promise<any>;
+    handleLinkAccountResultNotifications(t: {
+        success: boolean;
+        usedPelicanParty: boolean;
+    } | null): void;
+    getOAuthUrl(t: string, signal: AbortSignal): Promise<string | null>;
+    oAuthLogin(t: string, e: AbortSignal): Promise<unknown>;
     closeOpenOAuthWindows(): void;
-    handleAuthToken(t: any, e: any, i?: boolean): Promise<void>;
-    waitForAuthTokenHandleFinish(): Promise<any>;
-    setAuthTokenBody(t: any, e: any): void;
+    handleAuthToken(t: {
+        type: string;
+        accessToken?: string;
+        issuer?: string;
+        idToken?: string;
+    }, e: string, i?: boolean): Promise<void>;
+    waitForAuthTokenHandleFinish(): Promise<unknown>;
+    setAuthTokenBody(t: {
+        type: string;
+        accessToken?: string;
+        issuer?: string;
+        idToken?: string;
+    }, e: URLSearchParams): void;
     mergeGuestDataWithLoggedInAccount(): Promise<boolean>;
-    fetchAuthSessionData(t: any, e: any, { fromRefreshAttempt, ignoreFailures }?: {
+    fetchAuthSessionData(t: URL, e: URLSearchParams, { fromRefreshAttempt, ignoreFailures }?: {
         fromRefreshAttempt?: boolean | undefined;
         ignoreFailures?: boolean | undefined;
     }): Promise<{
@@ -4317,30 +4425,33 @@ declare class AuthManager {
         success: boolean;
         error: string;
     }>;
-    handleSessionDataResponse(t: any): Promise<void>;
-    handleUnlinkRequest(t: any, e: any, i: any): Promise<boolean>;
+    handleSessionDataResponse(t: Response): Promise<void>;
+    handleUnlinkRequest(t: URL, e: URLSearchParams | null, i: boolean): Promise<boolean>;
     unlinkPeliAccount(): Promise<boolean>;
-    unlinkAccount(t: any): Promise<boolean>;
+    unlinkAccount(t: {
+        issuer: string;
+        email: string;
+    }): Promise<boolean>;
     get isLoggedIn(): boolean;
     loginIfNotLoggedIn(): Promise<boolean>;
     logoutAfterError(): Promise<boolean>;
-    showLoginError(t: any): void;
+    showLoginError(t: boolean): void;
     logout(): Promise<void>;
     peliLogout(): Promise<"already-logged-out" | "dismissed" | "logged-out" | "not-supported">;
     logoutEverywhere(): Promise<void>;
     clearCurrentSessionData(): Promise<void>;
-    getGuestAccountData(): Promise<any>;
-    setGuestAccountData(t: any, e?: boolean): Promise<void>;
+    getGuestAccountData(): Promise<unknown>;
+    setGuestAccountData(t: unknown, e?: boolean): Promise<void>;
     getSessionDataForGameServer(): Promise<{
         type: string;
-        token: any;
-        secureId: any;
+        token: string;
+        secureId: string;
         guestData?: undefined;
     } | {
         token?: undefined;
         secureId?: undefined;
         type: string;
-        guestData: any;
+        guestData: unknown;
     }>;
     refreshGuestSessionIfNeeded(): Promise<boolean | undefined>;
     postGuestAccountDataToRestService(): Promise<boolean>;
@@ -4529,7 +4640,7 @@ declare class BlobURLReference {
     destructor(): void;
     onDestructed(t: any): void;
     blobUrlCreated(url: any): void;
-    getBlobUrl(): Promise<unknown>;
+    getBlobUrl(): Promise<void>;
 }
 declare class Avatar {
     avatarsManager: AvatarsManager;

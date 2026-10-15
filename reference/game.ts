@@ -27861,28 +27861,28 @@ class NetworkManager {
 		const o = new Uint16Array(buffer, 0, Math.floor(buffer.byteLength / 2));
 		const a = new Uint8Array(buffer);
 		this.lastReceiveMessageTime = performance.now();
-		if (s[0] == 0) {
-			getMain().gameManager.joinedGameId(s[1]);
-		} else if (s[0] == 1) {
-			const [, playerId, teamId] = s;
+		if (s[0]! == 0) {
+			getMain().gameManager.joinedGameId(s[1]!);
+		} else if (s[0]! == 1) {
+			const [, playerId, teamId] = s as unknown as number[];
 			const onlineGame = getMain().gameManager.getOnlineGame();
 			if (onlineGame) {
 				onlineGame.createPlayer(playerId!, {
 					teamId,
 				});
 			}
-		} else if (s[0] == 2) {
+		} else if (s[0]! == 2) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
 			let e = 1;
 			while (e < s.length) {
-				t.destroyPlayer(s[e++]!);
+				t.destroyPlayer(s[e++]!!);
 			}
-		} else if (s[0] == 3) {
-			const t = s[1]!;
-			const e = !!s[2];
+		} else if (s[0]! == 3) {
+			const t = s[1]!!;
+			const e = !!s[2]!;
 			const i = getMain().gameManager.getOnlineGame();
 			if (i) {
 				i.setPlayerOwnership(t, e);
@@ -27890,12 +27890,12 @@ class NetworkManager {
 			if (e && this.joiningLoadingText) {
 				this.joiningLoadingText.setIsLoading(false);
 			}
-		} else if (s[0] == 4) {
+		} else if (s[0]! == 4) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const i = o[2] == 1;
+			const i = o[2]! == 1;
 			let s = 6;
 			const n = 12;
 			while (s <= buffer.byteLength - n) {
@@ -27904,49 +27904,49 @@ class NetworkManager {
 				a.set(o);
 				const r = new Uint16Array(a.buffer);
 				s += n;
-				const l = r[0];
-				const [h, d, c] = this.mapNetworkPosToWorldPos(t, r[1]!, r[2]!, r[3]!);
-				const u = Un(r[4]!, 2 * Math.PI);
-				const p = Rn(r[5]!, 0.5 * Math.PI);
-				t.setPlayerServerData(l, h, d, c, u, p, i);
+				const l = r[0]!;
+				const [h, d, c] = this.mapNetworkPosToWorldPos(t, r[1]!!, r[2]!!, r[3]!!) as unknown as number[];
+				const u = Un(r[4]!!, 2 * Math.PI);
+				const p = Rn(r[5]!!, 0.5 * Math.PI);
+				t.setPlayerServerData(l as number, h as number, d as number, c as number, u as number, p as number, i as boolean);
 			}
 			t.playerServerDataFrameEnded();
-		} else if (s[0] == 5) {
+		} else if (s[0]! == 5) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, , e, i] = o;
-			const [s, n, a] = this.mapNetworkPosToWorldPos(t, o[4]!, o[5]!, o[6]!);
-			const r = Bn(o[7]!, -1, 1);
-			const l = Bn(o[8]!, -1, 1);
-			const h = Bn(o[9]!, -1, 1);
-			const d = Vn(o[10]!);
-			t.createServerArrow(e, i, s, n, a, r, l, h, d);
-		} else if (s[0] == 6) {
+			const [, , e, i] = o as unknown as number[];
+			const [s, n, a] = this.mapNetworkPosToWorldPos(t, o[4]!!, o[5]!!, o[6]!!) as unknown as number[];
+			const r = Bn(o[7]!!, -1, 1);
+			const l = Bn(o[8]!!, -1, 1);
+			const h = Bn(o[9]!!, -1, 1);
+			const d = Vn(o[10]!!);
+			t.createServerArrow(e as number, i as number, s as number, n as number, a as number, r as number, l as number, h as number, d as number);
+		} else if (s[0]! == 6) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i, n] = s;
-			t.playerChangeFlag(e, i, n);
-		} else if (s[0] == 7) {
+			const [, e, i, n] = s as unknown as number[];
+			t.playerChangeFlag(e as number, i as number, n as number);
+		} else if (s[0]! == 7) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
 			const e = [];
 			for (let t = 1; t < s.length; t++) {
-				e.push(s[t]);
+				e.push(s[t]!);
 			}
 			t.updateFlagScoreboard(e);
-		} else if (s[0] == 43) {
-			let msUntilRemove = s[1];
+		} else if (s[0]! == 43) {
+			let msUntilRemove = s[1]!;
 			if (msUntilRemove == 2 ** 32 - 1) {
 				msUntilRemove = -1;
 			}
-			const maxScoreCount = a[8];
-			const timerRunning = Boolean(a[9]);
+			const maxScoreCount = a[8]!;
+			const timerRunning = Boolean(a[9]!);
 			const n = getMain().gameManager.getOnlineGame();
 			if (!n) {
 				return;
@@ -27958,28 +27958,28 @@ class NetworkManager {
 					timerRunning,
 				});
 			}
-		} else if (s[0] == 58) {
+		} else if (s[0]! == 58) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i, n] = s;
+			const [, e, i, n] = s as unknown as number[];
 			if (t.kingOfTheHillUi) {
-				t.kingOfTheHillUi.setProgress(e, i, n);
+				t.kingOfTheHillUi.setProgress(e as number, i as number, n as number);
 			}
-		} else if (s[0] == 8) {
+		} else if (s[0]! == 8) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = o[2];
-			const [i, s, n] = this.mapNetworkPosToWorldPos(t, o[3]!, o[4]!, o[5]!);
-			const [a, r, l] = this.mapNetworkVelocityToWorldVelocity(o[6], o[7], o[8]);
-			t.setFlagDroppedPosition(e, i, s, n, a, r, l);
-		} else if (s[0] == 9) {
+			const e = o[2]!;
+			const [i, s, n] = this.mapNetworkPosToWorldPos(t, o[3]!!, o[4]!!, o[5]!!) as unknown as number[];
+			const [a, r, l] = this.mapNetworkVelocityToWorldVelocity(o[6]!, o[7]!, o[8]!) as unknown as number[];
+			t.setFlagDroppedPosition(e as number, i as number, s as number, n as number, a as number, r as number, l as number);
+		} else if (s[0]! == 9) {
 			this.send([5]);
 			getMain().recentGameTracker.updateConnectedTimestamp();
-		} else if (s[0] == 10) {
+		} else if (s[0]! == 10) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
@@ -27992,63 +27992,63 @@ class NetworkManager {
 				o.set(n);
 				const a = new Uint16Array(o.buffer);
 				i += s;
-				const [r, l] = a;
-				t.setPlayerPingData(r, l);
+				const [r, l] = a as unknown as number[];
+				t.setPlayerPingData(r as number, l as number);
 			}
-		} else if (s[0] == 11) {
+		} else if (s[0]! == 11) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
 			t.notifyGameEnded();
-		} else if (s[0] == 12) {
+		} else if (s[0]! == 12) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i, n, o] = s;
-			t.playerClaimedHitByArrow(e, i, n, o);
-		} else if (s[0] == 39) {
+			const [, e, i, n, o] = s as unknown as number[];
+			t.playerClaimedHitByArrow(e as number, i as number, n as number, o as number);
+		} else if (s[0]! == 39) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.playerHitByMelee(e, i);
-		} else if (s[0] == 41) {
+			const [, e, i] = s as unknown as number[];
+			t.playerHitByMelee(e as number, i as number);
+		} else if (s[0]! == 41) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.playerHitByArrow(e, i);
-		} else if (s[0] == 33) {
+			const [, e, i] = s as unknown as number[];
+			t.playerHitByArrow(e as number, i as number);
+		} else if (s[0]! == 33) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = s[1];
-			const i = ((t, e = 1) => Fn(t, 0, e, 32))(s[2]);
+			const e = s[1]!;
+			const i = ((t, e = 1) => Fn(t, 0, e, 32))(s[2]!);
 			t.forceSetPlayerHealthFromServer(e, i);
-		} else if (s[0] == 42) {
+		} else if (s[0]! == 42) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.verifiedKillByServer(e, i);
-		} else if (s[0] == 13) {
-			const [, disconnectReason, ...extra] = s;
+			const [, e, i] = s as unknown as number[];
+			t.verifiedKillByServer(e as number, i as number);
+		} else if (s[0]! == 13) {
+			const [, disconnectReason, ...extra] = s as unknown as number[];
 			this.lastDisconnectReason = disconnectReason ?? 0;
 			this.lastDisconnectReasonExtra = extra;
-		} else if (s[0] == 56) {
+		} else if (s[0]! == 56) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = s[1];
+			const e = s[1]!;
 			t.setActiveGamemode(e);
-		} else if (s[0] == 14) {
+		} else if (s[0]! == 14) {
 			const t = decodeTextPacket(buffer);
 			if (!t) {
 				return;
@@ -28059,42 +28059,42 @@ class NetworkManager {
 				s.loadMap(t);
 				i.preferredMapManager.markRecentMap(t);
 			}
-		} else if (s[0] == 57) {
-			const t = s[1];
+		} else if (s[0]! == 57) {
+			const t = s[1]!;
 			const e = getMain().gameManager.getOnlineGame();
 			if (!e) {
 				return;
 			}
 			e.setGameTimerTimeRemaining(t);
-		} else if (s[0] == 15) {
+		} else if (s[0]! == 15) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.receivedPlayerPerformAction(e, i);
-		} else if (s[0] == 35) {
+			const [, e, i] = s as unknown as number[];
+			t.receivedPlayerPerformAction(e as number, i as number);
+		} else if (s[0]! == 35) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i, n] = s;
-			t.receivedPlayerSpawn(e, i, n);
-		} else if (s[0] == 16) {
+			const [, e, i, n] = s as unknown as number[];
+			t.receivedPlayerSpawn(e as number, i as number, n as number);
+		} else if (s[0]! == 16) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const i = s[1];
+			const i = s[1]!;
 			const n = decodeTextPacket(buffer, 8) || "";
 			t.setPlayerName(i, n);
-		} else if (s[0] == 17) {
+		} else if (s[0]! == 17) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, n, kills, deaths, total] = s;
-			const elo = i[6];
+			const [, e, n, kills, deaths, total] = s as unknown as number[];
+			const elo = i[6]!;
 			const scores = {
 				flags: n,
 				kills,
@@ -28106,28 +28106,28 @@ class NetworkManager {
 				scores,
 				elo,
 			});
-		} else if (s[0] == 18) {
+		} else if (s[0]! == 18) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.receivePlayerChangeClass(e, i);
-		} else if (s[0] == 37) {
+			const [, e, i] = s as unknown as number[];
+			t.receivePlayerChangeClass(e as number, i as number);
+		} else if (s[0]! == 37) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = s[1];
-			const i = s[2] == 1;
-			t.receivePlayerChangeWeaponType(e, i);
-		} else if (s[0] == 19) {
+			const e = s[1]!;
+			const i = s[2]!;
+			t.receivePlayerChangeWeaponType(e as number, i as number);
+		} else if (s[0]! == 19) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
 			t.notifyGameStarted();
-		} else if (s[0] == 20) {
+		} else if (s[0]! == 20) {
 			const reconnectToken = decodeTextPacket(buffer);
 			if (reconnectToken && this.ws) {
 				getMain().recentGameTracker.setRecentGameNetworkData({
@@ -28135,48 +28135,48 @@ class NetworkManager {
 					socketAddress: this.ws.url,
 				});
 			}
-		} else if (s[0] == 21) {
+		} else if (s[0]! == 21) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const i = s[1];
+			const i = s[1]!;
 			const n = Xt(decodeTextPacket(buffer, 8) || "");
-			t.setPlayerEquippedSkinData(i, n);
-		} else if (s[0] == 22) {
+			t.setPlayerEquippedSkinData(i as number, n as unknown as SkinData);
+		} else if (s[0]! == 22) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = s[1];
-			const i = n[2];
-			const o = s[3];
+			const e = s[1]!;
+			const i = n[2]!;
+			const o = s[3]!;
 			t.offsetPlayerScore(e, i, o);
-		} else if (s[0] == 23) {
+		} else if (s[0]! == 23) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, receivedCoins, newCoinCount] = s;
-			const alreadyDoubled = Boolean(s[3]);
+			const [, receivedCoins, newCoinCount] = s as unknown as number[];
+			const alreadyDoubled = Boolean(s[3]!);
 			t.receivedGameEndAccountStats({
 				receivedCoins,
 				newCoinCount,
 				alreadyDoubled,
 			});
-		} else if (s[0] == 24) {
+		} else if (s[0]! == 24) {
 			const t = decodeTextPacket(buffer);
 			if (t) {
 				getMain().auth.setGuestAccountData(t, false);
 			}
-		} else if (s[0] == 25) {
-			const [, t, e] = s;
+		} else if (s[0]! == 25) {
+			const [, t, e] = s as unknown as number[];
 			const i = getMain().gameManager.getOnlineGame();
 			if (!i) {
 				return;
 			}
-			i.setPlayerTeamId(t, e);
-		} else if (s[0] == 26) {
+			i.setPlayerTeamId(t as number, e as number);
+		} else if (s[0]! == 26) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
@@ -28184,56 +28184,56 @@ class NetworkManager {
 			const e = [];
 			for (let t = 1; t < s.length; t++) {
 				e.push({
-					playerId: s[t],
+					playerId: s[t]!,
 					squadPlayerId: 0,
 					isLeader: false,
 				});
 			}
 			t.setSameSquadPlayerData(e);
-		} else if (s[0] == 36) {
+		} else if (s[0]! == 36) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
 			const i = Hn(buffer);
 			t.setSameSquadPlayerData(i.playerDatas);
-		} else if (s[0] == 27) {
+		} else if (s[0]! == 27) {
 			const t = decodeTextPacket(buffer);
 			if (t) {
 				this.squadManager.squadIdReceivedFromGameServer(t);
 			}
-		} else if (s[0] == 28) {
+		} else if (s[0]! == 28) {
 			const t = decodeTextPacket(buffer);
 			this.onSquadJoinErrorCbs.forEach((e) => e(t));
-		} else if (s[0] == 29) {
+		} else if (s[0]! == 29) {
 			const t = getMain();
 			const e =
 				t.preferredMapManager.forcingSoloMap || t.preferredMapManager.getRandomPreferredMapHash();
 			if (e) {
-				this.sendRequestMapHash(e);
+				this.sendRequestMapHash(e as string);
 			}
-		} else if (s[0] == 30) {
-			const t = s[1];
+		} else if (s[0]! == 30) {
+			const t = s[1]!;
 			const e = getMain().gameManager.getOnlineGame();
 			if (!e) {
 				return;
 			}
 			e.setServerGameTime(t);
-		} else if (s[0] == 32) {
-			const t = s[1];
+		} else if (s[0]! == 32) {
+			const t = s[1]!;
 			const e = getMain().gameManager.getOnlineGame();
 			if (!e) {
 				return;
 			}
 			e.setServerGameSeed(t);
-		} else if (s[0] == 31) {
-			const t = s[1];
+		} else if (s[0]! == 31) {
+			const t = s[1]!;
 			const e = getMain().gameManager.getOnlineGame();
 			if (!e) {
 				return;
 			}
 			e.setPlayerNameVerified(t);
-		} else if (s[0] == 34) {
+		} else if (s[0]! == 34) {
 			const game = getMain().gameManager.getOnlineGame();
 			if (!game) {
 				return;
@@ -28243,24 +28243,24 @@ class NetworkManager {
 				const messageData = JSON.parse(json);
 				game.chat.receivedChatMessage(messageData);
 			}
-		} else if (s[0] == 38) {
+		} else if (s[0]! == 38) {
 			const t = Hn(buffer);
 			const i = getMain().gameManager.getOnlineGame();
 			if (!i) {
 				return;
 			}
 			i.arrowManager.receivedHitValidationData(t);
-		} else if (s[0] == 44) {
+		} else if (s[0]! == 44) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const e = s[1] == 1;
+			const e = s[1]! == 1;
 			for (let i = 2; i < s.length; i++) {
-				const n = s[i];
+				const n = s[i]!;
 				t.setPlayerServerFlyEnabled(n, e);
 			}
-		} else if (s[0] == 55) {
+		} else if (s[0]! == 55) {
 			const t = decodeTextPacket(buffer);
 			if (t) {
 				let e = null;
@@ -28287,16 +28287,16 @@ class NetworkManager {
 					})();
 				}
 			}
-		} else if (s[0] == 59) {
-		} else if (s[0] == 60) {
+		} else if (s[0]! == 59) {
+		} else if (s[0]! == 60) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
 				return;
 			}
-			const [, e, i] = s;
-			t.setPlayerGungameWeaponIndex(e, i);
+			const [, e, i] = s as unknown as number[];
+			t.setPlayerGungameWeaponIndex(e as number, i as number);
 		} else {
-			if (s[0] == 61) {
+			if (s[0]! == 61) {
 				getMain().auth.showLoginError(false);
 				getMain().auth.clearCurrentSessionData();
 			}
@@ -28466,13 +28466,13 @@ class NetworkManager {
 			this.connect(t.socketAddress);
 		}
 	}
-	send(t) {
+	send(t: Uint32Array<ArrayBuffer> | Uint8Array<ArrayBuffer> | ArrayBuffer | number[]) {
 		if (this.ws && this.hasGameServerConnection) {
 			if (t instanceof Array) {
 				t = new Uint32Array(t);
 			}
 			try {
-				this.ws.send(t);
+				this.ws.send(t as BufferSource);
 				return true;
 			} catch (error) {
 				console.log("error sending message", t);
@@ -28480,25 +28480,25 @@ class NetworkManager {
 			}
 		}
 	}
-	sendStringMessage(t, e) {
+	sendStringMessage(t: number, e: string) {
 		const i = Wn(t, e);
 		this.send(i);
 	}
-	sendJsonMessage(t, e) {
+	sendJsonMessage(t: number, e: unknown) {
 		const i = JSON.stringify(e);
 		this.sendStringMessage(t, i);
 	}
 	sendCurrentVersion() {
 		this.sendStringMessage(0, "1790709288");
 	}
-	sendMySkinData(t) {
+	sendMySkinData(t: unknown) {
 		const e = JSON.stringify(t);
 		if (e != this.lastSentSkinData) {
 			this.lastSentSkinData = e;
 			this.sendStringMessage(14, e);
 		}
 	}
-	sendJoinReconnectToken(t) {
+	sendJoinReconnectToken(t: string) {
 		this.sendStringMessage(13, t);
 	}
 	sendJoinGameId(t: any, e: string | null = null) {
@@ -28511,7 +28511,7 @@ class NetworkManager {
 		n[0] = 1;
 		n[1] = t;
 		if (e) {
-			const computeT = (t) => {
+			const computeT = (t: string) => {
 				const e = new ArrayBuffer(16);
 				if (!t) {
 					return e;
@@ -28533,7 +28533,7 @@ class NetworkManager {
 		}
 		this.send(s);
 	}
-	sendPlayerData(t, e, { posX = 0, posY = 0, posZ = 0, rotX = 0, rotY = 0 } = {}) {
+	sendPlayerData(t: OnlineGame, e: number, { posX = 0, posY = 0, posZ = 0, rotX = 0, rotY = 0 } = {}) {
 		if (t != getMain().gameManager.getOnlineGame()) {
 			return;
 		}
@@ -28651,13 +28651,13 @@ class NetworkManager {
 			networkOffsetPos: new Vector3(0, 0, 0),
 		};
 	}
-	sendChangeFlag(t, e, i) {
+	sendChangeFlag(t: number, e: number, i: number) {
 		this.send([4, t, e, i]);
 	}
-	sendCurrentLoadedMapHash(t) {
+	sendCurrentLoadedMapHash(t: string) {
 		this.sendStringMessage(6, t);
 	}
-	sendWorldBounds(t) {
+	sendWorldBounds(t: OnlineGame) {
 		const e = new ArrayBuffer(28);
 		new Uint32Array(e, 0, 1)[0] = 19;
 		const i = new Float32Array(e, 0);
@@ -28670,7 +28670,7 @@ class NetworkManager {
 		i[6] = s.maxZ;
 		this.send(e);
 	}
-	sendDefaultFlagPositions(t) {
+	sendDefaultFlagPositions(t: OnlineGame) {
 		const e = Array.from(this.getDefaultFlagNetworkPositions(t));
 		const i = new ArrayBuffer(4 + 3 * e.length * 2);
 		new Uint32Array(i, 0, 1)[0] = 20;
@@ -28682,7 +28682,7 @@ class NetworkManager {
 		}
 		this.send(i);
 	}
-	sendDefaultSpawnPositions(t) {
+	sendDefaultSpawnPositions(t: OnlineGame) {
 		const e = this.getDefaultSpawnNetworkPositions(t);
 		if (!e || e.length == 0) {
 			return;
@@ -28710,7 +28710,7 @@ class NetworkManager {
 		}
 		this.send(s);
 	}
-	sendKingOfTheHillPosition(t) {
+	sendKingOfTheHillPosition(t: OnlineGame) {
 		const e = this.getKingOfTheHillNetworkPosition(t);
 		const i = new ArrayBuffer(10);
 		new Uint32Array(i, 0, 1)[0] = 36;
@@ -28724,39 +28724,39 @@ class NetworkManager {
 		value = On(value, 10);
 		this.send([21, playerId, reportType, value]);
 	}
-	sendHitByArrow(t, e, i, s, n) {
+	sendHitByArrow(t: number, e: number, i: number, s: number, n: number) {
 		this.send([7, t, e, i, s, n]);
 	}
-	sendValidArrowHit(t, e, i) {
+	sendValidArrowHit(t: number, e: number, i: number) {
 		const s = En(i);
 		this.send([22, t, e, s]);
 	}
-	sendChatMessage(t) {
+	sendChatMessage(t: string) {
 		this.sendStringMessage(23, t);
 	}
-	sendRequestMapHash(t) {
+	sendRequestMapHash(t: string) {
 		this.sendStringMessage(8, t);
 	}
 	sendRequestNextGameState() {
 		this.send([12]);
 	}
-	sendPlayerPerformAction(t, e) {
+	sendPlayerPerformAction(t: number, e: number) {
 		this.send([9, t, e]);
 	}
-	sendRequestRespawn(t) {
+	sendRequestRespawn(t: number) {
 		this.send([35, t]);
 	}
-	sendChangeSelectedClass(t, e) {
+	sendChangeSelectedClass(t: number, e: number) {
 		this.send([10, t, e]);
 	}
-	sendChangeActiveWeaponType(t, e) {
+	sendChangeActiveWeaponType(t: number, e: boolean) {
 		const i = e ? 1 : 0;
 		this.send([26, t, i]);
 	}
-	sendMeleeHitPlayer(t, e, i) {
+	sendMeleeHitPlayer(t: number, e: number, i: number) {
 		this.send([27, t, e, i]);
 	}
-	sendFlagReturnProgress(t, e) {
+	sendFlagReturnProgress(t: number, e: number) {
 		const i = En(e);
 		this.send([15, t, i]);
 	}
@@ -28768,11 +28768,11 @@ class NetworkManager {
 			this.sendSession(t);
 		}
 	}
-	sendSession(t) {
+	sendSession(t: unknown) {
 		const e = JSON.stringify(t);
 		this.sendStringMessage(16, e);
 	}
-	sendSquadData(t, e, leaderToken) {
+	sendSquadData(t: number, e: number, leaderToken: string) {
 		const s = {
 			squadId: t,
 			playerId: e,
@@ -28786,7 +28786,7 @@ class NetworkManager {
 	sendSquadLeaderRequestGameExit() {
 		this.send([30]);
 	}
-	sendSquadLeaderChangePlayerTeam(t, e) {
+	sendSquadLeaderChangePlayerTeam(t: number, e: number) {
 		this.send([38, t, e]);
 	}
 	sendPlayerFlySetting() {
@@ -30361,10 +30361,10 @@ class State {
 		}
 	}
 	loadStateData(t) {}
-	override getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
+	getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
 		throw new Error("Base class");
 	}
-	override clearCurrentDataImpl(): void {}
+	clearCurrentDataImpl(): void {}
 }
 export interface LinkedAccount {
 	issuer: string;
