@@ -63,7 +63,7 @@ export interface AssetWorkerSend {
 class AssetWorkerMessenger {
 	returnTransferSupport;
 	lastRequestId = 0;
-	sendHandler: (data: {
+	sendHandler: ((data: {
 		sendData: {
 			direction: "request" | "response";
 			id: any;
@@ -72,7 +72,7 @@ class AssetWorkerMessenger {
 			returnValue: any;
 		};
 		transfer: [];
-	}) => Promise<void> = null;
+	}) => Promise<void>) | null = null;
 	responseHandlers = null;
 	onRequestIdMessageCbs = new Map();
 	serializeErrorHook: ((arg0: unknown) => any) | null;
@@ -317,7 +317,7 @@ for (const e of characterParts) {
 	}
 }
 
-function* Hl(e: never, { skipObjsFn = null } = {}) {
+function* Hl(e: Object3D, { skipObjsFn = null }: { skipObjsFn?: ((obj: Object3D) => boolean) | null } = {}) {
 	if (!skipObjsFn || skipObjsFn(e)) {
 		yield e;
 

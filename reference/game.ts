@@ -1,6 +1,6 @@
 import {
-	clamp as clamp,
-	lerp as l_1,
+	clamp,
+	lerp,
 	clampTo01,
 	AssetWorkerMessenger,
 	MapLoadError,
@@ -70,6 +70,7 @@ import {
 	type Renderer,
 	Texture,
 	NormalBlending,
+	Material,
 } from "three";
 class IndexedDB {
 	objectStoreNames: string[];
@@ -504,7 +505,7 @@ class CurrencyContainer {
 		let t = (performance.now() - this.animatingStartTime) / this.animatingDurationMs;
 		t = clampTo01(t);
 		const s = t ** 0.2;
-		let n = l_1(this.animatingStartValue, this.animatingTargetValue, s);
+		let n = lerp(this.animatingStartValue, this.animatingTargetValue, s);
 		n = Math.round(n);
 		if (
 			this.animatingCurrentValue != n &&
@@ -513,12 +514,12 @@ class CurrencyContainer {
 			this.animatingSfxEnabled && performance.now() > this.lastIncrementSfxTime + 40)
 		) {
 			this.lastIncrementSfxTime = performance.now();
-			getMain().sfx.playSound("ui/coin/pile", {
+			getMain().sfx.playSound("ChargedAttack/coin/pile", {
 				volume: 0.3 * (1 - t),
 			});
-			const i = l_1(0.7, 1, s);
+			const i = lerp(0.7, 1, s);
 			const n = intRandom(0, 4);
-			getMain().sfx.playSound(`ui/coin/${n}`, {
+			getMain().sfx.playSound(`ChargedAttack/coin/${n}`, {
 				volume: 0.5 * t,
 				minPitch: i,
 				maxPitch: i,
@@ -672,20 +673,20 @@ class CustomButton {
 	}
 }
 function apiURL() {
-	const t = new URL(location.href);
-	if (getMain().env == "staging" || t.searchParams.get("pokiDebug")) {
-		t.href = "https://narrow-one.com/staging-api/";
+	const url = new URL(location.href);
+	if (getMain().env == "staging" || url.searchParams.get("pokiDebug")) {
+		url.href = "https://narrow-one.com/staging-api/";
 	} else {
-		t.href = "https://narrow-one.com/api/";
+		url.href = "https://narrow-one.com/api/";
 	}
-	return t;
+	return url;
 }
-function Ot(path: string) {
-	const e = apiURL();
-	e.search = "";
-	e.hash = "";
-	e.pathname += path;
-	return e;
+function apiPath(path: string) {
+	const url = apiURL();
+	url.search = "";
+	url.hash = "";
+	url.pathname += path;
+	return url;
 }
 class Dialog {
 	allowCurtainClose: boolean;
@@ -847,7 +848,7 @@ class DeleteAccountDialog extends Dialog {
 			startVisible: false,
 		});
 		this.el.innerHTML =
-			'\n\t\t\t<h2 class="dialogTitle blueNight">Delete your account</h2>\n\t\t\t<p>Are you sure you want to delete your Narrow One account? This cannot be undone.</p>\n\t\t\t<p>If you are absolutely certain, please type \'delete my account\' in the field below.</p>\n\t\t\t<input class="dialog-text-input blueNight wrinkledPaper delete-account-text-input">\n\t\t';
+			'\n\t\t\t<h2 class="dialogTitle blueNight">Delete your account</h2>\n\t\t\t<p>Are you sure you want to delete your Narrow One account? This cannot ShopCustomizationView undone.</p>\n\t\t\t<p>If you are absolutely certain, please type \'delete my account\' in the field below.</p>\n\t\t\t<input class="dialog-text-input blueNight wrinkledPaper delete-account-text-input">\n\t\t';
 		const e: HTMLInputElement | null = this.el.querySelector(".delete-account-text-input");
 		if (!e) {
 			throw new Error("Assertion failed, no delete account text field was found");
@@ -866,7 +867,7 @@ class DeleteAccountDialog extends Dialog {
 				e.disabled = true;
 				i.enabled = false;
 				s.enabled = false;
-				const t = Ot("auth/deleteAccount");
+				const t = apiPath("auth/deleteAccount");
 				if (
 					await getMain().auth.requestWithAuthHeader(async (e) => {
 						if (!e) {
@@ -1442,7 +1443,7 @@ class SettingsDialog extends Dialog {
 					this.close();
 				} else {
 					this.dialogManager.showAlert({
-						title: "Settings could not be saved.",
+						title: "Settings could not ShopCustomizationView saved.",
 						text: "An error occurred while saving the settings. Are third party cookies disabled?",
 					});
 				}
@@ -1492,7 +1493,7 @@ class SettingsDialog extends Dialog {
 								onClick: async () => {
 									if (typeof unlinkButtonOptions !== "function") {
 										throw new Error(
-											"Assertion failed, expected unlinkButtonOptions to be a function",
+											"Assertion failed, expected unlinkButtonOptions to ShopCustomizationView a function",
 										);
 									}
 									if (!(await unlinkButtonOptions())) {
@@ -1673,7 +1674,7 @@ class AssetPackage {
 	loaded = false;
 	arrayBuffer: ArrayBuffer | null = null;
 	fileLocations: { path: string; start: number; length: number }[] = [];
-	onLoadCbs: (() => void)[] = [];
+	onLoadCbs: ((value?: unknown) => void)[] = [];
 	onProgressCbs: ((percentage01: number) => void)[] = [];
 	lastProgressValue = 0;
 	textureCache: Record<string, unknown> = {};
@@ -1827,7 +1828,7 @@ const workerHandler = {
 	mapCached(t) {
 		getMain().mapLoader.markMapAsCached(t);
 	},
-	reportMapLoadProgress(t, e) {
+	reportMapLoadProgress(t: number, e: number): void {
 		getMain().mapLoader.reportMapLoadProgress(t, e);
 	},
 	firstMapDownloaded() {
@@ -1842,7 +1843,7 @@ const workerHandler = {
 		}
 		if (!Gt) {
 			Gt = (async () => {
-				const t = Ot("getPlusOnlyVerification");
+				const t = apiPath("getPlusOnlyVerification");
 				return await getMain().auth.requestWithAuthHeader(async (e) => {
 					if (!e) {
 						return {
@@ -2237,12 +2238,12 @@ export interface SkinColorMultiplier extends Array<number> {
 	2: number;
 }
 export interface SkinData {
-	gender?: string;
+	gender?: PlayerGender;
 	equippedSkinIds?: string[];
 	unequippedSkinIds?: string[];
-	hairColorMultiplier?: number[];
-	eyebrowColorMultiplier?: number[];
-	beardColorMultiplier?: number[];
+	hairColorMultiplier?: ColorArray;
+	eyebrowColorMultiplier?: ColorArray;
+	beardColorMultiplier?: ColorArray;
 	presetId?: number | null;
 	[key: string]: unknown;
 }
@@ -2288,6 +2289,11 @@ export interface SkinObjectOpts {
 	teamColor?: { r: number; g: number; b: number };
 	skin: SkinData;
 	rawSkin?: unknown;
+}
+export interface PreviewShopItemConfig {
+	itemId?: string;
+	colorCategory?: string;
+	colorMultiplier?: ColorArray;
 }
 class SkinsManager {
 	purchasableItems = new Map<string, ShopItemConfig>();
@@ -2543,12 +2549,12 @@ class SkinsManager {
 		this.savePresets();
 		this.fireConfigChanged();
 	}
-	setPresetGender(presetId: number, gender: string): void {
+	setPresetGender(presetId: number, gender: PlayerGender): void {
 		this.getPreset(presetId).gender = gender;
 		this.savePresets();
 		this.fireConfigChanged();
 	}
-	setPresetSkinItemColor(presetId: number, category: string, colorMultiplier: number[]): void {
+	setPresetSkinItemColor(presetId: number, category: string, colorMultiplier: ColorArray): void {
 		const preset = this.getPreset(presetId);
 		if (category == "hair") {
 			preset.hairColorMultiplier = colorMultiplier;
@@ -2657,7 +2663,7 @@ class SkinsManager {
 		this.saveClassSkins();
 		this.fireConfigChanged();
 	}
-	setClassGender(classId: string, gender: string): void {
+	setClassGender(classId: string, gender: PlayerGender): void {
 		const classSkin = this.getClassSkinData(classId, true);
 		let presetGender = "male";
 		if (classSkin.presetId != null) {
@@ -2671,7 +2677,7 @@ class SkinsManager {
 		this.saveClassSkins();
 		this.fireConfigChanged();
 	}
-	setClassSkinItemColor(classId: string, category: string, colorMultiplier: number[]): void {
+	setClassSkinItemColor(classId: string, category: string, colorMultiplier: ColorArray): void {
 		const classSkin = this.getClassSkinData(classId, true);
 		let preset: SkinData | null = null;
 		if (classSkin.presetId != null) {
@@ -2679,11 +2685,11 @@ class SkinsManager {
 		}
 		function applyColor(multiplierKey: string) {
 			(classSkin as Record<string, unknown>)[multiplierKey] = colorMultiplier;
-			let presetValue: number[] = [1, 1, 1];
+			let presetValue: ColorArray = [1, 1, 1];
 			if (preset) {
 				const presetMultiplier = (preset as Record<string, unknown>)[multiplierKey];
 				if (Array.isArray(presetMultiplier)) {
-					presetValue = presetMultiplier as number[];
+					presetValue = presetMultiplier as ColorArray;
 				}
 			}
 			Math.abs(colorMultiplier[0]! - presetValue[0]!) < 0.01 &&
@@ -2770,7 +2776,7 @@ class SkinsManager {
 	}
 	skinNetworkDataToSkinConfig(skinData: SkinData): {
 		equippedItems: Record<string, string[]>;
-		colorizedItems: { assetName: string; colorMultiplier: number[]; joints: string[] }[];
+		colorizedItems: { assetName: string; colorMultiplier: ColorArray; joints: string[] }[];
 	} {
 		const gender = skinData.gender || "male";
 		const jointAssets = new Map<string, Set<string>>();
@@ -2784,7 +2790,7 @@ class SkinsManager {
 				assets.add(`${gender}/${basePart}`);
 			}
 		}
-		const colorizedItems: { assetName: string; colorMultiplier: number[]; joints: string[] }[] = [];
+		const colorizedItems: { assetName: string; colorMultiplier: ColorArray; joints: string[] }[] = [];
 		if (skinData.equippedSkinIds) {
 			for (const skinId of skinData.equippedSkinIds) {
 				const shopItem = this.purchasableItems.get(skinId);
@@ -2803,7 +2809,7 @@ class SkinsManager {
 							for (const assetName of assetNames) {
 								assets.add(assetName);
 								if (shopItem.colorizableCategory) {
-									let colorMultiplier: number[] | undefined;
+									let colorMultiplier: ColorArray | undefined;
 									if (shopItem.colorizableCategory == "hair") {
 										colorMultiplier = skinData.hairColorMultiplier;
 									} else if (shopItem.colorizableCategory == "eyebrows") {
@@ -2930,7 +2936,7 @@ class SkinsManager {
 		}
 		return "baseSkins/arrow.glb";
 	}
-	getSkinFromShopItem(shopItem: ShopItemConfig, gender: string): ShopSkinSide | null {
+	getSkinFromShopItem(shopItem: ShopItemConfig, gender: PlayerGender): ShopSkinSide | null {
 		let side: ShopSkinSide | undefined;
 		if (gender == "male") {
 			side = shopItem.maleSkin;
@@ -2939,17 +2945,17 @@ class SkinsManager {
 		}
 		return side || null;
 	}
-	getConfigForPreviewShopItemId(t, { itemId, colorCategory, colorMultiplier }) {
-		const n = new Set(t.equippedSkinIds);
+	getConfigForPreviewShopItemId(skinData: SkinData, { itemId, colorCategory, colorMultiplier }: PreviewShopItemConfig) {
+		const skinIds = new Set(skinData.equippedSkinIds);
 		if (itemId) {
-			this.addItemAndRemoveDuplicateSlots(n, itemId);
+			this.addItemAndRemoveDuplicateSlots(skinIds, itemId);
 		}
 		const o = {
-			gender: t.gender,
-			equippedSkinIds: Array.from(n),
-			beardColorMultiplier: t.beardColorMultiplier,
-			hairColorMultiplier: t.hairColorMultiplier,
-			eyebrowColorMultiplier: t.eyebrowColorMultiplier,
+			gender: skinData.gender,
+			equippedSkinIds: Array.from(skinIds),
+			beardColorMultiplier: skinData.beardColorMultiplier,
+			hairColorMultiplier: skinData.hairColorMultiplier,
+			eyebrowColorMultiplier: skinData.eyebrowColorMultiplier,
 		};
 		colorCategory &&
 			colorMultiplier &&
@@ -2960,11 +2966,11 @@ class SkinsManager {
 					: colorCategory == "beard" && (o.beardColorMultiplier = colorMultiplier));
 		return o;
 	}
-	onSkinConfigChange(t) {
-		this.onSkinConfigChangeCbs.add(t);
+	onSkinConfigChange(cb: () => void) {
+		this.onSkinConfigChangeCbs.add(cb);
 	}
-	removeOnSkinConfigChange(t) {
-		this.onSkinConfigChangeCbs.delete(t);
+	removeOnSkinConfigChange(cb: () => void) {
+		this.onSkinConfigChangeCbs.delete(cb);
 	}
 }
 export interface PagedViewStructure {
@@ -2982,7 +2988,7 @@ export interface PagedViewStructure {
 	customSubPage?: (container: HTMLDivElement) => void;
 	customSubPageDestroyed?: (container: HTMLDivElement) => void;
 }
-class ee {
+class PagedView {
 	el = document.createElement("div");
 	createdPageEls: {
 		el: HTMLDivElement;
@@ -3176,23 +3182,23 @@ if (!ie || !Number.isFinite(ie) || Number.isNaN(ie) || ie < 0 || ie > 1) {
 	ie = Math.random();
 	localStorage.setItem("peliGradualRolloutValue", String(ie));
 }
-class se {
-	skeletonPath;
-	skeletonObject = null;
-	onSkeletonLoadCbs = new Set();
-	onObjectLinksBuilt = new Set();
-	_currentGender;
+export interface SkeletonLoadCb {
+	resolve: (value?: unknown) => void;
+	reject: (err: unknown) => void;
+}
+class PoseLayer {
+	skeletonObject: Object3D | null = null;
+	onSkeletonLoadCbs = new Set<SkeletonLoadCb>();
+	onObjectLinksBuilt = new Set<(value?: unknown) => void>();
 	weight = 1;
-	currentlyLoadingPoseAbortController = null;
+	currentlyLoadingPoseAbortController: AbortController | null = null;
 	objectLinksBuilt = false;
-	objectLinks = [];
-	constructor(t, e) {
-		this.skeletonPath = t;
-		this._currentGender = e;
+	objectLinks: [Object3D, Object3D][] = [];
+	constructor(public skeletonPath: string, public _currentGender: PlayerGender) {
 		this.reloadPose();
 	}
-	setGender(t) {
-		this._currentGender = t;
+	setGender(gender: PlayerGender) {
+		this._currentGender = gender;
 		this.reloadPose();
 	}
 	async reloadPose() {
@@ -3246,12 +3252,12 @@ class se {
 		);
 		await t;
 	}
-	buildObjectLinks(t) {
+	buildObjectLinks(t: Object3D): void {
 		this.objectLinks = [];
 		if (!this.skeletonObject) {
 			throw new Error("Cannot build object links before the skeleton object is loaded");
 		}
-		for (const e of t_1(this.skeletonObject)) {
+		for (const e of t_1(this.skeletonObject) as Object3D[]) {
 			const i = t.getObjectByName(e.name);
 			if (i) {
 				this.objectLinks.push([i, e]);
@@ -3297,19 +3303,19 @@ class PlayerSkeleton {
 	player: Player | null;
 	isInit = false;
 	onInitCbs = new Set<() => void>();
-	onAllLinkLayerObjectsBuiltCbs = new Set();
+	onAllLinkLayerObjectsBuiltCbs = new Set<() => void>();
 	_currentGender: PlayerGender;
-	poseLayers = [];
-	skeletonMatrixObjects = [];
-	baseSkeletonObject = null;
-	headObj = null;
-	bodyObj = null;
-	armLObj = null;
-	armRObj = null;
-	legObjectsL = null;
-	legObjectsR = null;
+	poseLayers: PoseLayer[] = [];
+	skeletonMatrixObjects: Object3D[] = [];
+	baseSkeletonObject: Object3D | null = null;
+	headObj: Object3D | null = null;
+	bodyObj: Object3D | null = null;
+	armLObj: Object3D | null = null;
+	armRObj: Object3D | null = null;
+	legObjectsL: { upper: Object3D; lower: Object3D; foot: Object3D } | null = null;
+	legObjectsR: { upper: Object3D; lower: Object3D; foot: Object3D } | null = null;
 	initCalled = false;
-	constructor({ player = null, gender = "male" }: { player?: Player | null; gender?: PlayerGender } = {}) {
+	constructor({ player = null, gender = "male" }: SkeletonOpts = {}) {
 		this.player = player;
 		this._currentGender = gender;
 	}
@@ -3329,7 +3335,7 @@ class PlayerSkeleton {
 			}
 			this.skeletonMatrixObjects[t] = i;
 		}
-		function e(e) {
+		function e(e: "L" | "R") {
 			const upper = baseSkeletonObject.getObjectByName(`upperLeg${e}`);
 			const lower = baseSkeletonObject.getObjectByName(`lowerLeg${e}`);
 			const foot = baseSkeletonObject.getObjectByName(`footLeg${e}`);
@@ -3342,10 +3348,10 @@ class PlayerSkeleton {
 			}
 			return null;
 		}
-		this.headObj = this.baseSkeletonObject.getObjectByName("head");
-		this.bodyObj = this.baseSkeletonObject.getObjectByName("torso");
-		this.armLObj = this.baseSkeletonObject.getObjectByName("upperArmL");
-		this.armRObj = this.baseSkeletonObject.getObjectByName("upperArmR");
+		this.headObj = this.baseSkeletonObject.getObjectByName("head") ?? null;
+		this.bodyObj = this.baseSkeletonObject.getObjectByName("torso") ?? null;
+		this.armLObj = this.baseSkeletonObject.getObjectByName("upperArmL") ?? null;
+		this.armRObj = this.baseSkeletonObject.getObjectByName("upperArmR") ?? null;
 		this.legObjectsL = e("L");
 		this.legObjectsR = e("R");
 		this.isInit = true;
@@ -3358,7 +3364,7 @@ class PlayerSkeleton {
 		if (this.isInit) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onInitCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onInitCbs.add(() => resolve()));
 		await t;
 	}
 	assertInit() {
@@ -3366,17 +3372,17 @@ class PlayerSkeleton {
 			throw new Error("PlayerSkeleton not initialized");
 		}
 	}
-	createPoseLayer(t) {
-		const e = new se(t, this._currentGender);
+	createPoseLayer(skeletonPath: string): PoseLayer {
+		const e = new PoseLayer(skeletonPath, this._currentGender);
 		this.linkLayerObjects(e);
 		return e;
 	}
-	addPoseLayer(t) {
-		const e = this.createPoseLayer(t);
+	addPoseLayer(skeletonPath: string): PoseLayer {
+		const e = this.createPoseLayer(skeletonPath);
 		this.poseLayers.push(e);
 		return e;
 	}
-	removePoseLayer(t) {
+	removePoseLayer(t: PoseLayer): void {
 		const e = this.poseLayers.indexOf(t);
 		if (e >= 0) {
 			this.poseLayers.splice(e, 1);
@@ -3385,7 +3391,7 @@ class PlayerSkeleton {
 	get gender() {
 		return this._currentGender;
 	}
-	setGender(t) {
+	setGender(t: PlayerGender): void {
 		if (this._currentGender != t) {
 			this._currentGender = t;
 			for (const e of this.poseLayers) {
@@ -3394,7 +3400,7 @@ class PlayerSkeleton {
 			}
 		}
 	}
-	async linkLayerObjects(t) {
+	async linkLayerObjects(t: PoseLayer): Promise<void> {
 		await this.waitForLoad();
 		try {
 			await t.waitForLoad();
@@ -3409,7 +3415,7 @@ class PlayerSkeleton {
 		}
 		t.buildObjectLinks(this.baseSkeletonObject);
 		if (this.allObjectLinksBuilt) {
-			this.onAllLinkLayerObjectsBuiltCbs.forEach((t) => t());
+			for (const cb of this.onAllLinkLayerObjectsBuiltCbs as Set<() => void>) cb();
 			this.onAllLinkLayerObjectsBuiltCbs.clear();
 		}
 	}
@@ -3425,20 +3431,20 @@ class PlayerSkeleton {
 		if (this.allObjectLinksBuilt) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onAllLinkLayerObjectsBuiltCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onAllLinkLayerObjectsBuiltCbs.add(() => resolve()));
 		await t;
 	}
-	replacePoseLayer(t, e) {
+	replacePoseLayer(t: number, e: string): PoseLayer {
 		const i = this.createPoseLayer(e);
 		this.poseLayers[t] = i;
 		return i;
 	}
-	insertPoseLayer(t, e) {
+	insertPoseLayer(t: number, e: string): PoseLayer {
 		const i = this.createPoseLayer(e);
 		this.poseLayers.splice(t, 0, i);
 		return i;
 	}
-	setLookRotY(t, e) {
+	setLookRotY(t: number, e: { head?: number; armL?: number; armR?: number }): void {
 		if (this.bodyObj) {
 			const i = e.head ?? 0.3;
 			this.applyLookRotation(this.bodyObj, new Vector3(1, 0, 0), t * i);
@@ -3456,7 +3462,7 @@ class PlayerSkeleton {
 			this.applyLookRotation(this.armRObj, new Vector3(1, 0, 0), t * i);
 		}
 	}
-	applyLookRotation(t, e, i) {
+	applyLookRotation(t: Object3D, e: Vector3, i: number): void {
 		if (!t) {
 			return;
 		}
@@ -3482,12 +3488,12 @@ class PlayerSkeleton {
 	}
 	getMatrices() {
 		this.assertInit();
-		return this.skeletonMatrixObjects.map((t) => t.matrixWorld);
+		return this.skeletonMatrixObjects.map((t: Object3D) => t.matrixWorld);
 	}
 }
 class GameMaterials {
-	materialsCache = new Map();
-	extraMaterials = new Set();
+	materialsCache = new Map<string, Material>();
+	extraMaterials = new Set<Material>();
 	shadersHavePrecompiled = false;
 	hashes =
 		"\n\t\t\t// Hash without Sine\n\t\t\t// MIT License...\n\t\t\t// Copyright (c)2014 David Hoskins.\n\t\t\tfloat hash13(vec3 p3)\n\t\t\t{\n\t\t\t\tp3  = fract(p3 * .1031);\n\t\t\t\tp3 += dot(p3, p3.yzx + 33.33);\n\t\t\t\treturn fract((p3.x + p3.y) * p3.z);\n\t\t\t}\n\t\t\tfloat hash12(vec2 p)\n\t\t\t{\n\t\t\t\tvec3 p3  = fract(vec3(p.xyx) * .1031);\n\t\t\t\tp3 += dot(p3, p3.yzx + 33.33);\n\t\t\t\treturn fract((p3.x + p3.y) * p3.z);\n\t\t\t}\n\t\t\tvec3 hash33(vec3 p3)\n\t\t\t{\n\t\t\t\tp3 = fract(p3 * vec3(.1031, .1030, .0973));\n\t\t\t    p3 += dot(p3, p3.yxz+33.33);\n\t\t\t    return fract((p3.xxy + p3.yxx)*p3.zyx);\n\t\t\t}\n\t\t";
@@ -3742,9 +3748,9 @@ class GameMaterials {
 			return;
 		}
 		const cam = s.cam.cam;
-		for (const e of this.materialsCache.values()) {
+		for (const material of this.materialsCache.values()) {
 			await getMain().renderer.waitForFrameRender();
-			i.material = e;
+			i.material = material;
 			renderer.compile(t, cam);
 		}
 		this.shadersHavePrecompiled = true;
@@ -3757,40 +3763,40 @@ class GameMaterials {
 			yield t;
 		}
 	}
-	getMaterialByName(t) {
-		if (this.materialsCache.has(t)) {
-			return this.materialsCache.get(t);
+	getMaterialByName(name: string) {
+		if (this.materialsCache.has(name)) {
+			return this.materialsCache.get(name);
 		}
 		return this.basicUnlitMat;
 	}
-	addCachedMaterial(t) {
-		if (t.name) {
-			this.materialsCache.set(t.name, t);
+	addCachedMaterial(material: Material) {
+		if (material.name) {
+			this.materialsCache.set(material.name, material);
 		} else {
 			console.warn("material doesn't have a name!");
 		}
 	}
-	addExtraMaterial(t) {
-		this.extraMaterials.add(t);
+	addExtraMaterial(material: Material) {
+		this.extraMaterials.add(material);
 	}
-	removeExtraMaterial(t) {
-		this.extraMaterials.delete(t);
+	removeExtraMaterial(material: Material) {
+		this.extraMaterials.delete(material);
 	}
 	applyWeatherParams(t) {
-		for (const e of this.allMaterials()) {
-			e.uniforms.colorMultiplier.value.copy(t.colorMultiplier);
-			e.uniforms.colorAdder.value.copy(t.colorAdder);
-			e.uniforms.saturation.value = t.saturation;
-			e.uniforms.skyLowCol.value.copy(t.skyLowColor);
-			e.uniforms.skyHighCol.value.copy(t.skyHighColor);
-			e.uniforms.skyMidCol.value.copy(t.skyMidColor);
-			e.uniforms.skyPower.value = t.skyPower;
-			e.uniforms.fogAmount.value = t.fogAmount;
-			e.uniforms.fogHeightAmount.value = t.fogHeightAmount;
-			e.uniforms.fogHeightOffset.value = t.fogHeightOffset;
-			e.uniforms.fogHeightDistFalloff.value = t.fogHeightDistFalloff + 1;
-			e.uniforms.fogHeightAmountMin.value = t.fogHeightAmountMin;
-			e.uniforms.fogHeightAmountMax.value = t.fogHeightAmountMax;
+		for (const material of this.allMaterials()) {
+			material.uniforms.colorMultiplier.value.copy(t.colorMultiplier);
+			material.uniforms.colorAdder.value.copy(t.colorAdder);
+			material.uniforms.saturation.value = t.saturation;
+			material.uniforms.skyLowCol.value.copy(t.skyLowColor);
+			material.uniforms.skyHighCol.value.copy(t.skyHighColor);
+			material.uniforms.skyMidCol.value.copy(t.skyMidColor);
+			material.uniforms.skyPower.value = t.skyPower;
+			material.uniforms.fogAmount.value = t.fogAmount;
+			material.uniforms.fogHeightAmount.value = t.fogHeightAmount;
+			material.uniforms.fogHeightOffset.value = t.fogHeightOffset;
+			material.uniforms.fogHeightDistFalloff.value = t.fogHeightDistFalloff + 1;
+			material.uniforms.fogHeightAmountMin.value = t.fogHeightAmountMin;
+			material.uniforms.fogHeightAmountMax.value = t.fogHeightAmountMax;
 		}
 	}
 	static resetWeatherUniforms(t) {
@@ -4186,7 +4192,7 @@ function ae(obj, { skinMatrices = null } = {}) {
 	}
 	return new Sphere(n, o);
 }
-class re {
+class SkinModel {
 	skinObjectOpts;
 	isInit = false;
 	destructed = false;
@@ -4316,7 +4322,7 @@ class re {
 		});
 	}
 }
-class le extends Dialog {
+class PurchaseConfirmDialog extends Dialog {
 	onPurchaseSuccessCbs = new Set();
 	shopItem;
 	purchaseButton;
@@ -4325,7 +4331,7 @@ class le extends Dialog {
 			title: "Confirm your purchase",
 			testLabel: "confirmPurchase",
 		});
-		this.shopItem = new ge(t, e, {
+		this.shopItem = new ShopItem(t, e, {
 			usage: "preview",
 			renderOptions,
 			dialog: this,
@@ -4385,7 +4391,7 @@ class le extends Dialog {
 		this.onPurchaseSuccessCbs.add(t);
 	}
 }
-class he {
+class SingleAssetLoader {
 	obj = new Object3D();
 	label;
 	useWorldWeather;
@@ -4523,7 +4529,7 @@ const de = {
 		stringPullAmountBottom: 0.02,
 	},
 };
-class ce {
+class BowAssetLoader {
 	obj = new Object3D();
 	useWorldWeather;
 	lastFireAmount01;
@@ -4553,7 +4559,7 @@ class ce {
 		this.currentArrowObjs = [];
 		this.currentArrowOffsets = [];
 		this.onArrowDestroyCallbacks = new Set();
-		this.arrowAssetLoader = new he({
+		this.arrowAssetLoader = new SingleAssetLoader({
 			useWorldWeather,
 			label: "Arrow",
 		});
@@ -4879,7 +4885,7 @@ export interface StatClassTooltipOptions {
 	showTotal?: boolean;
 	category?: string;
 }
-class pe {
+class StatClassTooltip {
 	el = document.createElement("div");
 	constructor({ zIndex, statClasses, aboveRect, showTotal, category }: StatClassTooltipOptions) {
 		this.el.classList.add("stat-class-tooltip", "transitioning", "wrinkledPaper");
@@ -4922,8 +4928,8 @@ class pe {
 	}
 }
 export interface ShopItemRenderOptions {
-	colorMultiplier: number[];
-	gender: string;
+	colorMultiplier: ColorArray;
+	gender: PlayerGender;
 }
 export interface ShopItemOptions {
 	configIndex?: number;
@@ -4932,7 +4938,7 @@ export interface ShopItemOptions {
 	dialog: Dialog;
 	scrollingContainer?: HTMLElement;
 }
-class ge {
+class ShopItem {
 	el: HTMLButtonElement | HTMLDivElement;
 	configIndex: number;
 	config: ShopItemConfig;
@@ -4941,7 +4947,7 @@ class ge {
 	dialog: Dialog;
 	destructed = false;
 	onSelectedChangeRequestCbs = new Set<(selected: boolean) => void>();
-	statsTooltip: pe | null;
+	statsTooltip: StatClassTooltip | null;
 	onHoveringChangeCbs = new Set<(hovering: boolean) => void>();
 	selected: boolean;
 	owned: boolean;
@@ -4952,7 +4958,7 @@ class ge {
 	boundAnimationLoop: () => void;
 	boundRemoveStatsTooltip: () => void;
 	scrollingContainer?: HTMLElement;
-	onConfirmPurchaseDialogOpenCbs = new Set<(dialog: le) => void>();
+	onConfirmPurchaseDialogOpenCbs = new Set<(dialog: PurchaseConfirmDialog) => void>();
 	renderView: RenderView;
 	cam: PerspectiveCamera;
 	camTarget: Object3D;
@@ -4961,11 +4967,11 @@ class ge {
 	scene: Scene;
 	skeleton: PlayerSkeleton;
 	loadingModelSym: symbol | null;
-	loadingModel: re | null;
-	visibleModel: re | null;
+	loadingModel: SkinModel | null;
+	visibleModel: SkinModel | null;
 	skinObject: Object3D | null;
-	bowAsset: ce | null;
-	skinObjectAsset: he | null;
+	bowAsset: BowAssetLoader | null;
+	skinObjectAsset: SingleAssetLoader | null;
 	currencyWrapperEl?: HTMLDivElement | null;
 	currencyContainer?: CurrencyContainer | null;
 	lockEl: HTMLDivElement;
@@ -5161,7 +5167,7 @@ class ge {
 					equippedSkinIds: [this.config.id],
 				},
 			);
-			this.bowAsset = new ce({
+			this.bowAsset = new BowAssetLoader({
 				useWorldWeather: false,
 			});
 			this.bowAsset.setConfig({
@@ -5196,7 +5202,7 @@ class ge {
 					equippedSkinIds: [this.config.id],
 				})
 			) {
-				this.skinObjectAsset = new he({
+				this.skinObjectAsset = new SingleAssetLoader({
 					useWorldWeather: false,
 					label: "melee",
 				});
@@ -5212,7 +5218,7 @@ class ge {
 				e = ae(this.skinObjectAsset.obj);
 			}
 		} else if (this.config.arrowSkin) {
-			this.skinObjectAsset = new he({
+			this.skinObjectAsset = new SingleAssetLoader({
 				useWorldWeather: false,
 				label: "arrow",
 			});
@@ -5230,7 +5236,7 @@ class ge {
 			e = new Sphere(new Vector3(), 0.4);
 			this.setDefaultRotY(0.5 * Math.PI);
 		} else {
-			const colorizableSkins: { assetName: string; colorMultiplier: number[]; joints: string[] }[] = [];
+			const colorizableSkins: { assetName: string; colorMultiplier: ColorArray; joints: string[] }[] = [];
 			const colorizableCategory = this.config.colorizableCategory;
 			let sideSkin: ShopSkinSide = {};
 			if (this.renderOptions.gender == "male" && this.config.maleSkin) {
@@ -5259,7 +5265,7 @@ class ge {
 					gender: this.renderOptions.gender,
 				}).equippedItems;
 			}
-			this.loadingModel = new re({
+			this.loadingModel = new SkinModel({
 				init: false,
 				skinObjectOpts: {
 					teamId: 1,
@@ -5401,7 +5407,7 @@ class ge {
 			this.rotY -= 0.001 * i;
 			this.rotY = posMod(this.rotY + Math.PI, 2 * Math.PI) - Math.PI;
 		} else {
-			this.rotY = l_1(this.rotY, 0, 0.1);
+			this.rotY = lerp(this.rotY, 0, 0.1);
 			if (Math.abs(this.rotY) < 0.001) {
 				this.stopLooping();
 			}
@@ -5430,7 +5436,7 @@ class ge {
 			return;
 		}
 		const e = this.el.getBoundingClientRect();
-		this.statsTooltip = new pe({
+		this.statsTooltip = new StatClassTooltip({
 			zIndex,
 			statClasses: this.config.statClasses,
 			aboveRect: e,
@@ -5504,7 +5510,7 @@ class ge {
 				});
 			}
 		} else {
-			const t = new le(this.gameWrapper, this.config, {
+			const t = new PurchaseConfirmDialog(this.gameWrapper, this.config, {
 				renderOptions: this.renderOptions,
 			});
 			getMain().dialogManager.addDialog(t);
@@ -5523,7 +5529,7 @@ class ge {
 		this.onConfirmPurchaseDialogOpenCbs.add(t);
 	}
 }
-class me {
+class ShopItemsGrid {
 	el = document.createElement("div");
 	shopItems;
 	activeConfirmPurchaseDialogs;
@@ -5542,7 +5548,7 @@ class me {
 		this.destructShopItems();
 	}
 	addShopItem(t, e) {
-		const i = new ge(this.gameWrapper, t, e);
+		const i = new ShopItem(this.gameWrapper, t, e);
 		this.el.appendChild(i.el);
 		i.onHoveringChange((t) => {
 			const currentHoveringItem = this.currentHoveringItem;
@@ -5679,7 +5685,7 @@ class me {
 		}
 	}
 }
-class fe extends Dialog {
+class SkinDownloaderDialog extends Dialog {
 	avatarsManager;
 	contentEl = document.createElement("div");
 	teamColorInput;
@@ -5896,7 +5902,7 @@ class fe extends Dialog {
 		})();
 	}
 }
-class we {
+class SkinPreview {
 	destructed = false;
 	el = document.createElement("div");
 	currentlyLoadedSkinData: SkinData | null;
@@ -5972,7 +5978,7 @@ class we {
 			for (const [t, s] of statClassValues) {
 				statClasses[t] = s;
 			}
-			this.statsTooltip = new pe({
+			this.statsTooltip = new StatClassTooltip({
 				zIndex: 1000,
 				statClasses,
 				aboveRect: t,
@@ -5996,7 +6002,7 @@ class we {
 		this.downloadButton.classList.add("shop-skin-preview-download-button");
 		this.downloadButton.addEventListener("click", () => {
 			if (this.currentlyLoadedSkinData) {
-				const e = new fe(gameWrapper, getMain().avatars, getMain().skins, this.currentlyLoadedSkinData);
+				const e = new SkinDownloaderDialog(gameWrapper, getMain().avatars, getMain().skins, this.currentlyLoadedSkinData);
 				getMain().dialogManager.addDialog(e);
 			}
 		});
@@ -6143,11 +6149,11 @@ class we {
 		this.skeleton = new PlayerSkeleton();
 		this.skeleton.init();
 		this.activeExtraPoseLayer = null;
-		this.bowAssetLoader = new ce({
+		this.bowAssetLoader = new BowAssetLoader({
 			useWorldWeather: false,
 		});
 		this.bowAssetLoader.updateFireAmount(1, 1);
-		this.hoveringBowAssetLoader = new ce({
+		this.hoveringBowAssetLoader = new BowAssetLoader({
 			useWorldWeather: false,
 		});
 		this.hoveringBowAssetLoader.updateFireAmount(1, 1);
@@ -6157,11 +6163,11 @@ class we {
 		this.currentVisibleBowId = null;
 		this.currentEquippedSkinIds = [];
 		this.hoveringBowVisible = false;
-		this.meleeAssetLoader = new he({
+		this.meleeAssetLoader = new SingleAssetLoader({
 			useWorldWeather: false,
 			label: "melee",
 		});
-		this.hoveringMeleeAssetLoader = new he({
+		this.hoveringMeleeAssetLoader = new SingleAssetLoader({
 			useWorldWeather: false,
 			label: "melee",
 		});
@@ -6248,7 +6254,7 @@ class we {
 		if (Math.abs(this.camTarget.rotation.y - this.smoothCamTargetRot) > 0.01) {
 			s = true;
 		}
-		this.camTarget.rotation.y = l_1(this.camTarget.rotation.y, this.smoothCamTargetRot, 0.1);
+		this.camTarget.rotation.y = lerp(this.camTarget.rotation.y, this.smoothCamTargetRot, 0.1);
 		if (s) {
 			this.renderView.markDirty();
 		}
@@ -6263,7 +6269,7 @@ class we {
 				this.removeModel(this.hoveringModel);
 				this.hoveringModel = null;
 				if (skinObjectOpts) {
-					this.hoveringModel = new re({
+					this.hoveringModel = new SkinModel({
 						skinObjectOpts,
 						useWorldWeather: false,
 					});
@@ -6325,7 +6331,7 @@ class we {
 		};
 		this.setHoveringModel(e);
 	}
-	setTemporaryColorCategory(colorCategory: string, colorMultiplier: number[]): void {
+	setTemporaryColorCategory(colorCategory: string, colorMultiplier: ColorArray): void {
 		if (this.currentlyLoadedSkinData) {
 			this.setHoveringModel({
 				teamId: this.currentTeamId,
@@ -6353,7 +6359,7 @@ class we {
 	setCurrentSkinConfig(skinData: SkinData): void {
 		this.currentlyLoadedSkinData = skinData;
 		this.removeModel(this.loadingModel);
-		this.loadingModel = new re({
+		this.loadingModel = new SkinModel({
 			skinObjectOpts: {
 				teamId: this.currentTeamId,
 				skin: skinData,
@@ -6567,15 +6573,15 @@ export interface GridViewSubPageOptions {
 	colorButtonsCategory?: string;
 	previewTooltipCategory?: string;
 }
-class be {
+class ShopCustomizationView {
 	el: HTMLDivElement;
 	dialog: Dialog;
 	skinManager: SkinsManager;
 	customizationId: CustomizationId;
 	onBackButtonClickCbs: Set<() => void>;
-	pagedView: ee;
-	createdGrids: Map<HTMLElement, { grid: me; reloadFilteredItems: () => void; pagedViewStructure: unknown }>;
-	skinPreview: we;
+	pagedView: PagedView;
+	createdGrids: Map<HTMLElement, { grid: ShopItemsGrid; reloadFilteredItems: () => void; pagedViewStructure: unknown }>;
+	skinPreview: SkinPreview;
 	filterSubPages: Map<string, unknown>;
 	showHiddenItems = false;
 	constructor(
@@ -6590,12 +6596,12 @@ class be {
 		this.skinManager = skinManager;
 		this.customizationId = id;
 		this.onBackButtonClickCbs = new Set();
-		this.pagedView = new ee({
+		this.pagedView = new PagedView({
 			extraClasses: ["shop-paged-view-container"],
 		});
 		this.el.appendChild(this.pagedView.el);
 		this.createdGrids = new Map();
-		this.skinPreview = new we(gameWrapper);
+		this.skinPreview = new SkinPreview(gameWrapper);
 		this.el.appendChild(this.skinPreview.el);
 		this.updateSkinPreviewConfig();
 		this.filterSubPages = new Map();
@@ -6976,7 +6982,7 @@ class be {
 	}
 	highlightOrOpenShopItem(categories: string[], itemId: string, action: string): void {
 		let subPage: unknown;
-		let grid: me | undefined;
+		let grid: ShopItemsGrid | undefined;
 		for (const category of categories) {
 			subPage = this.filterSubPages.get(category);
 			break;
@@ -7136,7 +7142,7 @@ class be {
 	}
 	filterPurchasableItems(
 		items: ShopItemConfig[],
-		gender: string,
+		gender: PlayerGender,
 		filterOptions: ShopFilterOptions = {},
 	): ShopItemConfig[] {
 		const { filterType = "default", shopCategoriesFilter, useSingleWeaponType, hideNonBowSkins } = filterOptions;
@@ -7220,10 +7226,10 @@ class be {
 			});
 		}
 	}
-	getShopItemRenderOptions(colorCategory: string): { colorMultiplier: number[]; gender: string } {
+	getShopItemRenderOptions(colorCategory: string): { colorMultiplier: ColorArray; gender: PlayerGender } {
 		const skinData = this.getCurrentSkinData();
 		const gender = skinData.gender || "male";
-		let colorMultiplier: number[] = [1, 1, 1];
+		let colorMultiplier: ColorArray = [1, 1, 1];
 		if (colorCategory == "hair" && skinData.hairColorMultiplier) {
 			colorMultiplier = skinData.hairColorMultiplier;
 		} else if (colorCategory == "eyebrows" && skinData.eyebrowColorMultiplier) {
@@ -7248,7 +7254,7 @@ class be {
 			colorButtonsCategory?: string;
 		},
 	): void {
-		const grid = new me(this.gameWrapper);
+		const grid = new ShopItemsGrid(this.gameWrapper);
 		scrollingContainer.appendChild(grid.el);
 		const reloadFilteredItems = () => {
 			const renderOptions = this.getShopItemRenderOptions(colorButtonsCategory);
@@ -7306,7 +7312,7 @@ class be {
 			pagedViewStructure,
 		});
 	}
-	updateSelectedItemsForClass(classId: string, grid: me): void {
+	updateSelectedItemsForClass(classId: string, grid: ShopItemsGrid): void {
 		const classSkin = this.skinManager.getClassSkinData(classId, false);
 		let presetEquippedIds: string[] = [];
 		if (classSkin.presetId != null) {
@@ -7352,7 +7358,7 @@ class be {
 		getMain().config.shopConfig.removeOnConfigChange(reloadFilteredItems);
 	}
 }
-class ye {
+class ClassSelectionImage {
 	el = document.createElement("div");
 	backgroundEl;
 	imageEl;
@@ -7400,7 +7406,7 @@ class ye {
 \t\t`;
 	}
 }
-class Se {
+class ClassSelectionItem {
 	el = document.createElement("div");
 	onClickCbs;
 	classSelectionImage;
@@ -7411,7 +7417,7 @@ class Se {
 		e.textContent = t.uiName;
 		this.el.appendChild(e);
 		this.onClickCbs = new Set();
-		this.classSelectionImage = new ye(t.id);
+		this.classSelectionImage = new ClassSelectionImage(t.id);
 		const { colors } = getMain().gameManager.getMyTeamColor();
 		this.classSelectionImage.setCssColor(colors.cssColor, colors.cssColorDark);
 		this.el.appendChild(this.classSelectionImage.el);
@@ -7434,7 +7440,7 @@ class Se {
 		this.onClickCbs.add(t);
 	}
 }
-class ve {
+class PresetSelectionItem {
 	el = document.createElement("div");
 	avatarBlobUrlReference;
 	constructor({ preset, onEditButtonClick, showDeleteButton, onDeleteButtonClick }) {
@@ -7481,7 +7487,7 @@ class ve {
 		this.avatarBlobUrlReference.destructor();
 	}
 }
-class Ce {
+class PresetsView {
 	skinManager;
 	onPresetOpenClickCbs = new Set();
 	onBackButtonClickCbs = new Set();
@@ -7535,7 +7541,7 @@ class Ce {
 		const createdPresetItems = this.createdPresetItems;
 		this.createdPresetItems = [];
 		for (const [t, preset] of this.skinManager.skinPresets.entries()) {
-			const i = new ve({
+			const i = new PresetSelectionItem({
 				preset,
 				onEditButtonClick: () => {
 					this.onPresetOpenClickCbs.forEach((e) => e(t));
@@ -7582,16 +7588,16 @@ export interface CustomizationViewConfig {
 	rootHeader: string;
 	dialog: Dialog;
 }
-class ke extends Dialog {
-	currentCustomizationView: be | null = null;
-	currentPresetsView: Ce | null = null;
+class ShopDialog extends Dialog {
+	currentCustomizationView: ShopCustomizationView | null = null;
+	currentPresetsView: PresetsView | null = null;
 	mainViewVisible = true;
 	ownedCoinsContainer = document.createElement("div");
 	currencyContainer: CurrencyContainer;
 	classSelectionContainer: HTMLDivElement;
 	presetsButton: CustomButton;
 	classSelectionListEl: HTMLDivElement;
-	createdClassSelectionItems: Se[] = [];
+	createdClassSelectionItems: ClassSelectionItem[] = [];
 	boundUpdateShopState: () => void;
 	constructor(gameWrapper: HTMLElement) {
 		super(gameWrapper, {
@@ -7619,7 +7625,7 @@ class ke extends Dialog {
 		this.classSelectionContainer.appendChild(this.classSelectionListEl);
 		this.createdClassSelectionItems = [];
 		for (const t of allWeapons) {
-			const e = new Se(t);
+			const e = new ClassSelectionItem(t);
 			this.classSelectionListEl.appendChild(e.el);
 			e.onClick(() => {
 				this.showCustomizationView({
@@ -7690,7 +7696,7 @@ class ke extends Dialog {
 			return;
 		}
 		const skins = getMain().skins;
-		this.currentCustomizationView = new be(this.gameWrapper, skins, config);
+		this.currentCustomizationView = new ShopCustomizationView(this.gameWrapper, skins, config);
 		this.el.appendChild(this.currentCustomizationView.el);
 		this.currentCustomizationView.onBackButtonClick(() => {
 			this.hideCustomizationView();
@@ -7713,7 +7719,7 @@ class ke extends Dialog {
 	}
 	showPresetsView() {
 		if (!this.currentPresetsView) {
-			this.currentPresetsView = new Ce(getMain().skins);
+			this.currentPresetsView = new PresetsView(getMain().skins);
 			this.currentPresetsView.onPresetOpenClick((presetId: number) => {
 				this.showPresetCustomizationView(presetId);
 			});
@@ -7776,7 +7782,7 @@ class ke extends Dialog {
 		this.openShopItemSubPage(itemId, "open");
 	}
 }
-class Pe extends Dialog {
+class ProfileDialog extends Dialog {
 	avatarEl: HTMLDivElement;
 	boundChangeAvatarUrl: (url: string | null) => void;
 	usernameForm: HTMLFormElement;
@@ -7930,7 +7936,7 @@ class Pe extends Dialog {
 		}
 	}
 }
-class xe {
+class CornerProfile {
 	el = document.createElement("button");
 	clickCbs;
 	avatarEl;
@@ -8024,7 +8030,7 @@ export interface PromoViewData {
 	id: string;
 	viewCount: number;
 }
-class Me {
+class PromoBanner {
 	configManager: ConfigManager;
 	mainMenu: MainMenu;
 	gameManager: GameManager;
@@ -8304,7 +8310,7 @@ export interface TextInputOptions {
 	spellCheck?: boolean;
 	maxLength?: number | null;
 }
-class Ae {
+class TextInput {
 	el = document.createElement("input");
 	constructor({
 		value = "",
@@ -8337,12 +8343,12 @@ class Ae {
 		this.el.value = newValue;
 	}
 }
-class Ie extends Error {
+class MatchmakeConnectionError extends Error {
 	constructor() {
 		super("Unable to connect to matchmake server");
 	}
 }
-class Le extends Dialog {
+class SquadSettingsDialog extends Dialog {
 	squadManager;
 	settings = new Map();
 	privateSquadOnlySettings = new Set();
@@ -8415,7 +8421,7 @@ class Le extends Dialog {
 		}
 	}
 }
-class Te {
+class Timeout {
 	cb;
 	id = -1;
 	ms;
@@ -8459,7 +8465,7 @@ class Te {
 		});
 	}
 }
-class Ee {
+class SpringValue {
 	value;
 	target;
 	velocity = 0;
@@ -8519,7 +8525,7 @@ class Ee {
 		return wrap(t, this.loopStart, this.loopEnd);
 	}
 }
-class De {
+class SpringVector3 {
 	xValue;
 	yValue;
 	zValue;
@@ -8529,26 +8535,26 @@ class De {
 		maxSpring = Infinity,
 		dampening = 0.6,
 	} = {}) {
-		this.xValue = new Ee({
+		this.xValue = new SpringValue({
 			startValue: startValue.x,
 			springMultiplier,
 			maxSpring,
 			dampening,
 		});
-		this.yValue = new Ee({
+		this.yValue = new SpringValue({
 			startValue: startValue.y,
 			springMultiplier,
 			maxSpring,
 			dampening,
 		});
-		this.zValue = new Ee({
+		this.zValue = new SpringValue({
 			startValue: startValue.z,
 			springMultiplier,
 			maxSpring,
 			dampening,
 		});
 	}
-	loop(t, e) {
+	loop(t: number, e: number): void {
 		this.xValue.loop(t, e);
 		this.yValue.loop(t, e);
 		this.zValue.loop(t, e);
@@ -8605,7 +8611,7 @@ export interface HoldingHandlerOptions {
 	secondaryThirdPersonParentName?: string | null;
 	firstPersonConfig?: Partial<FirstPersonConfig>;
 }
-class Fe {
+class HoldingHandler {
 	player: Player;
 	holdingObject: Object3D;
 	usePrimaryParent = true;
@@ -8626,12 +8632,12 @@ class Fe {
 	prevCamRotValid = false;
 	prevCamPos = new Vector3();
 	prevCamRotForwardVector = new Vector3();
-	camPosOffsetPhysics = new De({
+	camPosOffsetPhysics = new SpringVector3({
 		springMultiplier: 0.01,
 		maxSpring: 0.001,
 		dampening: 0.6,
 	});
-	camRotOffsetPhysics = new Ee({
+	camRotOffsetPhysics = new SpringValue({
 		springMultiplier: 0.003,
 		maxSpring: 0.001,
 		dampening: 0.8,
@@ -8715,37 +8721,37 @@ class Fe {
 				this.firstPersonRotOffset,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonPosFovMultiplierX = l_1(
+			this.smoothFirstPersonPosFovMultiplierX = lerp(
 				this.smoothFirstPersonPosFovMultiplierX,
 				this.firstPersonConfig.posFovMultiplierX,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonPosBaseFovMultiplierX = l_1(
+			this.smoothFirstPersonPosBaseFovMultiplierX = lerp(
 				this.smoothFirstPersonPosBaseFovMultiplierX,
 				this.firstPersonConfig.posBaseFovMultiplierX,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonPosFovMultiplierY = l_1(
+			this.smoothFirstPersonPosFovMultiplierY = lerp(
 				this.smoothFirstPersonPosFovMultiplierY,
 				this.firstPersonConfig.posFovMultiplierY,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonWalkBobMultiplier = l_1(
+			this.smoothFirstPersonWalkBobMultiplier = lerp(
 				this.smoothFirstPersonWalkBobMultiplier,
 				this.firstPersonConfig.walkBobMultiplier,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonPitchHeightMultiplier = l_1(
+			this.smoothFirstPersonPitchHeightMultiplier = lerp(
 				this.smoothFirstPersonPitchHeightMultiplier,
 				this.firstPersonConfig.pitchHeightMultiplier,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonMinFov = l_1(
+			this.smoothFirstPersonMinFov = lerp(
 				this.smoothFirstPersonMinFov,
 				this.firstPersonConfig.minFov,
 				this.firstPersonConfig.valuesSmoothing,
 			);
-			this.smoothFirstPersonMaxFov = l_1(
+			this.smoothFirstPersonMaxFov = lerp(
 				this.smoothFirstPersonMaxFov,
 				this.firstPersonConfig.maxFov,
 				this.firstPersonConfig.valuesSmoothing,
@@ -8893,11 +8899,11 @@ class Fe {
 export interface RayCastHit {
 	dist: number;
 	pos: Vector3;
-	collider: unknown;
+	collider: Collider & ColliderBase;
 }
 class Collider {
 	constructor(
-		public rigidBody: RigidBody,
+		public rigidBody: PlayerBody,
 		public radius: number,
 		public heightOffset: number,
 		public bodyPart: string,
@@ -8942,11 +8948,20 @@ class Collider {
 		};
 	}
 }
-class Ve {
+export interface SphereManifold {
+	colliderType: string;
+	pos: Vector3;
+	isAtEdge?: boolean;
+	isAtUpFace?: boolean;
+	isAtSecondUpFace?: boolean;
+	normal: Vector3;
+	penetration: number;
+}
+class ColliderBase {
 	invWorldMatrix;
 	invWorldMatrixNoTranslate;
 	worldMatrix;
-	aabb = null;
+	aabb: Box3 | null = null;
 	ignoreArrows;
 	isLadder;
 	isLadderAllSides;
@@ -8965,7 +8980,7 @@ class Ve {
 	excludeTeamId;
 	excludeWearingShopItems;
 	constructor(
-		t,
+		worldMatrix: Matrix4,
 		{
 			ignoreArrows = false,
 			isLadder = false,
@@ -8986,9 +9001,9 @@ class Ve {
 			triggerAppearingObjectId = -1,
 		},
 	) {
-		this.invWorldMatrix = t.clone().invert();
+		this.invWorldMatrix = worldMatrix.clone().invert();
 		this.invWorldMatrixNoTranslate = this.invWorldMatrix.clone().setPosition(0, 0, 0);
-		this.worldMatrix = t;
+		this.worldMatrix = worldMatrix;
 		this.ignoreArrows = ignoreArrows;
 		this.isLadder = isLadder;
 		this.isLadderAllSides = isLadderAllSides;
@@ -9010,7 +9025,7 @@ class Ve {
 	rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
 		throw new Error("base class");
 	}
-	getSphereManifold(t, e) {
+	getSphereManifold(t: Vector3, e: number): SphereManifold {
 		throw new Error("base class");
 	}
 	isTriggerCollider() {
@@ -9023,7 +9038,7 @@ const qe = 3;
 const He = 4;
 const We = 5;
 const Ne = 6;
-class je extends Ve {
+class BoxCollider extends ColliderBase {
 	box = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
 	aabb;
 	cachedUpFaces;
@@ -9033,7 +9048,7 @@ class je extends Ve {
 		this.aabb.applyMatrix4(this.worldMatrix);
 		this.cachedUpFaces = null;
 	}
-	getSphereManifold(t, e) {
+	getSphereManifold(t: Vector3, e: number): SphereManifold {
 		const i = t.clone().applyMatrix4(this.invWorldMatrix);
 		const s = this.box.clampPoint(i, new Vector3());
 		let n = 0;
@@ -9161,15 +9176,15 @@ class je extends Ve {
 		return null;
 	}
 }
-class Ge {
+class RigidBody {
 	enabled = true;
 	constructor() {}
 	beginPhysicsSteps() {}
-	stepVelocity(t) {}
-	resolveMapCollisionsOctree(t) {}
+	stepVelocity(step: number) {}
+	resolveMapCollisionsOctree(step: number) {}
 	endPhysicsSteps() {}
 }
-function ze(t, e, i, s) {
+function ze(t: Vector3, e: number, i: Vector3, s: number): SphereManifold {
 	const n = t.clone().sub(i);
 	const o = -n.length() + s + e;
 	const a = n.normalize();
@@ -9180,13 +9195,18 @@ function ze(t, e, i, s) {
 		penetration: o,
 	};
 }
-function $e(center, radius, flySphereCenter, flySphereRadius) {
+function $e(center: Vector3, radius: number, flySphereCenter: Vector3, flySphereRadius: number) {
 	const n = ze(center, radius, flySphereCenter, flySphereRadius);
 	n.penetration *= -1;
 	n.normal.multiplyScalar(-1);
 	return n;
 }
-class RigidBody extends Ge {
+export interface ManifoldEntry {
+	manifold: SphereManifold;
+	mapCollider: ColliderBase | null;
+	playerCollider: Collider & { center: Vector3; radius: number };
+}
+class PlayerBody extends RigidBody {
 	pos = new Vector3();
 	velocity = new Vector3();
 	totalForce = new Vector3();
@@ -9202,10 +9222,10 @@ class RigidBody extends Ge {
 	isOnUnwalkableCollider;
 	lastJumpTime;
 	inAirAfterJump;
-	climbingLadder;
-	climbingLadderNormal;
+	climbingLadder: ColliderBase | null = null;
+	climbingLadderNormal: Vector3 | null = null;
 	isTouchingDamageCollider;
-	lastTouchDamageColliderPosition;
+	lastTouchDamageColliderPosition: Vector3 | null = null;
 	lastTouchDamageColliderTime;
 	wasOnFloorLastFrame;
 	isOnSlipperyCollider;
@@ -9251,18 +9271,18 @@ class RigidBody extends Ge {
 		this.fly = false;
 		this.noclip = false;
 	}
-	beginPhysicsSteps() {
+	override beginPhysicsSteps() {
 		this.wasOnFloorLastFrame = this.isOnFloor;
 		this.isOnFloor = false;
 		this.isOnSlipperyCollider = false;
 		this.isOnJumpableCollider = false;
 		this.isOnUnwalkableCollider = false;
 	}
-	stepVelocity(t) {
+	override stepVelocity(step: number) {
 		if (!(this.climbingLadder || this.fly)) {
-			this.velocity.addScaledVector(this.gravity, t);
+			this.velocity.addScaledVector(this.gravity, step);
 		}
-		this.velocity.addScaledVector(this.totalForce, t);
+		this.velocity.addScaledVector(this.totalForce, step);
 		let e = 0.9995;
 		let i = e;
 		if (this.fly) {
@@ -9280,17 +9300,17 @@ class RigidBody extends Ge {
 		}
 		e = Math.max(e, this.airFrictionModifier);
 		i = Math.max(i, this.airFrictionModifier);
-		const s = (1 - e) ** t;
-		const n = (1 - i) ** t;
+		const s = (1 - e) ** step;
+		const n = (1 - i) ** step;
 		this.velocity.x *= s;
 		this.velocity.y *= n;
 		this.velocity.z *= s;
-		this.pos.addScaledVector(this.velocity, t);
+		this.pos.addScaledVector(this.velocity, step);
 	}
 	updateLastFloorTouchTime() {
 		this.lastFloorTouchTime = getMain().now;
 	}
-	endPhysicsSteps() {
+	override endPhysicsSteps() {
 		if (this.isOnFloor && !this.wasOnFloorLastFrame) {
 			this.prevLastFloorTouchTime = this.lastFloorTouchTime;
 			this.lastLandTime = getMain().now;
@@ -9337,12 +9357,12 @@ class RigidBody extends Ge {
 		const t = this.getCurrentPlayerAabb();
 		return this.physicsManager.getOctreeNodesInAabb(t);
 	}
-	getPlayerManifolds(t, e) {
+	getPlayerManifolds(t: boolean, e: boolean): ManifoldEntry[] {
 		const i = this.getCurrentPlayerAabb();
 		return this.getManifoldsHelper(i, this.colliders, t, e);
 	}
-	getManifoldsHelper(t, e, i, s) {
-		const n = [];
+	getManifoldsHelper(t: Box3, e: Array<Collider & { center: Vector3; radius: number }>, i: boolean, s: boolean): ManifoldEntry[] {
+		const n: ManifoldEntry[] = [];
 		label: for (const collider of this.physicsManager.getCollidersForAabbUsingOctree(t)) {
 			if (
 				collider.aabb &&
@@ -9433,10 +9453,10 @@ class RigidBody extends Ge {
 			});
 		}
 		const s = new Box3();
-		s.expandByPoint(e[0].center);
-		s.expandByPoint(e[e.length - 1].center);
+		s.expandByPoint(e[0]!.center);
+		s.expandByPoint(e[e.length - 1]!.center);
 		s.expandByScalar(t.radius);
-		const n = this.getManifoldsHelper(s, e, false, false);
+		const n = this.getManifoldsHelper(s, e as (Collider & { center: Vector3; radius: number })[], false, false);
 		for (const { manifold } of n) {
 			const e = manifold.normal.dot(new Vector3(0, 1, 0));
 			if (e > 0.3 || this.manifoldShouldMovePlayerUp(manifold, e)) {
@@ -9445,10 +9465,10 @@ class RigidBody extends Ge {
 		}
 		return false;
 	}
-	manifoldShouldMovePlayerUp(t, e) {
-		return t.colliderType == "box" && t.isAtEdge && t.isAtUpFace && e > 0.1;
+	manifoldShouldMovePlayerUp(t: SphereManifold, e: number): boolean {
+		return t.colliderType == "box" && !!t.isAtEdge && !!t.isAtUpFace && e > 0.1;
 	}
-	resolveMapCollisionsOctree(t) {
+	override resolveMapCollisionsOctree(t: any): void {
 		if (this.noclip) {
 			return;
 		}
@@ -9468,7 +9488,7 @@ class RigidBody extends Ge {
 					if (!mapCollider.movePlayerUp) {
 						continue;
 					}
-					if (this.needsLadderPhysics(manifold, mapCollider)) {
+					if (this.needsLadderPhysics(manifold, mapCollider as BoxCollider)) {
 						continue;
 					}
 				}
@@ -9552,7 +9572,7 @@ class RigidBody extends Ge {
 		}
 		let d = null;
 		for (const { manifold, mapCollider, playerCollider } of o) {
-			const o = this.needsLadderPhysics(manifold, mapCollider);
+			const o = this.needsLadderPhysics(manifold, mapCollider as BoxCollider);
 			if (mapCollider) {
 				s = Math.max(s, mapCollider.touchDamageAmount);
 				n = Math.min(n, mapCollider.touchDamageDistance);
@@ -9635,8 +9655,8 @@ class RigidBody extends Ge {
 			}
 		}
 	}
-	needsLadderPhysics(t, e) {
-		if (!(e instanceof je)) {
+	needsLadderPhysics(t: SphereManifold, e: BoxCollider): boolean {
+		if (!(e instanceof BoxCollider)) {
 			return false;
 		}
 		if (t.colliderType != "box") {
@@ -9652,9 +9672,9 @@ class RigidBody extends Ge {
 				return true;
 			}
 		}
-		return !!e.isLadderAllSides || (t.isAtSecondUpFace && !t.isAtEdge);
+		return !!e.isLadderAllSides || (!!t.isAtSecondUpFace && !t.isAtEdge);
 	}
-	applyForce(t) {
+	applyForce(t: Vector3): void {
 		this.totalForce.add(t);
 	}
 	getAllowJump() {
@@ -9692,7 +9712,7 @@ class AntiCheat {
 		this.onPlayerNeedsReportCbs.add(cb);
 	}
 }
-class ti {
+class Activity {
 	weight = 0;
 	speed;
 	active = false;
@@ -9726,7 +9746,7 @@ function ei(multiplier: number, rightArm: number, leftArm: number): Record<strin
 		armL: leftArm * multiplier,
 	};
 }
-function ii(bowId: string, shootingActivity: ti, loadedWeight: number): SkeletonLayerWeight[] {
+function ii(bowId: string, shootingActivity: Activity, loadedWeight: number): SkeletonLayerWeight[] {
 	return [
 		{
 			name: `bows/${bowId}/running`,
@@ -9742,7 +9762,7 @@ function ii(bowId: string, shootingActivity: ti, loadedWeight: number): Skeleton
 		},
 	];
 }
-function si(meleeId: string, attackStartActivity: ti, attackEndActivity: ti): SkeletonLayerWeight[] {
+function si(meleeId: string, attackStartActivity: Activity, attackEndActivity: Activity): SkeletonLayerWeight[] {
 	return [
 		{
 			name: `melee/${meleeId}/idle`,
@@ -9758,25 +9778,31 @@ function si(meleeId: string, attackStartActivity: ti, attackEndActivity: ti): Sk
 		},
 	];
 }
-class ni {
-	sfxName;
+
+interface BowSFXOptions {
+	player: Player;
+	sfxOptions: object;
+}
+
+class BowSFX {
 	player;
 	sfxOptions;
 	playingState = false;
 	currentSfxInstance = null;
-	constructor(t, { player, sfxOptions }) {
-		this.sfxName = t;
+	currentPullSfx?: SFXSound | null;
+	constructor(public sfxName: string, { player, sfxOptions }: BowSFXOptions) {
+		this.sfxName = sfxName;
 		this.player = player;
 		this.sfxOptions = sfxOptions;
 	}
-	setPlayingState(t) {
-		if (t != this.playingState) {
-			if (t) {
+	setPlayingState(playing: boolean) {
+		if (playing != this.playingState) {
+			if (playing) {
 				this.startPullSfx();
 			} else {
 				this.stopPullSfx();
 			}
-			this.playingState = t;
+			this.playingState = playing;
 		}
 	}
 	async startPullSfx() {
@@ -9797,8 +9823,8 @@ class ni {
 		this.currentPullSfx = null;
 	}
 }
-class oi {
-	holdingHandler: Fe;
+class HoldingHandlerManager {
+	holdingHandler: HoldingHandler;
 	upConfig: Partial<FirstPersonConfig>;
 	downConfig: Partial<FirstPersonConfig>;
 	offscreenConfig: Partial<FirstPersonConfig>;
@@ -9807,7 +9833,7 @@ class oi {
 	prevUsePrimaryPosition: boolean;
 	usePrimaryPosition: boolean;
 	holdingHandlerDown: boolean;
-	constructor(holdingHandler: Fe, { upConfig, downConfig, offscreenConfig, minDownVelocity = 8 }: WeaponHolderOptions["holdingHandlerManagerOptions"]) {
+	constructor(holdingHandler: HoldingHandler, { upConfig, downConfig, offscreenConfig, minDownVelocity = 8 }: WeaponHolderOptions["holdingHandlerManagerOptions"]) {
 		this.holdingHandler = holdingHandler;
 		this.upConfig = upConfig;
 		this.downConfig = downConfig;
@@ -9906,15 +9932,15 @@ export interface WeaponHolderOptions {
 		minDownVelocity?: number;
 	};
 }
-class ai {
+class WeaponBase {
 	player: Player;
 	actionIsDown = false;
 	rawActionIsDown = false;
 	firstPersonVisible = true;
 	isPrimaryWeapon = true;
 	equipSfxName = "";
-	holdingHandler: Fe;
-	holdingHandlerManager: oi;
+	holdingHandler: HoldingHandler;
+	holdingHandlerManager: HoldingHandlerManager;
 	constructor(player: Player, holdingObject: Object3D, options: WeaponHolderOptions) {
 		this.player = player;
 		this.holdingHandler = this.player.createHoldingHandler({
@@ -9922,7 +9948,7 @@ class ai {
 			thirdPersonParentName: options.thirdPersonParentName,
 			secondaryThirdPersonParentName: options.secondaryThirdPersonParentName,
 		});
-		this.holdingHandlerManager = new oi(this.holdingHandler, options.holdingHandlerManagerOptions);
+		this.holdingHandlerManager = new HoldingHandlerManager(this.holdingHandler, options.holdingHandlerManagerOptions);
 	}
 	destructor(): void {
 		this.holdingHandler.destructor();
@@ -10013,20 +10039,16 @@ class ai {
 	getThirdPersonSkeletonLayers(): SkeletonLayerWeight[] {
 		return [];
 	}
-	getThirdPersonSkeletonMultipliers(_gender: string): Record<string, number> {
+	getThirdPersonSkeletonMultipliers(_gender: PlayerGender): Record<string, number> {
 		return {};
 	}
 }
-class ri extends ai {
-	bowWeaponId;
-	bowWeaponTypeId;
-	equipSfxName;
+class BowWeapon extends WeaponBase {
+	override equipSfxName: string;
 	bowAssetLoader;
-	constructor(t, e, i, s) {
-		const n = new ce();
-		super(t, n.obj, s);
-		this.bowWeaponId = e;
-		this.bowWeaponTypeId = i;
+	constructor(player: Player, public bowWeaponId: number, public bowWeaponTypeId: string, s) {
+		const n = new BowAssetLoader();
+		super(player, n.obj, s);
 		this.equipSfxName = "weapon/equipBow";
 		this.bowAssetLoader = n;
 	}
@@ -10082,7 +10104,7 @@ class ri extends ai {
 				n.setFromAxisAngle(t, Math.random() * Math.PI * 2);
 				s.applyQuaternion(n);
 				const o = new Quaternion();
-				o.setFromAxisAngle(s, l_1(-i, i, Math.random()));
+				o.setFromAxisAngle(s, lerp(-i, i, Math.random()));
 				return t.clone().applyQuaternion(o);
 			};
 			const o = computeO(s, q(0, 30, 0, 0.05, n));
@@ -10099,11 +10121,11 @@ class ri extends ai {
 	verifyArrowFrequency(t) {
 		return true;
 	}
-	getArrowOpts(t) {
+	getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 		throw new Error("getArrowOpts is not implemented");
 	}
-	loop(t, e) {
-		super.loop(t, e);
+	override loop(now: number, dt: number) {
+		super.loop(now, dt);
 		if (
 			this.actionIsDown &&
 			!this.rawActionIsDown &&
@@ -10130,17 +10152,17 @@ class ri extends ai {
 	}
 	getLoadSpeed(t, i) {
 		const s = this.player.getStatClassValue("arrowLoadingSpeed");
-		return l_1(t, i, s);
+		return lerp(t, i, s);
 	}
 }
-class li extends ri {
+class SmallCrossbow extends BowWeapon {
 	lastFireTime = 0;
 	prevArrowVisible = false;
 	lastActionWasTouch = false;
 	lastActionDownStart = 0;
-	loadingActivity = new ti();
-	shootingActivity = new ti();
-	constructor(...t) {
+	loadingActivity = new Activity();
+	shootingActivity = new Activity();
+	constructor(...t: [Player, number]) {
 		super(...t, "smallCrossbow", {
 			thirdPersonParentName: "bowHoldingPos",
 			secondaryThirdPersonParentName: "crossbowSecondaryPos",
@@ -10177,7 +10199,7 @@ class li extends ri {
 	getToggleCooldownValue() {
 		return 100;
 	}
-	getArrowOpts(t) {
+	getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 		const e = new Vector3();
 		e.set(1, 1, 1);
 		if (this.bowAssetLoader.assetLoaded) {
@@ -10308,11 +10330,9 @@ class li extends ri {
 		});
 	}
 }
-class hi {
-	weapon;
+class LongAttackHelper {
 	isAttacking = false;
-	constructor(t) {
-		this.weapon = t;
+	constructor(public weapon: MeleeWeapon) {
 	}
 	startAttacking() {
 		this.isAttacking = true;
@@ -10330,7 +10350,7 @@ class hi {
 		return false;
 	}
 }
-class di extends ai {
+class MeleeWeapon extends WeaponBase {
 	#a = null;
 	get lastSkinAssetName() {
 		return this.#a;
@@ -10340,18 +10360,18 @@ class di extends ai {
 	swingSfxName;
 	hitSfxOptions;
 	meleeAssetLoader;
-	constructor(t, e) {
-		const i = new he({
+	constructor(player: Player, options: WeaponHolderOptions) {
+		const i = new SingleAssetLoader({
 			label: "melee",
 		});
-		super(t, i.obj, e);
+		super(player, i.obj, options);
 		this.equipSfxName = "weapon/equipMelee";
 		this.hitSfxName = "";
 		this.swingSfxName = "";
 		this.hitSfxOptions = null;
 		this.meleeAssetLoader = i;
 	}
-	destructor() {
+	override destructor() {
 		super.destructor();
 		this.meleeAssetLoader.destructor();
 	}
@@ -10373,7 +10393,7 @@ class di extends ai {
 		}
 		const t = this.player.getCamPos();
 		const i = this.player.getLookDirection();
-		let s = l_1(2, 4, this.player.getStatClassValue("meleeAttackReach"));
+		let s = lerp(2, 4, this.player.getStatClassValue("meleeAttackReach"));
 		s *= this.getRangeMultiplier();
 		let n = null;
 		for (const collider of this.player.game.physics.getPlayerColliders()) {
@@ -10479,7 +10499,7 @@ class di extends ai {
 		});
 	}
 }
-class ci {
+class RandomConfigPicker {
 	configs;
 	currentConfig;
 	constructor(t) {
@@ -10500,7 +10520,7 @@ class ci {
 		return this.currentConfig;
 	}
 }
-class ui {
+export class ChargedAttack {
 	weapon;
 	prepareDurationMsLowAttackSpeed;
 	prepareDurationMsHighAttackSpeed;
@@ -10542,7 +10562,7 @@ class ui {
 	loop(t, i, s) {
 		if (this.actionIsDown && !this.cooldownIsActive && !this.isPreparingAttack) {
 			this.isPreparingAttack = true;
-			const t = l_1(this.prepareDurationMsLowAttackSpeed, this.prepareDurationMsHighAttackSpeed, s);
+			const t = lerp(this.prepareDurationMsLowAttackSpeed, this.prepareDurationMsHighAttackSpeed, s);
 			this.attackTime = getMain().now + t;
 		}
 		if (this.isPreparingAttack) {
@@ -10551,7 +10571,7 @@ class ui {
 				this.cooldownIsActive = true;
 			}
 		} else if (this.cooldownIsActive) {
-			const i = l_1(
+			const i = lerp(
 				this.cooldownDurationMsLowAttackSpeed,
 				this.cooldownDurationMsHighAttackSpeed,
 				s,
@@ -10566,10 +10586,10 @@ class ui {
 		};
 	}
 }
-const pi = {
-	smallBow: class extends ri {
-		shootingActivity = new ti();
-		shootingMultipleActivity = new ti();
+const bowWeapons = {
+	smallBow: class extends BowWeapon {
+		shootingActivity = new Activity();
+		shootingMultipleActivity = new Activity();
 		fireAmount01 = 0;
 		arrowCount = 1;
 		nextArrowTimer = 0;
@@ -10579,7 +10599,7 @@ const pi = {
 		shootingMultipleVisualLoadState = false;
 		shootingMultipleVisualFireAmount = 0;
 		pullSfx;
-		constructor(...t) {
+		constructor(...t: [Player, number]) {
 			super(...t, "smallBow", {
 				thirdPersonParentName: "bowHoldingPos",
 				secondaryThirdPersonParentName: "bowSecondaryPos",
@@ -10602,7 +10622,7 @@ const pi = {
 					},
 				},
 			});
-			this.pullSfx = new ni("weapon/bow/pull", {
+			this.pullSfx = new BowSFX("weapon/bow/pull", {
 				player: this.player,
 				sfxOptions: {
 					minPitch: 1.3,
@@ -10612,11 +10632,11 @@ const pi = {
 			this.updateBowAsset();
 		}
 		getAccuracyOffset() {
-			return l_1(40, 20, this.fireAmount01);
+			return lerp(40, 20, this.fireAmount01);
 		}
 		adjustFov(t) {
 			const i = this.player.getStatClassValue("shootingFocus");
-			return l_1(t, t - l_1(10, 30, i), this.fireAmount01);
+			return lerp(t, t - lerp(10, 30, i), this.fireAmount01);
 		}
 		getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
@@ -10627,7 +10647,7 @@ const pi = {
 		getToggleCooldownValue() {
 			return 100;
 		}
-		getArrowOpts(t) {
+		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -10659,9 +10679,9 @@ const pi = {
 				});
 				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * e));
 				if (i < t - 1) {
-					await Te.promise(50);
+					await Timeout.promise(50);
 					this.shootingMultipleVisualLoadState = true;
-					await Te.promise(50);
+					await Timeout.promise(50);
 					this.shootingMultipleVisualLoadState = false;
 				}
 			}
@@ -10752,13 +10772,13 @@ const pi = {
 			});
 		}
 	},
-	mediumBow: class extends ri {
-		shootingActivity = new ti();
+	mediumBow: class extends BowWeapon {
+		shootingActivity = new Activity();
 		fireAmount01 = 0;
 		lastFireUp = 0;
 		prevArrowReady = false;
 		pullSfx;
-		constructor(...t) {
+		constructor(...t: [Player, number]) {
 			super(...t, "mediumBow", {
 				thirdPersonParentName: "bowHoldingPos",
 				secondaryThirdPersonParentName: "bowSecondaryPos",
@@ -10781,7 +10801,7 @@ const pi = {
 					},
 				},
 			});
-			this.pullSfx = new ni("weapon/bow/pull", {
+			this.pullSfx = new BowSFX("weapon/bow/pull", {
 				player: this.player,
 				sfxOptions: {
 					minPitch: 0.7,
@@ -10791,11 +10811,11 @@ const pi = {
 			this.updateBowAsset();
 		}
 		getAccuracyOffset() {
-			return l_1(30, 0, this.fireAmount01);
+			return lerp(30, 0, this.fireAmount01);
 		}
 		adjustFov(t) {
 			const i = this.player.getStatClassValue("shootingFocus");
-			return l_1(t, t - l_1(10, 30, i), this.fireAmount01);
+			return lerp(t, t - lerp(10, 30, i), this.fireAmount01);
 		}
 		getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
@@ -10809,7 +10829,7 @@ const pi = {
 			}
 			return 1;
 		}
-		getArrowOpts(t) {
+		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -10900,15 +10920,15 @@ const pi = {
 			});
 		}
 	},
-	largeBow: class extends ri {
-		shootingActivity = new ti();
+	largeBow: class extends BowWeapon {
+		shootingActivity = new Activity();
 		fireAmount01 = 0;
 		lastFireDown = 0;
 		lastFireUp = 0;
 		prevCooldownActive = false;
 		isPullingBow = false;
 		pullSfx;
-		constructor(...t) {
+		constructor(...t: [Player, number]) {
 			super(...t, "largeBow", {
 				thirdPersonParentName: "bowHoldingPos",
 				secondaryThirdPersonParentName: "bowSecondaryPos",
@@ -10935,7 +10955,7 @@ const pi = {
 					minDownVelocity: 5,
 				},
 			});
-			this.pullSfx = new ni("weapon/bow/pullHeavy", {
+			this.pullSfx = new BowSFX("weapon/bow/pullHeavy", {
 				player: this.player,
 				sfxOptions: {
 					minPitch: 0.9,
@@ -10945,12 +10965,12 @@ const pi = {
 			this.updateBowAsset();
 		}
 		getAccuracyOffset() {
-			return l_1(30, 0, this.fireAmount01);
+			return lerp(30, 0, this.fireAmount01);
 		}
 		adjustFov(t) {
 			const i = this.player.getStatClassValue("shootingFocus");
-			const s = l_1(40, 10, i);
-			return l_1(t, s, this.fireAmount01);
+			const s = lerp(40, 10, i);
+			return lerp(t, s, this.fireAmount01);
 		}
 		getWalkSpeedMultiplier() {
 			if (this.getIsPullingBow()) {
@@ -10967,7 +10987,7 @@ const pi = {
 		getToggleCooldownValue() {
 			return 500;
 		}
-		getArrowOpts(t) {
+		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -11069,21 +11089,21 @@ const pi = {
 			});
 		}
 	},
-	smallCrossbow: li,
-	repeatingCrossbow: class extends ri {
+	smallCrossbow: SmallCrossbow,
+	repeatingCrossbow: class extends BowWeapon {
 		loadingOrShootingState = false;
 		loadedArrowCount = 10;
 		shootOrLoadTimer = 0;
 		hasReleasedAction = true;
 		isLoading = false;
-		loadingActivity = new ti();
-		loadingEndActivity = new ti();
-		shootingActivity = new ti();
+		loadingActivity = new Activity();
+		loadingEndActivity = new Activity();
+		shootingActivity = new Activity();
 		currentHandleObject = null;
 		currentArrowBoxObject = null;
 		emptyFirstPersonConfig;
 		loadingFirstPersonConfig;
-		constructor(...t) {
+		constructor(...t: [Player, number]) {
 			super(...t, "repeatingCrossbow", {
 				thirdPersonParentName: "bowHoldingPos",
 				secondaryThirdPersonParentName: "crossbowSecondaryPos",
@@ -11145,7 +11165,7 @@ const pi = {
 		adjustFov(t) {
 			if (this.isFiringArrows()) {
 				const i = this.player.getStatClassValue("shootingFocus");
-				return t - l_1(10, 30, i);
+				return t - lerp(10, 30, i);
 			}
 			return t;
 		}
@@ -11155,7 +11175,7 @@ const pi = {
 			}
 			return 0.8;
 		}
-		getArrowOpts(t) {
+		getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -11251,10 +11271,10 @@ const pi = {
 			this.shootingActivity.loop(this.isFiringArrows(), i);
 			const o = 1 - s;
 			if (this.currentHandleObject) {
-				this.currentHandleObject.rotation.x = l_1(0, 1, o);
+				this.currentHandleObject.rotation.x = lerp(0, 1, o);
 			}
 			if (this.currentArrowBoxObject) {
-				this.currentArrowBoxObject.rotation.x = l_1(0, 0.2, o * (1 - this.loadingActivity.weight));
+				this.currentArrowBoxObject.rotation.x = lerp(0, 0.2, o * (1 - this.loadingActivity.weight));
 			}
 		}
 		verifyArrowFrequency(t) {
@@ -11311,12 +11331,12 @@ const pi = {
 			});
 		}
 	},
-	largeCrossbow: class extends ri {
+	largeCrossbow: class extends BowWeapon {
 		loadAmount01 = 1;
 		lastShootTime = 0;
 		prevArrowReady = false;
-		loadWeightStart = new ti();
-		shootingWeight = new ti();
+		loadWeightStart = new Activity();
+		shootingWeight = new Activity();
 		pullSfx;
 		loadingFirstPersonConfig = {
 			posOffset: new Vector3(0, 0.3, -1),
@@ -11328,7 +11348,7 @@ const pi = {
 			minFov: 60,
 			maxFov: 110,
 		};
-		constructor(...t) {
+		constructor(...t: [Player, number]) {
 			super(...t, "largeCrossbow", {
 				thirdPersonParentName: "bowHoldingPos",
 				secondaryThirdPersonParentName: "crossbowSecondaryPos",
@@ -11357,7 +11377,7 @@ const pi = {
 					minDownVelocity: 6,
 				},
 			});
-			this.pullSfx = new ni("weapon/bow/pullHeavy", {
+			this.pullSfx = new BowSFX("weapon/bow/pullHeavy", {
 				player: this.player,
 				sfxOptions: {
 					minPitch: 1.3,
@@ -11366,26 +11386,26 @@ const pi = {
 			});
 			this.updateBowAsset();
 		}
-		adjustFov(t) {
+		override adjustFov(fov: number) {
 			if (this.weaponIsLoaded()) {
 				const i = this.player.getStatClassValue("shootingFocus");
-				return t - l_1(10, 30, i);
+				return fov - lerp(10, 30, i);
 			}
-			return t;
+			return fov;
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.isLoadingWeapon()) {
 				return 0.05;
 			}
 			return 0.8;
 		}
-		getJumpForceMultiplier() {
+		override getJumpForceMultiplier() {
 			if (this.isLoadingWeapon()) {
 				return 0;
 			}
 			return 1;
 		}
-		getArrowOpts(t) {
+		override getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
 			const e = new Vector3();
 			e.set(1, 1, 1);
 			if (this.bowAssetLoader.assetLoaded) {
@@ -11397,7 +11417,7 @@ const pi = {
 				scale: e,
 			};
 		}
-		onActionDown() {
+		override onActionDown() {
 			if (this.weaponIsLoaded()) {
 				this.shootArrow(1);
 				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005));
@@ -11410,7 +11430,7 @@ const pi = {
 				this.lastShootTime = getMain().now;
 			}
 		}
-		onPlayerRespawned() {
+		override onPlayerRespawned() {
 			this.loadAmount01 = 1;
 		}
 		getFireUpCooldownActive() {
@@ -11427,13 +11447,13 @@ const pi = {
 				(this.actionIsDown || this.loadAmount01 > 0.4)
 			);
 		}
-		loop(t, e) {
-			super.loop(t, e);
+		override loop(now: number, dt: number) {
+			super.loop(now, dt);
 			const s = this.isLoadingWeapon();
 			this.pullSfx.setPlayingState(s);
 			if (s) {
 				const t = this.getLoadSpeed(0.0012, 0.002);
-				this.loadAmount01 += e * t;
+				this.loadAmount01 += dt * t;
 				this.loadAmount01 = clampTo01(this.loadAmount01);
 			} else {
 				if (!this.weaponIsLoaded()) {
@@ -11457,8 +11477,8 @@ const pi = {
 			this.holdingHandlerManager.loop(s, this.player, {
 				forceConfig,
 			});
-			this.loadWeightStart.loop(s, e);
-			this.shootingWeight.loop(this.weaponIsLoaded(), e);
+			this.loadWeightStart.loop(s, dt);
+			this.shootingWeight.loop(this.weaponIsLoaded(), dt);
 		}
 		verifyArrowFrequency(t) {
 			return t < 0.003;
@@ -11514,7 +11534,7 @@ const pi = {
 	},
 };
 const gi = {
-	bladedLight: class extends di {
+	bladedLight: class extends MeleeWeapon {
 		hitSfxName = "weapon/melee/bladedHit";
 		attackT = 0;
 		stamina = 1;
@@ -11524,9 +11544,9 @@ const gi = {
 		attackEndPos = new Vector3();
 		attackStartConfig;
 		attackEndConfig;
-		attackStartActivity = new ti();
-		attackEndActivity = new ti();
-		constructor(...t) {
+		attackStartActivity = new Activity();
+		attackEndActivity = new Activity();
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosLight",
@@ -11551,7 +11571,7 @@ const gi = {
 					},
 				},
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackStartConfig = {
 				posOffset: this.attackStartPos,
 				rotOffset: new Vector3(-1.9, 0, 0),
@@ -11587,7 +11607,7 @@ const gi = {
 		}
 		getWalkSpeedMultiplier() {
 			if (this.isAttacking) {
-				return l_1(0.7, 1.1, this.stamina);
+				return lerp(0.7, 1.1, this.stamina);
 			}
 			return 1.1;
 		}
@@ -11606,8 +11626,8 @@ const gi = {
 				this.isAttacking = true;
 			}
 			if (this.isAttacking) {
-				this.attackT += s * l_1(0.5, 1, this.stamina);
-				const t = this.attackT * l_1(0.8, 1.4, this.getAttackSpeedStat());
+				this.attackT += s * lerp(0.5, 1, this.stamina);
+				const t = this.attackT * lerp(0.8, 1.4, this.getAttackSpeedStat());
 				const i = posMod(t, 200);
 				if (i < 100 && !this.actionIsDown && !this.attackEndActivity.active) {
 					this.isAttacking = false;
@@ -11644,14 +11664,14 @@ const gi = {
 			return si("bladedLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
-	bladedHeavy: class extends di {
+	bladedHeavy: class extends MeleeWeapon {
 		hitSfxName = "weapon/melee/bladedHit";
 		holdAttack;
 		longAttackHelper;
-		attackStartActivity = new ti();
-		attackEndActivity = new ti();
+		attackStartActivity = new Activity();
+		attackEndActivity = new Activity();
 		randomizer;
-		constructor(...t) {
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosBladedHeavy",
@@ -11675,14 +11695,14 @@ const gi = {
 					},
 				},
 			});
-			this.holdAttack = new ui({
+			this.holdAttack = new ChargedAttack({
 				weapon: this,
 				prepareDurationMsLowAttackSpeed: 300,
 				prepareDurationMsHighAttackSpeed: 150,
 				cooldownDurationMsLowAttackSpeed: 400,
 				cooldownDurationMsHighAttackSpeed: 200,
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackEndActivity.onActiveChange((t) => {
 				if (t) {
 					this.longAttackHelper.startAttacking();
@@ -11694,7 +11714,7 @@ const gi = {
 					this.randomizer.randomize();
 				}
 			});
-			this.randomizer = new ci([
+			this.randomizer = new RandomConfigPicker([
 				{
 					start: {
 						posOffset: new Vector3(0, -0.3, -0.8),
@@ -11776,7 +11796,7 @@ const gi = {
 			return si("bladedHeavy", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
-	bluntLight: class extends di {
+	bluntLight: class extends MeleeWeapon {
 		hitSfxName = "weapon/melee/bluntHit";
 		hitSfxOptions = {
 			minPitch: 1.3,
@@ -11810,9 +11830,9 @@ const gi = {
 			valuesSmoothing: 0.3,
 			maxFov: 80,
 		};
-		attackStartActivity = new ti();
-		attackEndActivity = new ti();
-		constructor(...t) {
+		attackStartActivity = new Activity();
+		attackEndActivity = new Activity();
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosLight",
@@ -11835,7 +11855,7 @@ const gi = {
 					},
 				},
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackEndActivity.onActiveChange((t) => {
 				if (t) {
 					this.playSfx("weapon/melee/bluntSwing", {
@@ -11868,7 +11888,7 @@ const gi = {
 			return getMain().now - this.lastActionDownTime < t * this.getAnimationDurationMultiplier();
 		}
 		getAnimationDurationMultiplier() {
-			return l_1(1.5, 0.8, this.getAttackSpeedStat());
+			return lerp(1.5, 0.8, this.getAttackSpeedStat());
 		}
 		loop(t, e) {
 			super.loop(t, e);
@@ -11914,18 +11934,18 @@ const gi = {
 			return si("bluntLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
-	bluntHeavy: class extends di {
+	bluntHeavy: class extends MeleeWeapon {
 		hitSfxName = "weapon/melee/bluntHit";
 		holdAttack;
 		longAttackHelper;
 		attackStartTime = 0;
-		attackStartActivity = new ti({
+		attackStartActivity = new Activity({
 			speed: 0.003,
 		});
 		attackEndActivity;
 		attackStartConfig;
 		attackEndConfig;
-		constructor(...t) {
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosBluntHeavy",
@@ -11948,20 +11968,20 @@ const gi = {
 					},
 				},
 			});
-			this.holdAttack = new ui({
+			this.holdAttack = new ChargedAttack({
 				weapon: this,
 				prepareDurationMsLowAttackSpeed: 500,
 				prepareDurationMsHighAttackSpeed: 200,
 				cooldownDurationMsLowAttackSpeed: 700,
 				cooldownDurationMsHighAttackSpeed: 200,
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackStartActivity.onActiveChange((t) => {
 				if (t) {
 					this.attackStartTime = getMain().now;
 				}
 			});
-			this.attackEndActivity = new ti();
+			this.attackEndActivity = new Activity();
 			this.attackEndActivity.onActiveChange((t) => {
 				if (t) {
 					this.longAttackHelper.startAttacking();
@@ -11991,7 +12011,7 @@ const gi = {
 		getWalkSpeedMultiplier() {
 			if (this.attackStartActivity.active) {
 				const t = getMain().now - this.attackStartTime;
-				const i = l_1(800, 500, this.getAttackSpeedStat());
+				const i = lerp(800, 500, this.getAttackSpeedStat());
 				return q(300, i, 0.3, 0.9, t, true);
 			}
 			if (this.attackEndActivity.active) {
@@ -12054,7 +12074,7 @@ const gi = {
 			t.ownedPlayerDidBluntHeavyHit();
 		}
 	},
-	pokeLight: class extends di {
+	pokeLight: class extends MeleeWeapon {
 		#r = null;
 		hitSfxName = "weapon/melee/pokeHit";
 		lastActionDownTime = 0;
@@ -12066,9 +12086,9 @@ const gi = {
 		attackEndPos = new Vector3();
 		attackStartConfig;
 		attackEndConfig;
-		attackStartActivity = new ti();
-		attackEndActivity = new ti();
-		constructor(...t) {
+		attackStartActivity = new Activity();
+		attackEndActivity = new Activity();
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosPoke",
@@ -12094,7 +12114,7 @@ const gi = {
 					},
 				},
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackStartConfig = {
 				posOffset: this.attackStartPos,
 				rotOffset: new Vector3(-1.9, 0, 0),
@@ -12163,7 +12183,7 @@ const gi = {
 		}
 		getWalkSpeedMultiplier() {
 			if (this.actionIsDown) {
-				return l_1(0.5, 1, this.stamina);
+				return lerp(0.5, 1, this.stamina);
 			}
 			return 1;
 		}
@@ -12188,7 +12208,7 @@ const gi = {
 				this.isAttacking = true;
 			}
 			if (this.isAttacking) {
-				const i = (t - this.lastActionDownTime) * l_1(0.8, 1.4, this.getAttackSpeedStat());
+				const i = (t - this.lastActionDownTime) * lerp(0.8, 1.4, this.getAttackSpeedStat());
 				const r = posMod(i, 350);
 				if (r < 100 && !this.actionIsDown && !this.attackEndActivity.active) {
 					this.isAttacking = false;
@@ -12228,18 +12248,19 @@ const gi = {
 			return si("pokeLight", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
-	pokeHeavy: class extends di {
+	pokeHeavy: class extends MeleeWeapon {
 		hitSfxName = "weapon/melee/pokeHit";
 		chargeDuration = 0;
 		lastChargeDuration = 0;
 		lastActionUpTime = 0;
 		longAttackHelper;
-		attackStartActivity = new ti();
-		attackEndActivity = new ti();
+		attackStartActivity = new Activity();
+		attackEndActivity = new Activity();
 		didHitCurrentAttack;
 		attackStartConfig;
 		attackEndConfig;
-		constructor(...t) {
+		lastActionDownTime;
+		constructor(...t: [Player]) {
 			super(...t, {
 				thirdPersonParentName: "meleeHoldingPos",
 				secondaryThirdPersonParentName: "meleeSecondaryPosPoke",
@@ -12265,7 +12286,7 @@ const gi = {
 					},
 				},
 			});
-			this.longAttackHelper = new hi(this);
+			this.longAttackHelper = new LongAttackHelper(this);
 			this.attackEndActivity.onActiveChange((t) => {
 				if (t) {
 					this.playSfx("weapon/melee/pokeSwing", {
@@ -12299,25 +12320,25 @@ const gi = {
 				walkBobMultiplier: 0.5,
 			};
 		}
-		getDamageMultiplier() {
+		override getDamageMultiplier() {
 			return 0.5;
 		}
-		getWalkSpeedMultiplier() {
+		override getWalkSpeedMultiplier() {
 			if (this.attackStartActivity.active) {
 				return 0.4;
 			}
 			return 1;
 		}
-		getJumpForceMultiplier() {
+		override getJumpForceMultiplier() {
 			if (this.attackStartActivity.active || this.attackEndActivity.active) {
 				return 0.7;
 			}
 			return 1;
 		}
-		getCooldownDuration() {
-			return l_1(700, 400, this.getAttackSpeedStat());
+		override getCooldownDuration() {
+			return lerp(700, 400, this.getAttackSpeedStat());
 		}
-		getAdditionalWalkAcceleration() {
+		override getAdditionalWalkAcceleration() {
 			let t = 0;
 			if (getMain().now - this.lastActionUpTime < 200) {
 				t = 3;
@@ -12325,7 +12346,7 @@ const gi = {
 			t *= q(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
 			return new Vector2(0, -t);
 		}
-		getAdditionalWalkAcceleration3d() {
+		override getAdditionalWalkAcceleration3d() {
 			let t = 0;
 			if (getMain().now - this.lastActionUpTime < 200) {
 				t = 3;
@@ -12360,18 +12381,18 @@ const gi = {
 		getIsCharging() {
 			return this.actionIsDown && !this.getAttackCooldownActive();
 		}
-		loop(t, i) {
-			super.loop(t, i);
+		override loop(now: number, dt: number) {
+			super.loop(now, dt);
 			let s = null;
 			let n = false;
 			let o = false;
 			if (this.getIsCharging()) {
-				this.chargeDuration += i;
+				this.chargeDuration += dt;
 				s = this.attackStartConfig;
 				n = true;
 			} else {
-				const i = l_1(400, 200, this.getAttackSpeedStat());
-				if (t - this.lastActionUpTime < i) {
+				const attackSpeed = lerp(400, 200, this.getAttackSpeedStat());
+				if (now - this.lastActionUpTime < attackSpeed) {
 					s = this.attackEndConfig;
 					o = true;
 				}
@@ -12379,19 +12400,19 @@ const gi = {
 			this.holdingHandlerManager.loop(this.actionIsDown, this.player, {
 				forceConfig: s,
 			});
-			this.attackStartActivity.loop(n, i);
-			this.attackEndActivity.loop(o, i);
+			this.attackStartActivity.loop(n, dt);
+			this.attackEndActivity.loop(o, dt);
 			this.longAttackHelper.loop();
 		}
-		onActionDown() {
+		override onActionDown() {
 			this.lastActionDownTime = getMain().now;
 		}
-		getThirdPersonSkeletonLayers() {
+		override getThirdPersonSkeletonLayers() {
 			return si("pokeHeavy", this.attackStartActivity, this.attackEndActivity);
 		}
 	},
 };
-class mi {
+class WeaponSelectionItem {
 	keyNumber;
 	el = document.createElement("div");
 	classSelectionImage;
@@ -12401,7 +12422,7 @@ class mi {
 	constructor({ classId, keyNumber }) {
 		this.keyNumber = keyNumber;
 		this.el.classList.add("weaponSelectionItem");
-		this.classSelectionImage = new ye(classId, {
+		this.classSelectionImage = new ClassSelectionImage(classId, {
 			extraClasses: ["in-game"],
 		});
 		this.el.appendChild(this.classSelectionImage.el);
@@ -12486,7 +12507,7 @@ class WeaponSelectionDialog extends Dialog {
 		this.weaponSelectionItems = [];
 		for (const [t, e] of allWeapons.entries()) {
 			const classId = e.id;
-			const s = new mi({
+			const s = new WeaponSelectionItem({
 				classId,
 				keyNumber: t + 1,
 			});
@@ -12620,6 +12641,15 @@ export interface PlayerParams {
 	needsSkeleton: boolean;
 	isDummyPlayer: boolean;
 }
+interface Stun {
+	amount: number;
+	duration: number;
+	fadeDuration: number;
+}
+interface StunEvent {
+	time: number;
+	stun: Stun;
+}
 export class Player {
 	#l = null;
 	#h = -Infinity;
@@ -12635,7 +12665,7 @@ export class Player {
 	squadPlayerId = 0;
 	gender = "male";
 	walkSpeed = 60;
-	recentStunEvents = new Set();
+	recentStunEvents = new Set<StunEvent>();
 	airWalkSpeedMultiplier = 0.4;
 	flagWalkSpeed = 45;
 	jumpForce = 8.6;
@@ -12693,7 +12723,7 @@ export class Player {
 	smoothMovementSpeed = 0;
 	ping = 0;
 	positionHistory: Vector3[] = [];
-	rigidBody: RigidBody;
+	rigidBody: PlayerBody;
 	boundOnJumpPress: () => void;
 	boundOnFireDown: () => void;
 	boundOnFireUp: () => void;
@@ -12718,30 +12748,30 @@ export class Player {
 	noclip: boolean;
 	serverFlyEnabled: boolean;
 	flySpeed: number;
-	movementAccuracyOffset: Bi | null;
+	movementAccuracyOffset: AccuracyOffset | null;
 	holdingFlag: Flag | null;
 	sentChangeFlagMessages: { flagId: number; changeOperation: number; sendTime: number }[];
 	statClassValues: Map<string, number> | null;
-	holdingHandlers: Set<Fe>;
+	holdingHandlers: Set<HoldingHandler>;
 	needsPlayerModel: boolean;
-	loadingModel: re | null;
-	activeModel: re | null;
+	loadingModel: SkinModel | null;
+	activeModel: SkinModel | null;
 	skeleton: PlayerSkeleton | null;
 	mostRecentWeaponSkeletonLayers: { name: string; weight: number }[];
 	weaponActionIsDown: boolean;
-	bowWeapon: ri | null;
-	meleeWeapon: di | null;
+	bowWeapon: BowWeapon | null;
+	meleeWeapon: MeleeWeapon | null;
 	meleeWeaponId: string | null;
 	hasActiveMeleeWeapon: boolean;
 	lastActiveWeaponToggleTime: number;
 	didUpdateActiveWeaponAfterToggle: boolean;
 	recentlyDestroyedWeapons: Map<number, number>;
 	lastSentArrowId: number;
-	weaponAccuracyOffset: Bi | null;
+	weaponAccuracyOffset: AccuracyOffset | null;
 	gungameWeaponIndex: number;
 	allowedWeaponsConfig: { allowMelee: boolean; availableBowIds: number[] };
 	lastWeaponLayersKey: string;
-	weaponLayers: se[];
+	weaponLayers: PoseLayer[];
 	recentInvalidArrowTimes: number[];
 	recentArrowCreationTimes: number[];
 	dead: boolean;
@@ -12769,9 +12799,9 @@ export class Player {
 	lastSfxStep: number;
 	icon: HudIcon;
 	destructed: boolean;
-	equippingWeaponLayer: se | null = null;
-	deadForwardLayer: se | null = null;
-	deadBackwardLayer: se | null = null;
+	equippingWeaponLayer: PoseLayer | null = null;
+	deadForwardLayer: PoseLayer | null = null;
+	deadBackwardLayer: PoseLayer | null = null;
 	constructor(
 		public game: OnlineGame | OfflineGame,
 		public inputManager: InputManager,
@@ -12784,7 +12814,7 @@ export class Player {
 	) {
 		this.teamId = teamId;
 		this.isDummyPlayer = isDummyPlayer;
-		this.rigidBody = new RigidBody(this.game.physics, this);
+		this.rigidBody = new PlayerBody(this.game.physics, this);
 		this.physicsManager.registerRigidBody(this.rigidBody);
 		this.boundOnJumpPress = this.onJumpPress.bind(this);
 		this.boundOnFireDown = this.onFireDown.bind(this);
@@ -12985,8 +13015,8 @@ export class Player {
 			return;
 		}
 		getMain().renderer.renderWorthyEventHappened();
-		const BowWeaponClass = pi[weaponConfig.bowId as keyof typeof pi];
-		const bowWeapon = new BowWeaponClass(this, bowIndex) as ri;
+		const BowWeaponClass = bowWeapons[weaponConfig.bowId as keyof typeof bowWeapons];
+		const bowWeapon = new BowWeaponClass(this, bowIndex) as BowWeapon;
 		this.bowWeapon = bowWeapon;
 		this.updateActiveWeapon();
 		this.updateSkinStats();
@@ -13012,7 +13042,7 @@ export class Player {
 			if (meleeId) {
 				const MeleeWeaponClass = gi[meleeId as keyof typeof gi];
 				if (MeleeWeaponClass) {
-					const meleeWeapon = new MeleeWeaponClass(this) as di;
+					const meleeWeapon = new MeleeWeaponClass(this) as MeleeWeapon;
 					this.meleeWeapon = meleeWeapon;
 					this.updateToggleWeaponTouchButtonVisibility();
 				}
@@ -13099,11 +13129,11 @@ export class Player {
 		return null;
 	}
 	loop(nowMs: number, deltaMs: number): void {
-		const o = this.prevPos.clone().sub(this.pos);
+		const posDiff = this.prevPos.clone().sub(this.pos);
 		this.prevPos = this.pos.clone();
-		const a = getMain();
-		this.velocity = o.clone().multiplyScalar(1000 / -deltaMs);
-		const r = this.game instanceof OnlineGame ? this.game : null;
+		const main = getMain();
+		this.velocity = posDiff.clone().multiplyScalar(1000 / -deltaMs);
+		const onlineGame = this.game instanceof OnlineGame ? this.game : null;
 		if (!(this.didUpdateActiveWeaponAfterToggle || this.activeWeaponToggleCooldownActive)) {
 			this.didUpdateActiveWeaponAfterToggle = true;
 			this.updateActiveWeapon();
@@ -13119,47 +13149,47 @@ export class Player {
 		}
 		if (this.hasOwnership) {
 			if (!this.deadFromFall) {
-				let e = this.lookRot;
+				let lookRot = this.lookRot;
 				let i = 0.5 * Math.PI;
-				if (a.cam.thirdPersonMode == "front") {
-					e = this.frontThirdPersonLookRot;
+				if (main.cam.thirdPersonMode == "front") {
+					lookRot = this.frontThirdPersonLookRot;
 					i = 1;
 				}
-				const s = this.inputManager.lookInput.clone();
+				const lookInput = this.inputManager.lookInput.clone();
 				if (this.activeWeapon) {
-					s.multiplyScalar(this.activeWeapon.getLookInputMultiplier());
+					lookInput.multiplyScalar(this.activeWeapon.getLookInputMultiplier());
 				}
 				if (this.smoothCam) {
-					if ((r && r.gameEndStepsReachedStatScreens) || a.dialogManager.needsUnlockedPointer) {
-						s.multiplyScalar(0.1);
+					if ((onlineGame && onlineGame.gameEndStepsReachedStatScreens) || main.dialogManager.needsUnlockedPointer) {
+						lookInput.multiplyScalar(0.1);
 					}
-					if (s.length() > 0.1) {
-						a.renderer.renderWorthyEventHappened(10000);
+					if (lookInput.length() > 0.1) {
+						main.renderer.renderWorthyEventHappened(10000);
 					}
-					this.smoothLookRotTarget.addScaledVector(s, -0.002);
-					e.lerp(this.smoothLookRotTarget, 0.1);
+					this.smoothLookRotTarget.addScaledVector(lookInput, -0.002);
+					lookRot.lerp(this.smoothLookRotTarget, 0.1);
 				} else {
-					if (s.length() > 0.1) {
-						a.renderer.renderWorthyEventHappened();
+					if (lookInput.length() > 0.1) {
+						main.renderer.renderWorthyEventHappened();
 					}
-					const t = a.cam.fovOffset;
+					const t = main.cam.fovOffset;
 					const i = q(0, 180, 1, 0.1, t, true);
-					e.addScaledVector(s, -0.002 * i);
+					lookRot.addScaledVector(lookInput, -0.002 * i);
 				}
-				e.y = clamp(e.y, 0.5 * -Math.PI, i);
+				lookRot.y = clamp(lookRot.y, 0.5 * -Math.PI, i);
 				this.cachedCamRotDirty = true;
 			}
-			let l = new Vector2();
-			if (!(a.mainMenu.visible || a.dialogManager.needsUnlockedPointer)) {
-				l = this.inputManager.walkInput;
+			let walkInput = new Vector2();
+			if (!(main.mainMenu.visible || main.dialogManager.needsUnlockedPointer)) {
+				walkInput = this.inputManager.walkInput;
 			}
-			if (l.length() > 0.01) {
-				a.renderer.renderWorthyEventHappened();
-				a.gameManager.joinIfNotJoined();
+			if (walkInput.length() > 0.01) {
+				main.renderer.renderWorthyEventHappened();
+				main.gameManager.joinIfNotJoined();
 			}
-			const h = new Vector3(l.x, 0, l.y);
-			h.applyQuaternion(this.getCamXRotQuaternion());
-			h.clampLength(0, 1);
+			const moveDir = new Vector3(walkInput.x, 0, walkInput.y);
+			moveDir.applyQuaternion(this.getCamXRotQuaternion());
+			moveDir.clampLength(0, 1);
 			const d = new Vector3();
 			let c = Infinity;
 			for (const t of this.getEquippedWeapons()) {
@@ -13182,45 +13212,45 @@ export class Player {
 			if (this.rigidBody.climbingLadder) {
 				d.multiplyScalar(this.nonActiveWeaponsEffect);
 			}
-			h.add(d);
-			h.clampLength(0, c);
-			const g = h.length();
+			moveDir.add(d);
+			moveDir.clampLength(0, c);
+			const moveLen = moveDir.length();
 			if (!this.rigidBody.fly) {
-				h.y = 0;
+				moveDir.y = 0;
 			}
-			if (g > 0.1) {
+			if (moveLen > 0.1) {
 				this.setPlayerHasInteracted();
 			}
-			h.setLength(g);
-			let m = this.holdingFlag ? this.flagWalkSpeed : this.walkSpeed;
+			moveDir.setLength(moveLen);
+			let moveSpeed = this.holdingFlag ? this.flagWalkSpeed : this.walkSpeed;
 			if (this.rigidBody.isOnUnwalkableCollider) {
-				m = 0;
+				moveSpeed = 0;
 			} else if (this.rigidBody.isOnSlipperyCollider) {
-				m *= 0.15;
+				moveSpeed *= 0.15;
 			} else if (this.rigidBody.climbingLadder) {
-				m *= this.ladderClimbSpeed;
+				moveSpeed *= this.ladderClimbSpeed;
 			} else if (!this.rigidBody.isOnFloor) {
-				m *= this.airWalkSpeedMultiplier;
+				moveSpeed *= this.airWalkSpeedMultiplier;
 			}
-			const f = 0.8;
-			m *= 1 / (this.rigidBody.slowDownColliderAmount * f + 1);
-			m *= l_1(0.9, 1.1, this.getStatClassValue("movementSpeed"));
+			const slowdownMultiplier = 0.8;
+			moveSpeed *= 1 / (this.rigidBody.slowDownColliderAmount * slowdownMultiplier + 1);
+			moveSpeed *= lerp(0.9, 1.1, this.getStatClassValue("movementSpeed"));
 			if (this.activeWeapon) {
-				m *= this.activeWeapon.getWalkSpeedMultiplier();
+				moveSpeed *= this.activeWeapon.getWalkSpeedMultiplier();
 			}
-			for (const t of this.recentStunEvents) {
-				const e = s - t.time;
-				if (e < t.stun.duration + t.stun.fadeDuration) {
-					const i = t.stun.duration;
-					const s = i + t.stun.fadeDuration;
-					m *= 1 - q(i, s, t.stun.amount, 0, e, true);
+			for (const stunEvent of this.recentStunEvents) {
+				const elapsed = nowMs - stunEvent.time;
+				if (elapsed < stunEvent.stun.duration + stunEvent.stun.fadeDuration) {
+					const stunDuration = stunEvent.stun.duration;
+					const fadeEnd = stunDuration + stunEvent.stun.fadeDuration;
+					moveSpeed *= 1 - q(stunDuration, fadeEnd, stunEvent.stun.amount, 0, elapsed, true);
 				} else {
-					this.recentStunEvents.delete(t);
+					this.recentStunEvents.delete(stunEvent);
 				}
 			}
 			if (this.rigidBody.climbingLadder && this.rigidBody.climbingLadderNormal) {
-				const t = h.dot(this.rigidBody.climbingLadderNormal);
-				const e = a.now - this.lastJumpTime > 500 && !this.rigidBody.isOnFloor;
+				const t = moveDir.dot(this.rigidBody.climbingLadderNormal);
+				const e = main.now - this.lastJumpTime > 500 && !this.rigidBody.isOnFloor;
 				let i = true;
 				if (t > 0 && !e) {
 					i = false;
@@ -13228,25 +13258,25 @@ export class Player {
 				if (i) {
 					const t = new Quaternion();
 					t.setFromUnitVectors(new Vector3(0, 1, 0), this.rigidBody.climbingLadderNormal);
-					h.applyQuaternion(t);
+					moveDir.applyQuaternion(t);
 				}
 				const s = this.rigidBody.climbingLadderNormal.clone().cross(new Vector3(0, 1, 0));
 				s.normalize();
-				const n = h.dot(s);
+				const n = moveDir.dot(s);
 				const o = s.clone().multiplyScalar(n * (1 - this.ladderTangentWalkSpeed));
-				h.sub(o);
+				moveDir.sub(o);
 			}
 			this.rigidBody.fly &&
 				(this.inputManager.getKey("flyUp").pressed &&
-					((h.y += 1), a.renderer.renderWorthyEventHappened()),
+					((moveDir.y += 1), main.renderer.renderWorthyEventHappened()),
 				this.inputManager.getKey("flyDown").pressed &&
-					((h.y -= 1), a.renderer.renderWorthyEventHappened()));
-			h.multiplyScalar(m);
+					((moveDir.y -= 1), main.renderer.renderWorthyEventHappened()));
+			moveDir.multiplyScalar(moveSpeed);
 			if (this.rigidBody.fly) {
-				h.multiplyScalar(1.001 ** this.flySpeed);
+				moveDir.multiplyScalar(1.001 ** this.flySpeed);
 			}
 			if (!this.dead) {
-				this.rigidBody.applyForce(h);
+				this.rigidBody.applyForce(moveDir);
 			}
 			let w = 0;
 			let b = 0;
@@ -13255,12 +13285,12 @@ export class Player {
 			b = Math.max(0, y.y);
 			w = S.length();
 			if (this.rigidBody.inAirTime < 200) {
-				this.legsMoveT += w * (n / 1000) * this.physicsManager.timeScale;
+				this.legsMoveT += w * (deltaMs / 1000) * this.physicsManager.timeScale;
 			}
-			this.legsMoveAmount += 0.005 * n;
+			this.legsMoveAmount += 0.005 * deltaMs;
 			this.legsMoveAmount = Math.min(this.legsMoveAmount, 0.15 * w);
 			this.legsMoveAmount = clampTo01(this.legsMoveAmount);
-			this.walkHeadBobAmount += 0.0003 * n;
+			this.walkHeadBobAmount += 0.0003 * deltaMs;
 			this.walkHeadBobAmount = Math.min(this.walkHeadBobAmount, w);
 			this.walkHeadBobAmount = clampTo01(this.walkHeadBobAmount);
 			let v = 2;
@@ -13270,18 +13300,18 @@ export class Player {
 			if (this.movementAccuracyOffset) {
 				this.movementAccuracyOffset.offset = 10 * b + w * v;
 			}
-			if (!this.dead && r) {
+			if (!this.dead && onlineGame) {
 				const t = 1.5;
 				if (this.holdingFlag || this.teamId == noAttackTeam) {
 					if (this.holdingFlag) {
-						for (const e of r.getMyFlags(this.teamId)) {
+						for (const e of onlineGame.getMyFlags(this.teamId)) {
 							if (e.defaultPosition.distanceTo(this.pos) < t) {
 								this.sendChangeFlag(this.holdingFlag.id, 1);
 							}
 						}
 					}
 				} else {
-					for (const e of r.getEnemyFlags(this.teamId)) {
+					for (const e of onlineGame.getEnemyFlags(this.teamId)) {
 						if (e.currentHoldingPlayer) {
 							continue;
 						}
@@ -13292,7 +13322,7 @@ export class Player {
 				}
 				let e = Infinity;
 				let i = null;
-				for (const s of r.getMyFlags(this.teamId)) {
+				for (const s of onlineGame.getMyFlags(this.teamId)) {
 					if (!s.isNearDefaultPos && !s.currentHoldingPlayer) {
 						const n = s.position.distanceTo(this.pos);
 						if (n < t && n < e) {
@@ -13302,33 +13332,33 @@ export class Player {
 					}
 				}
 				if (i) {
-					const t = r.gameTime / 1000;
+					const t = onlineGame.gameTime / 1000;
 					const e = 1 / q(5, 60, 300, 10000, t / 60, true);
-					i.addReturnProgress(n * e);
-					r.crosshair.setFlagReturnProgress(i.returnProgress);
+					i.addReturnProgress(deltaMs * e);
+					onlineGame.crosshair.setFlagReturnProgress(i.returnProgress);
 					if (i.returnProgress > 1) {
 						this.sendChangeFlag(i.id, 3);
 					}
 				}
-				r.crosshair.setFlagReturnProgressVisibility(i != null);
+				onlineGame.crosshair.setFlagReturnProgressVisibility(i != null);
 			}
-			const C = o.length() * n;
-			this.smoothMovementSpeed = l_1(this.smoothMovementSpeed, C, 0.1);
-			const k = Math.round(n / a.smoothDt);
+			const C = posDiff.length() * deltaMs;
+			this.smoothMovementSpeed = lerp(this.smoothMovementSpeed, C, 0.1);
+			const k = Math.round(deltaMs / main.smoothDt);
 			for (let t = 0; t < k; t++) {
 				this.positionHistory.unshift(this.pos.clone());
 			}
-			const x = Math.round(2000 / a.smoothDt);
+			const x = Math.round(2000 / main.smoothDt);
 			if (this.positionHistory.length > x) {
 				this.positionHistory.splice(x);
 			}
-			const M = a.mapLoader.mapVariablesManager.get("floorDeathHeight");
+			const M = main.mapLoader.mapVariablesManager.get("floorDeathHeight");
 			if (typeof M === "number" && this.pos.y < M) {
 				this.dieFromFall();
 			}
-			const A = a.mapLoader.mapVariablesManager.get("sphereDeathRadius");
+			const A = main.mapLoader.mapVariablesManager.get("sphereDeathRadius");
 			if (typeof A === "number" && A > 0 && this.pos.length() > A) {
-				this.sphereDeathTimer += n;
+				this.sphereDeathTimer += deltaMs;
 				if (!this.sphereDeathScreenFlash) {
 					this.sphereDeathScreenFlash = getMain().screenFlash.flash({
 						color: new Vector3(1, 0.9, 0.6),
@@ -13341,7 +13371,7 @@ export class Player {
 					this.sphereDeathTimer = 0;
 				}
 			} else if (this.sphereDeathTimer > 0) {
-				this.sphereDeathTimer -= n;
+				this.sphereDeathTimer -= deltaMs;
 				this.sphereDeathTimer = Math.max(0, this.sphereDeathTimer);
 				if (this.sphereDeathScreenFlash && this.sphereDeathTimer <= 0) {
 					this.sphereDeathScreenFlash.shouldBeDestroyed = true;
@@ -13354,31 +13384,31 @@ export class Player {
 				this.sphereDeathScreenFlash.baseOpacity = q(0.5, 1, 0, 1, t, true);
 			}
 			for (const t of this.recentForcedServerPositions) {
-				if (s > t.time + 10000 || t.pos.distanceTo(this.pos) > 10) {
+				if (nowMs > t.time + 10000 || t.pos.distanceTo(this.pos) > 10) {
 					this.recentForcedServerPositions.delete(t);
 				}
 			}
 		} else {
-			const t = a.now - this.lastReceivedServerPosTime;
+			const t = main.now - this.lastReceivedServerPosTime;
 			const e = q(0, 800, 1, 0, t, true);
-			this.predictedServerPos.addScaledVector(this.predictedServerVelocity, n * e);
+			this.predictedServerPos.addScaledVector(this.predictedServerVelocity, deltaMs * e);
 			const o = this.predictedServerPos.clone().sub(this.serverPos);
 			o.clampLength(0, this.maxPredictedServerPosDistance - 0.01);
 			this.predictedServerPos.copy(this.serverPos).add(o);
 			if (t < 100) {
-				this.predictedServerVelocity.addScaledVector(this.predictedServerAcceleration, n);
+				this.predictedServerVelocity.addScaledVector(this.predictedServerAcceleration, deltaMs);
 			}
 			const r = 0.02;
-			this.predictedServerVelocity.multiplyScalar((1 - r) ** n);
+			this.predictedServerVelocity.multiplyScalar((1 - r) ** deltaMs);
 			const l = this.serverPosSmooth.clone();
-			this.serverPosSmooth.lerp(this.predictedServerPos, 1 - 0.8 ** (n / 16.66));
+			this.serverPosSmooth.lerp(this.predictedServerPos, 1 - 0.8 ** (deltaMs / 16.66));
 			const h = this.serverPosSmooth.clone().sub(l);
 			const d = new Vector2(h.x, h.z).length();
 			if (this.rigidBody.inAirTime < 200) {
 				this.legsMoveT += d;
 			}
-			this.legsMoveAmount += 0.005 * n;
-			this.legsMoveAmount = Math.min(this.legsMoveAmount, (1000 * d) / n);
+			this.legsMoveAmount += 0.005 * deltaMs;
+			this.legsMoveAmount = Math.min(this.legsMoveAmount, (1000 * d) / deltaMs);
 			this.legsMoveAmount = clampTo01(this.legsMoveAmount);
 			if (this.pos.distanceTo(this.serverPos) > this.maxPredictedServerPosDistance) {
 				this.rigidBody.pos.copy(this.serverPos);
@@ -13393,14 +13423,14 @@ export class Player {
 				!this.rigidBody.climbingLadder &&
 				this.rigidBody.airFrictionModifier <= 0
 			) {
-				if (s - c < 200) {
+				if (nowMs - c < 200) {
 					const t = h.clone();
 					const e = t.angleTo(new Vector3(0, 1, 0));
 					t.multiplyScalar(q(0, Math.PI, 1, 0, e, true));
 					this.antiFlyAccumulator += t.length();
-					this.antiFlyInAirTimeRaw += n;
+					this.antiFlyInAirTimeRaw += deltaMs;
 					this.antiFlyInAirTimeAccumulator +=
-						n * q(2, 10, 0, 10, this.lastAntiFlyRaycastDist, true);
+						deltaMs * q(2, 10, 0, 10, this.lastAntiFlyRaycastDist, true);
 				}
 			} else {
 				this.antiFlyAccumulator = 0;
@@ -13410,12 +13440,12 @@ export class Player {
 			if (!this.dead && !this.rigidBody.fly && this.hasTouchedFloorEver) {
 				const t = q(17, 30, 0, 1, this.antiFlyAccumulator, true);
 				let e = 0;
-				if (s - c < 200) {
+				if (nowMs - c < 200) {
 					e = q(0, 10000, 0, 1, this.antiFlyInAirTimeAccumulator, true);
 				}
 				if (this.antiFlyInAirTimeRaw > 5000) {
-					if (s > this.lastAntiFlyRaycastTime + 1000) {
-						this.lastAntiFlyRaycastTime = s;
+					if (nowMs > this.lastAntiFlyRaycastTime + 1000) {
+						this.lastAntiFlyRaycastTime = nowMs;
 						let t = Infinity;
 						const e = this.pos;
 						const i = this.pos.clone();
@@ -13440,7 +13470,7 @@ export class Player {
 			}
 		}
 		if (this.dead) {
-			const t = 0.004 * (s - this.dieTime);
+			const t = 0.004 * (nowMs - this.dieTime);
 			this.deadAnimationWeight = 1 - 2 ** -t;
 			this.legsMoveAmount = Math.min(this.legsMoveAmount, 1 - this.deadAnimationWeight);
 			const e = 1 + 2 ** (0.05 * -this.rigidBody.onFloorTime);
@@ -13450,11 +13480,11 @@ export class Player {
 				: this.deadBackwardLayer && (this.deadBackwardLayer.weight = i);
 		}
 		if (this.health < 1 && !this.dead) {
-			const t = (s - this.lastHitTime) / 1000;
-			const o = l_1(8, 2, this.getStatClassValue("healthRegenSpeed"));
+			const t = (nowMs - this.lastHitTime) / 1000;
+			const o = lerp(8, 2, this.getStatClassValue("healthRegenSpeed"));
 			const a = clampTo01((0.3 * (t - o)) ** 5);
 			this.hasOwnership && (a > 0.1 ? this.startHealthRegenSound() : this.stopHealthRegenSound());
-			this.health += 0.0005 * n * a;
+			this.health += 0.0005 * deltaMs * a;
 			this.health = Math.min(1, this.health);
 			if (this.hasOwnership) {
 				this.updateHealthUi();
@@ -13464,11 +13494,11 @@ export class Player {
 		if (l != this.prevHealthIsNegative) {
 			this.prevHealthIsNegative = l;
 			if (l) {
-				this.negativeHealthStartTime = s;
+				this.negativeHealthStartTime = nowMs;
 			}
 		}
 		if (l && !this.dead) {
-			if (s - this.negativeHealthStartTime > 1000) {
+			if (nowMs - this.negativeHealthStartTime > 1000) {
 				this.health = 1;
 				if (this.hasOwnership) {
 					this.updateHealthUi();
@@ -13497,10 +13527,10 @@ export class Player {
 			});
 		}
 		if (this.activeModel) {
-			this.activeModel.setHitFlashMaterialsTime(s);
+			this.activeModel.setHitFlashMaterialsTime(nowMs);
 		}
 		if (this.loadingModel) {
-			this.loadingModel.setHitFlashMaterialsTime(s);
+			this.loadingModel.setHitFlashMaterialsTime(nowMs);
 		}
 	}
 	get legsMoveTForCos() {
@@ -13602,7 +13632,7 @@ export class Player {
 				let a = this.lookRot;
 				if (this.dead) {
 					a = this.deadLookRot.clone();
-					a.y = l_1(this.deadLookRot.y, 0, this.deadAnimationWeight);
+					a.y = lerp(this.deadLookRot.y, 0, this.deadAnimationWeight);
 				}
 				this.skeleton.setLookRotY(-a.y, o);
 				this.animateLeg(this.skeleton.legObjectsL, this.legsMoveTForCos, -1, 1.8, 0.7);
@@ -13633,15 +13663,15 @@ export class Player {
 		t.lower.rotation.x = 0.3 * (1 + Math.cos(i)) * this.legsMoveAmount;
 		t.foot.rotation.x = 0.5 * Math.cos(i) * this.legsMoveAmount;
 		const a = q(0, 800, 0, 1, this.rigidBody.inAirTime, true);
-		t.upper.rotation.x = l_1(t.upper.rotation.x, s, a);
-		t.lower.rotation.x = l_1(t.lower.rotation.x, n, a);
-		t.foot.rotation.x = l_1(t.foot.rotation.x, o, a);
+		t.upper.rotation.x = lerp(t.upper.rotation.x, s, a);
+		t.lower.rotation.x = lerp(t.lower.rotation.x, n, a);
+		t.foot.rotation.x = lerp(t.foot.rotation.x, o, a);
 		t.upper.rotation.x *= this.skinLegMoveAmount;
 		t.lower.rotation.x *= this.skinLegMoveAmount;
 		t.foot.rotation.x *= this.skinLegMoveAmount;
 	}
 	createHoldingHandler(t) {
-		const e = new Fe(this, t);
+		const e = new HoldingHandler(this, t);
 		this.holdingHandlers.add(e);
 		return e;
 	}
@@ -13910,7 +13940,7 @@ export class Player {
 				this.loadingModel.destructor();
 			}
 			this.loadingModel = null;
-			this.loadingModel = new re({
+			this.loadingModel = new SkinModel({
 				skinObjectOpts: {
 					teamId: this.teamId,
 					skin: skinData,
@@ -14203,17 +14233,17 @@ export class Player {
 	addMeleeHitFlash() {
 		this.addHitFlash(1);
 	}
-	playerClaimedHitByArrow(t, e, i) {
+	playerClaimedHitByArrow(player: Player, e, i) {
 		const s = this.rigidBody.colliders[i];
 		if (s) {
-			const i = this.game.arrowManager.getArrowById(t.id, e);
+			const i = this.game.arrowManager.getArrowById(player.id, e);
 			if (!i) {
 				return;
 			}
 			let n = true;
 			if (i.consumed) {
 				n = false;
-			} else if (!s_1(t.teamId, this.teamId)) {
+			} else if (!s_1(player.teamId, this.teamId)) {
 				n = false;
 			}
 			const o = 3;
@@ -14236,7 +14266,7 @@ export class Player {
 					}
 				}
 				if (a) {
-					this.markValidArrowHit(t, i, s);
+					this.markValidArrowHit(player, i, s);
 				} else {
 					let e = false;
 					let n = i.travelledPositions[i.travelledPositions.length - 1];
@@ -14254,7 +14284,7 @@ export class Player {
 						l.closestPointToPoint(s.center, true, h);
 						if (h.distanceTo(s.center) < o) {
 							e = true;
-							this.markValidArrowHit(t, i, s);
+							this.markValidArrowHit(player, i, s);
 						}
 					});
 					setTimeout(() => {
@@ -14265,18 +14295,18 @@ export class Player {
 								(t) => e - t < 3000,
 							);
 							if (this.recentInvalidArrowTimes.length >= 3) {
-								t.report(Ye, 1);
+								player.report(Ye, 1);
 								this.recentInvalidArrowTimes = [];
 							}
 						}
 					}, 1000);
 				}
 			} else {
-				t.report(Ye, 1);
+				player.report(Ye, 1);
 			}
 		}
 		if (!this.hasOwnership) {
-			if (!t.hasOwnership) {
+			if (!player.hasOwnership) {
 				this.addHitFlash(i);
 			}
 			this.sfxManager.playSound(`player/takeDamage/${this.gender}/${intRandom(1, 4)}`, {
@@ -14284,7 +14314,7 @@ export class Player {
 			});
 		}
 	}
-	markValidArrowHit(t, e, i) {
+	markValidArrowHit(player: Player, e, i) {
 		const network = getMain().network;
 		e.consume();
 		let i_arrowDamage = i.arrowDamage;
@@ -14296,10 +14326,10 @@ export class Player {
 			o = e.lookDirection;
 		}
 		let a = "arrow";
-		t.hasOwnership &&
+		player.hasOwnership &&
 			(i.bodyPart == "head" && (a = "headshotByOwnedPlayer"),
-			t.pos.distanceTo(this.pos) > 420 && (a = "ultraLongRangeOwner"),
-			this.#g && t.bowWeapon && t.bowWeapon instanceof li && (a = "smallCrossbowAfterBluntHeavy"));
+			player.pos.distanceTo(this.pos) > 420 && (a = "ultraLongRangeOwner"),
+			this.#g && player.bowWeapon && player.bowWeapon instanceof SmallCrossbow && (a = "smallCrossbowAfterBluntHeavy"));
 		if (this.applyDamage(i_arrowDamage, o, a)) {
 			this.hasOwnership &&
 				this.getStatClassValue("armorStrength") >= 1 &&
@@ -14307,7 +14337,7 @@ export class Player {
 				(this.#u++, this.#u >= 10 && activateSteamAchievement("absorbTenArrows"));
 			const i = e.getStunData();
 			this.applyStun(i);
-			network.sendValidArrowHit(t.id, e.arrowId, this.health);
+			network.sendValidArrowHit(player.id, e.arrowId, this.health);
 		}
 	}
 	serverArrowCreated() {
@@ -14332,7 +14362,7 @@ export class Player {
 		}
 		return (
 			t.meleeWeapon.getDamageMultiplier() *
-			l_1(0.5, 1.5, t.getStatClassValue("meleeAttackStrength"))
+			lerp(0.5, 1.5, t.getStatClassValue("meleeAttackStrength"))
 		);
 	}
 	hitByMeleeFromServer(t) {
@@ -14377,7 +14407,7 @@ export class Player {
 			this.health = Math.min(1, this.health);
 		}
 	}
-	applyStun(stun) {
+	applyStun(stun: Stun) {
 		if (!(stun.amount <= 0 || (stun.duration <= 0 && stun.fadeDuration <= 0))) {
 			this.recentStunEvents.add({
 				time: getMain().now,
@@ -14394,7 +14424,7 @@ export class Player {
 			this.damageReceivedHistory.splice(t, 1);
 		}
 		let damageWithoutArmorStrength = 1.1 * t;
-		let damageWithArmorStrength = t * l_1(1.1, 0.7, this.getStatClassValue("armorStrength"));
+		let damageWithArmorStrength = t * lerp(1.1, 0.7, this.getStatClassValue("armorStrength"));
 		damageWithoutArmorStrength = this.computeDamageWithCooldown(damageWithoutArmorStrength);
 		damageWithArmorStrength = this.computeDamageWithCooldown(damageWithArmorStrength);
 		return {
@@ -14949,29 +14979,25 @@ export class Player {
 	}
 }
 const Li = new Vector3(0, -20, 0);
-class Ti extends Ge {
-	physicsManager;
-	flag;
+class FlagBody extends RigidBody {
 	pos = new Vector3();
 	velocity = new Vector3();
 	isOnFloor = false;
 	radius = 0.5;
 	aabb;
-	constructor(t, e) {
+	constructor(public physicsManager: PhysicsManager, public flag: Flag) {
 		super();
-		this.physicsManager = t;
-		this.flag = e;
 		const i = this.radius;
 		this.aabb = new Box3(new Vector3(-i, -i, -i), new Vector3(i, i, i));
 	}
-	stepVelocity(t) {
-		this.velocity.addScaledVector(Li, t);
+	override stepVelocity(step: number) {
+		this.velocity.addScaledVector(Li, step);
 		const e = this.isOnFloor ? 1 : 0.8;
-		const i = (1 - e) ** t;
+		const i = (1 - e) ** step;
 		this.velocity.multiplyScalar(i);
-		this.pos.addScaledVector(this.velocity, t);
+		this.pos.addScaledVector(this.velocity, step);
 	}
-	resolveMapCollisionsOctree(t) {
+	override resolveMapCollisionsOctree(step: number) {
 		this.isOnFloor = false;
 		const e = this.getManifolds();
 		for (const { manifold, mapCollider } of e) {
@@ -15020,44 +15046,41 @@ class Ti extends Ge {
 }
 class Flag {
 	#m = 0;
-	id;
-	teamId;
 	defaultPosition;
 	defaultRotation;
 	position;
-	game;
-	physicsManager;
 	isOnDefaultPos = true;
 	rigidBody;
-	obj;
-	grabAnimationContainer;
+	obj = new Object3D;
+	grabAnimationContainer = new Object3D;
 	grabStartTime;
 	returnProgress;
 	onNearDefaultPosChangeCbs;
 	isNearDefaultPos;
 	onCurrentHoldingPlayerChangeCbs;
-	currentHoldingPlayer;
+	currentHoldingPlayer: Player | null = null;
 	prevIsBeingHeld;
-	holdingHandler;
+	holdingHandler: HoldingHandler | null = null;
 	icon;
 	destructed;
-	constructor(t, e, i, s, n, o) {
-		this.id = t;
-		this.teamId = e;
-		this.defaultPosition = i;
-		this.defaultRotation = s;
-		this.position = i.clone();
-		this.game = n;
-		this.physicsManager = o;
-		this.rigidBody = new Ti(this.game.physics, this);
+	constructor(
+		public id: number,
+		public teamId: number,
+		position: Vector3,
+		rotation: Quaternion,
+		public game: Game,
+		public physicsManager: PhysicsManager
+	) {
+		this.defaultPosition = position;
+		this.defaultRotation = rotation;
+		this.position = position.clone();
+		this.rigidBody = new FlagBody(this.game.physics, this);
 		this.rigidBody.enabled = false;
-		o.registerRigidBody(this.rigidBody);
-		this.obj = new Object3D();
+		physicsManager.registerRigidBody(this.rigidBody);
 		this.obj.name = "flag";
-		this.obj.position.copy(i);
-		this.obj.quaternion.copy(s);
+		this.obj.position.copy(position);
+		this.obj.quaternion.copy(rotation);
 		getMain().scene.add(this.obj);
-		this.grabAnimationContainer = new Object3D();
 		this.grabAnimationContainer.name = "flagGrabAnimationContainer";
 		this.obj.add(this.grabAnimationContainer);
 		this.obj.updateWorldMatrix(false, true);
@@ -15070,7 +15093,7 @@ class Flag {
 		this.prevIsBeingHeld = false;
 		this.holdingHandler = null;
 		this.icon = getMain().hudIcons.createIcon({
-			url: `static/img/hudIcons/flags/${n_1[e].id}.svg`,
+			url: `static/img/hudIcons/flags/${n_1[teamId]?.id}.svg`,
 		});
 		this.initModel();
 		this.destructed = false;
@@ -15131,7 +15154,7 @@ class Flag {
 		this.icon.setPos(t);
 		this.obj.updateWorldMatrix(false, true);
 	}
-	loop(t, e) {
+	loop(t: number, e: number): void {
 		const i = (t - this.grabStartTime) / 1000;
 		const s = 2 * Math.PI * 2;
 		const n = q(0, 0.8, s, 0, i, true);
@@ -15139,7 +15162,7 @@ class Flag {
 		const o = 1 / (1 + Math.E ** (-50 * (i - 0.7)));
 		this.grabAnimationContainer.position.y = 0.3 * (1 - o);
 	}
-	afterPhysicsLoop(t, e) {
+	afterPhysicsLoop(t: number, e: number): void {
 		if (!this.currentHoldingPlayer && !this.isOnDefaultPos) {
 			this.position.copy(this.rigidBody.pos);
 			this.position.y -= this.rigidBody.radius;
@@ -15151,7 +15174,7 @@ class Flag {
 			}
 		}
 	}
-	startHoldByPlayer(t) {
+	startHoldByPlayer(t: Player): void {
 		if (t != this.currentHoldingPlayer) {
 			this.removeCurrentHoldingPlayer();
 			this.currentHoldingPlayer = t;
@@ -15161,7 +15184,7 @@ class Flag {
 			}
 			this.grabStartTime = getMain().now;
 			this.updateRenderState();
-			this.onCurrentHoldingPlayerChangeCbs.forEach((t) => t());
+			for (const cb of this.onCurrentHoldingPlayerChangeCbs as Set<() => void>) cb();
 		}
 	}
 	destroyHoldingHandler() {
@@ -15196,12 +15219,12 @@ class Flag {
 			this.currentHoldingPlayer.stopHoldingFlag(this);
 		}
 		this.currentHoldingPlayer = null;
-		this.onCurrentHoldingPlayerChangeCbs.forEach((t) => t());
+		for (const cb of this.onCurrentHoldingPlayerChangeCbs as Set<() => void>) cb();
 	}
-	onCurrentHoldingPlayerChange(t) {
+	onCurrentHoldingPlayerChange(t: () => void): void {
 		this.onCurrentHoldingPlayerChangeCbs.add(t);
 	}
-	setDroppedPosition(t, e, i, s, n, o) {
+	setDroppedPosition(t: number, e: number, i: number, s: number, n: number, o: number): void {
 		this.isOnDefaultPos = false;
 		this.position.set(t, e + this.rigidBody.radius, i);
 		this.updateIsNearDefaultPos();
@@ -15213,14 +15236,14 @@ class Flag {
 			this.updateRenderState();
 		}
 	}
-	onNearDefaultPosChange(t) {
+	onNearDefaultPosChange(t: () => void): void {
 		this.onNearDefaultPosChangeCbs.add(t);
 	}
 	updateIsNearDefaultPos() {
 		const t = this.position.distanceTo(this.defaultPosition) < 1;
 		if (t != this.isNearDefaultPos) {
 			this.isNearDefaultPos = t;
-			this.onNearDefaultPosChangeCbs.forEach((t) => t());
+			for (const cb of this.onNearDefaultPosChangeCbs as Set<() => void>) cb();
 		}
 	}
 	sendFlagReturnProgressToServer(t) {
@@ -15243,19 +15266,39 @@ class Flag {
 		}
 	}
 }
-class Di {
-	physics;
-	hingeManager;
-	shotBy;
-	arrowId;
-	startPos;
+export interface ArrowWeaponOpts {
+	visualOffset: Vector3;
+	scale: Vector3;
+	damageMultiplier: number;
+	travelDistanceMultiplier: number;
+	trailThicknessMultiplier: number;
+	trailDurationMultiplier: number;
+}
+export interface ArrowSpawnOptions {
+	arrowId: number;
+	pos: Vector3;
+	networkOffsetPos: Vector3;
+	dir: Vector3;
+	fireAmount01: number;
+}
+export interface ArrowManagerOptions {
+	arrowManager: ArrowManager;
+	scene: Scene;
+}
+export interface CachedArrowRay {
+	ray: RayCastCache;
+	createTime: number;
+}
+class Arrow {
+	arrowId: number;
+	startPos: Vector3;
 	consumed = false;
-	arrowManager;
-	scene;
-	networkOffsetPos;
-	networkStartPos;
-	dir;
-	arrowWeaponOpts = {
+	arrowManager: ArrowManager;
+	scene: Scene;
+	networkOffsetPos: Vector3;
+	networkStartPos: Vector3;
+	dir: Vector3;
+	arrowWeaponOpts: ArrowWeaponOpts = {
 		visualOffset: new Vector3(),
 		scale: new Vector3(1, 1, 1),
 		damageMultiplier: 1,
@@ -15263,43 +15306,40 @@ class Di {
 		trailThicknessMultiplier: 1,
 		trailDurationMultiplier: 1,
 	};
-	playerDamageMultiplier;
-	strength;
-	existingTime;
-	parabolaXDist;
-	xSpeed;
-	visualStartPos;
-	obj;
-	prevPos;
-	prevRaycastPos;
-	cachedRays;
-	travelledPositions;
-	onTravelCbs;
-	lookDirection;
-	sphere;
-	trailObj;
-	trailGeo;
-	trailMat;
-	stuckInHingeId;
-	hingeImpactMatrix;
-	boundUpdateHingePosition;
-	didHitWorld;
-	didHitPlayer;
-	worldHitTime;
-	worldHitRot;
-	worldHitTangent;
-	worldHitLastRayDistance;
-	destructed;
+	playerDamageMultiplier: number;
+	strength: number;
+	existingTime: number;
+	parabolaXDist: number;
+	xSpeed: number;
+	visualStartPos: Vector3;
+	obj: Object3D;
+	prevPos: Vector3 | null;
+	prevRaycastPos: Vector3 | null;
+	cachedRays: CachedArrowRay[];
+	travelledPositions: Vector3[];
+	onTravelCbs: Set<(pos: Vector3) => void>;
+	lookDirection: Vector3;
+	sphere: Mesh | null;
+	trailObj: Mesh | null;
+	trailGeo: BufferGeometry | null;
+	trailMat: ShaderMaterial | null;
+	stuckInHingeId: number;
+	hingeImpactMatrix: Matrix4 | null;
+	boundUpdateHingePosition: () => void = () => {};
+	didHitWorld: boolean;
+	didHitPlayer: boolean;
+	worldHitTime: number;
+	worldHitRot: Quaternion | null;
+	worldHitTangent: Vector3 | null;
+	worldHitLastRayDistance: number;
+	destructed: boolean;
 	constructor(
-		t,
-		i,
-		s,
-		{ arrowId, pos, networkOffsetPos, dir, fireAmount01 },
-		{ arrowManager, scene },
+		public physics: PhysicsManager,
+		public hingeManager: HingeManager,
+		public shotBy: Player,
+		{ arrowId, pos, networkOffsetPos, dir, fireAmount01 }: ArrowSpawnOptions,
+		{ arrowManager, scene }: ArrowManagerOptions,
 	) {
-		this.physics = t;
-		this.hingeManager = i;
-		this.shotBy = s;
 		this.arrowId = arrowId;
 		this.startPos = pos;
 		this.arrowManager = arrowManager;
@@ -15307,14 +15347,14 @@ class Di {
 		this.networkOffsetPos = networkOffsetPos;
 		this.networkStartPos = pos.clone().add(networkOffsetPos);
 		this.dir = dir;
-		this.playerDamageMultiplier = l_1(0.8, 1.2, s.getStatClassValue("bowAttackStrength"));
-		if (s.bowWeapon) {
+		this.playerDamageMultiplier = lerp(0.8, 1.2, shotBy.getStatClassValue("bowAttackStrength"));
+		if (shotBy.bowWeapon) {
 			this.arrowWeaponOpts = {
 				...this.arrowWeaponOpts,
-				...s.bowWeapon.getArrowOpts(fireAmount01),
+				...shotBy.bowWeapon.getArrowOpts(fireAmount01),
 			};
 		}
-		this.strength = l_1(10, 500 * this.arrowWeaponOpts.travelDistanceMultiplier, fireAmount01);
+		this.strength = lerp(10, 500 * this.arrowWeaponOpts.travelDistanceMultiplier, fireAmount01);
 		this.dir.setLength(this.strength);
 		this.existingTime = 0;
 		const p = this.getParabolaExtremePoint();
@@ -15322,7 +15362,7 @@ class Di {
 		const g = this.parabolaXDist + 2 * p.y;
 		this.xSpeed = g == 0 ? 1 : Math.abs(this.parabolaXDist / g);
 		this.xSpeed *= q(100, 500, 0.05, 0.15, this.strength);
-		this.xSpeed *= l_1(0.82, 1.05, s.getStatClassValue("arrowFlySpeed"));
+		this.xSpeed *= lerp(0.82, 1.05, shotBy.getStatClassValue("arrowFlySpeed"));
 		this.visualStartPos = this.getParabolaPoint3d(0);
 		this.obj = new Object3D();
 		this.obj.name = `Arrow container ${this.arrowId}`;
@@ -15341,7 +15381,7 @@ class Di {
 		this.trailMat = null;
 		this.stuckInHingeId = -1;
 		this.hingeImpactMatrix = null;
-		this.boundUpdateHingePosition = this.updateHingePosition.bind(this);
+		this.boundUpdateHingePosition = this.updateHingePosition.bind(this) as () => void;
 		this.didHitWorld = false;
 		this.didHitPlayer = false;
 		this.worldHitTime = 0;
@@ -15375,8 +15415,8 @@ class Di {
 	getStunData() {
 		const t = this.shotBy.getStatClassValue("arrowEnemyStun");
 		return {
-			amount: l_1(0, 0.4, t),
-			duration: l_1(0, 400, t),
+			amount: lerp(0, 0.4, t),
+			duration: lerp(0, 400, t),
 			fadeDuration: 400,
 		};
 	}
@@ -15398,7 +15438,7 @@ class Di {
 	initTrail() {
 		const t = 0.005 * this.arrowWeaponOpts.trailThicknessMultiplier;
 		const e = 30;
-		const i = [];
+		const i: Vector3[] = [];
 		for (let e = 0; e < 3; e++) {
 			const s = (e / 3) * Math.PI * 2;
 			const n = Math.cos(s) * t;
@@ -15427,7 +15467,7 @@ class Di {
 			const w = new Quaternion();
 			w.setFromRotationMatrix(f);
 			for (let t = 0; t < 3; t++) {
-				const e = i[t].clone();
+				const e = i[t]!.clone();
 				e.applyQuaternion(w);
 				const s = e.clone();
 				n[3 * g + 0] = a.x;
@@ -15460,16 +15500,16 @@ class Di {
 			throw new Error("Couldn't find arrow trail material.");
 		}
 		this.trailMat = arrowTrailMat.clone();
-		this.trailMat.uniforms.shootStartPos.value.copy(this.visualStartPos);
+		this.trailMat!.uniforms.shootStartPos!.value.copy(this.visualStartPos);
 		const b = 0.1 * this.strength;
 		const y =
 			Math.max(b, Math.abs(this.parabolaXDist)) * this.arrowWeaponOpts.trailDurationMultiplier;
-		this.trailMat.uniforms.estimatedXLength.value = y;
+		this.trailMat!.uniforms.estimatedXLength!.value = y;
 		this.trailObj = new Mesh(f, this.trailMat);
 		this.trailObj.name = `Arrow trail ${this.arrowId}`;
 		this.scene.add(this.trailObj);
 	}
-	loop(createTime, e) {
+	loop(createTime: number, e: number): void {
 		if (!this.didHitWorld && !this.didHitPlayer) {
 			const e = this.existingTime * this.xSpeed;
 			const i = this.getParabolaPoint3d(e);
@@ -15484,7 +15524,7 @@ class Di {
 			this.lookDirection.sub(this.prevPos);
 			this.lookDirection.setLength(1);
 			if (this.trailMat) {
-				this.trailMat.uniforms.arrowPosT.value = e;
+				this.trailMat!.uniforms.arrowPosT!.value = e;
 			}
 			if (this.lookDirection.length() == 0) {
 				this.lookDirection.set(0, 1, 0);
@@ -15595,7 +15635,7 @@ class Di {
 			}
 		}
 		if (this.trailMat) {
-			this.trailMat.uniforms.arrowShootT.value = this.existingTime * this.xSpeed;
+			this.trailMat!.uniforms.arrowShootT!.value = this.existingTime * this.xSpeed;
 		}
 		this.existingTime += this.physics.timeScale * e;
 		if (this.sphere) {
@@ -15643,11 +15683,11 @@ class Di {
 		i.premultiply(e);
 		return i;
 	}
-	getImpactShake(t) {
+	getImpactShake(t: number): number {
 		const e = t - this.worldHitTime;
 		return 0.03 * (Math.cos(0.08 * e) * (100 / (e + 100)));
 	}
-	updateHingePosition(t) {
+	updateHingePosition(t: HingeObject): void {
 		if (!this.hingeImpactMatrix) {
 			return;
 		}
@@ -15660,10 +15700,10 @@ class Di {
 		this.obj.matrix.premultiply(t.object.matrixWorld);
 		this.obj.updateWorldMatrix(false, true);
 	}
-	onTravel(t) {
+	onTravel(t: (pos: Vector3) => void): void {
 		this.onTravelCbs.add(t);
 	}
-	getParabolaPoint3d(t, e = false, i = true) {
+	getParabolaPoint3d(t: number, e = false, i = true): Vector3 {
 		const { newDir, inverseSpaceRotation } = this.map3dDirTo2d(this.dir);
 		const o = this.getParabolaPoint2d(newDir.x, newDir.y, t);
 		if (e && newDir.x == 0) {
@@ -15683,10 +15723,10 @@ class Di {
 		a.add(l);
 		return a;
 	}
-	getNearbyStartAmount(t) {
+	getNearbyStartAmount(t: Vector3): number {
 		return 3 / (t.distanceTo(this.startPos) + 3);
 	}
-	map3dDirTo2d(t) {
+	map3dDirTo2d(t: Vector3): { newDir: Vector3; spaceRotation: Quaternion; inverseSpaceRotation: Quaternion } {
 		let e = new Vector3(t.x, 0, t.z).angleTo(new Vector3(1, 0, 0));
 		if (t.z < 0) {
 			e = 2 * Math.PI - e;
@@ -15700,7 +15740,7 @@ class Di {
 			inverseSpaceRotation,
 		};
 	}
-	getParabolaPoint2d(t, e, i) {
+	getParabolaPoint2d(t: number, e: number, i: number): Vector2 {
 		const s = this.sCurve(e / t);
 		let n = 0;
 		if (s == 0) {
@@ -15713,7 +15753,7 @@ class Di {
 		}
 		return new Vector2(i, n);
 	}
-	sCurve(t, e = Math.E) {
+	sCurve(t: number, e = Math.E): number {
 		let i = 1 / (1 + e ** -t);
 		i -= 0.5;
 		i *= 2;
@@ -15752,9 +15792,19 @@ class Di {
 		return Math.max(h, d);
 	}
 }
-class Oi {
-	static setCurrentScene(t) {
-		this.scene = t;
+export interface DebugLine {
+	from: Vector3;
+	to: Vector3;
+	color?: number;
+	line: Line | null;
+}
+class DebugDraw {
+	static scene: Scene | null = null;
+	static drawLinesNextFrame: DebugLine[] | null = null;
+	static removeLinesNextFrame: DebugLine[] | null = null;
+	static material: LineBasicMaterial | null = null;
+	static setCurrentScene(scene: Scene): void {
+		this.scene = scene;
 		this.drawLinesNextFrame = [];
 		this.removeLinesNextFrame = [];
 		if (!this.material) {
@@ -15764,7 +15814,7 @@ class Oi {
 			});
 		}
 	}
-	static loop() {
+	static loop(): void {
 		if (this.drawLinesNextFrame && this.removeLinesNextFrame) {
 			for (const t of this.removeLinesNextFrame) {
 				const e = t.line;
@@ -15797,42 +15847,41 @@ class Oi {
 			this.drawLinesNextFrame = [];
 		}
 	}
-	static drawLine(t, e, color) {
+	static drawLine(from: Vector3, to: Vector3, color?: number): void {
 		if (this.drawLinesNextFrame) {
 			this.drawLinesNextFrame.push({
-				from: t.clone(),
-				to: e.clone(),
+				from: from.clone(),
+				to: to.clone(),
 				color,
 				line: null,
 			});
 		}
 	}
-	static drawRay(t, e, i) {
-		const s = (t = t.clone()).clone();
-		s.add(e);
-		this.drawLine(t, s, i);
+	static drawRay(origin: Vector3, dir: Vector3, color?: number): void {
+		const end = origin.clone();
+		end.add(dir);
+		this.drawLine(origin, end, color);
 	}
 }
 class ArrowManager {
-	physics;
-	hingeManager;
-	teamCount;
-	arrows = new Map();
-	oldPlayerArrows = new Set();
-	sphereGeos = [];
+	/** the key is the player ID, the value map's key is the arrow ID. */
+	arrows = new Map<number, Map<number, Arrow>>();
+	oldPlayerArrows = new Set<Arrow>();
+	sphereGeos: IcosahedronGeometry[] = [];
 	destructed;
-	constructor(t, e, i) {
-		this.physics = t;
-		this.hingeManager = e;
-		this.teamCount = i;
-		for (let t = 0; t < i; t++) {
-			const e = new IcosahedronGeometry();
-			const i = e.getAttribute("position");
-			const s = new Float32Array(3 * i.count);
+	constructor(
+		public physics: PhysicsManager,
+		public hingeManager: HingeManager,
+		public teamCount: number
+	) {
+		for (let team = 0; team < teamCount; team++) {
+			const geo = new IcosahedronGeometry();
+			const pos = geo.getAttribute("position");
+			const s = new Float32Array(3 * pos.count);
 			let n = 1;
 			let o = 0;
 			let r = 0;
-			const l = n_1[t].colorTransform;
+			const l = n_1[team]!.colorTransform;
 			if (l) {
 				const [h_1, s_2, v] = N(n, o, r);
 				const s = {
@@ -15846,11 +15895,11 @@ class ArrowManager {
 			const h = [n, o, r];
 			for (let t = 0; t < s.byteLength; t += 3) {
 				for (let e = 0; e < h.length; e++) {
-					s[t + e] = 0.3 * h[e];
+					s[t + e] = 0.3 * h[e]!;
 				}
 			}
-			e.setAttribute("color", new BufferAttribute(s, 3));
-			this.sphereGeos.push(e);
+			geo.setAttribute("color", new BufferAttribute(s, 3));
+			this.sphereGeos.push(geo);
 		}
 		getMain();
 		this.destructed = false;
@@ -15892,32 +15941,32 @@ class ArrowManager {
 			}
 		}
 	}
-	createArrow(t, e) {
-		const i = new Di(this.physics, this.hingeManager, t, e, {
+	createArrow(shotBy: Player, params) {
+		const i = new Arrow(this.physics, this.hingeManager, shotBy, params, {
 			arrowManager: this,
 			scene: getMain().scene,
 		});
-		const i_arrowId = i.arrowId;
+		const arrowID = i.arrowId;
 		const n = i.shotBy.id;
-		let o = this.arrows.get(n);
-		if (!o) {
-			o = new Map();
-			this.arrows.set(n, o);
+		let playerArrows = this.arrows.get(n);
+		if (!playerArrows) {
+			playerArrows = new Map();
+			this.arrows.set(n, playerArrows);
 		}
-		const a = o.get(i_arrowId);
-		if (a) {
-			this.oldPlayerArrows.add(a);
+		const arrow = playerArrows.get(arrowID);
+		if (arrow) {
+			this.oldPlayerArrows.add(arrow);
 		}
-		o.set(i_arrowId, i);
+		playerArrows.set(arrowID, i);
 		getMain().renderer.renderWorthyEventHappened();
 	}
-	getArrowById(t, e) {
-		const i = this.arrows.get(t);
-		return (i && i.get(e)) || null;
+	getArrowById(playerId: number, arrowId: number) {
+		const i = this.arrows.get(playerId);
+		return (i && i.get(arrowId)) || null;
 	}
 	receivedHitValidationData(t) {}
 }
-class Bi {
+class AccuracyOffset {
 	crosshair: Crosshair;
 	_offset = 0;
 	constructor(crosshair: Crosshair) {
@@ -16037,7 +16086,7 @@ class Crosshair {
 		this.el.style.setProperty("--outline-color", i);
 	}
 	loop(t, i) {
-		this.smoothAccuracy = l_1(this.smoothAccuracy, this.currentAccuracy, 0.5);
+		this.smoothAccuracy = lerp(this.smoothAccuracy, this.currentAccuracy, 0.5);
 		const s =
 			7 + this.smoothAccuracy * getMain().settingsManager.getValue("crosshairAccuracyOffset");
 		for (const t of this.lines) {
@@ -16045,7 +16094,7 @@ class Crosshair {
 		}
 	}
 	createAccuracyOffset() {
-		const t = new Bi(this);
+		const t = new AccuracyOffset(this);
 		this.accuracyOffsets.add(t);
 		return t;
 	}
@@ -16101,7 +16150,7 @@ function Ui(t) {
 	Ri++;
 	return t + Ri;
 }
-class qi {
+class ScoreDot {
 	el = document.createElementNS(svgNamespace, "svg");
 	returnTimerRectId;
 	removePointPolygonId;
@@ -16163,7 +16212,7 @@ class qi {
 		this.returnTimerRect = null;
 		this.removePointPolygon = null;
 		this.setBorderTimerPercent(0);
-		this.removeAnimationTimeout = new Te(() => {
+		this.removeAnimationTimeout = new Timeout(() => {
 			this.el.classList.remove("animating");
 		}, 1000);
 	}
@@ -16228,7 +16277,7 @@ class qi {
 		}
 	}
 }
-class Hi {
+class FlagScoreItem {
 	el = document.createElement("div");
 	iconEl;
 	teamId;
@@ -16268,7 +16317,7 @@ class Hi {
 		this.timerStateReceived = false;
 		this.dots = [];
 		for (let t = 0; t < this.currentMaxScoreCount; t++) {
-			const t = new qi(e.cssColor);
+			const t = new ScoreDot(e.cssColor);
 			this.el.appendChild(t.el);
 			this.dots.push(t);
 		}
@@ -16366,7 +16415,7 @@ class Hi {
 		);
 	}
 }
-class Wi {
+class FlagScoreboard {
 	el = document.createElement("div");
 	onNeedsNotificationCbs;
 	scoreItems;
@@ -16382,7 +16431,7 @@ class Wi {
 			if (t == 0) {
 				continue;
 			}
-			const e = new Hi(t);
+			const e = new FlagScoreItem(t);
 			this.el.appendChild(e.el);
 			this.scoreItems[t] = e;
 			e.onNeedsNotification((t) => {
@@ -17313,7 +17362,7 @@ class GameOverStatsDialog extends Dialog {
 		this.onRewardedAdIsPlayingChangeCbs.forEach((e) => e(t));
 	}
 }
-class ts {
+class GameEndTimer {
 	timeSeconds;
 	name;
 	running = false;
@@ -17487,9 +17536,23 @@ const ss = [
 	"vagina",
 	"whore",
 ];
+interface ChatMessage {
+	contentsEl: HTMLDivElement;
+	messageEl: HTMLDivElement;
+	playerId: number;
+	avatarBlobReference: BlobURLReference;
+	lastMessageTime: number;
+}
+interface RawChatMessage {
+	type: "playerMessage";
+	data: {
+		playerId: number;
+		message: string;
+		guardianRejected?: boolean;
+	}
+}
 class Chat {
-	game;
-	createdMessages = [];
+	createdMessages: ChatMessage[] = [];
 	visible = false;
 	toggledVisible = true;
 	el = document.createElement("div");
@@ -17585,8 +17648,8 @@ class Chat {
 		t.input.touch.removeOnTouchSupportedChange(this.boundOnTouchSupported);
 		t.settingsManager.removeOnValueChange("chatEnabled", this.boundUpdateVisibilities);
 		t.settingsManager.removeOnValueChange("hideUi", this.boundUpdateVisibilities);
-		for (const t of this.createdMessages) {
-			this.destroyMessage(t);
+		for (const msg of this.createdMessages) {
+			this.destroyMessage(msg);
 		}
 		this.createdMessages = [];
 	}
@@ -17602,12 +17665,12 @@ class Chat {
 			this.destroyMessage(t);
 		}
 	}
-	destroyMessage(t) {
-		if (t.avatarBlobReference) {
-			t.avatarBlobReference.destructor();
+	destroyMessage(msg: ChatMessage) {
+		if (msg.avatarBlobReference) {
+			msg.avatarBlobReference.destructor();
 		}
-		this.chatLogEl.removeChild(t.messageEl);
-		this.createdMessages = this.createdMessages.filter((e) => e != t);
+		this.chatLogEl.removeChild(msg.messageEl);
+		this.createdMessages = this.createdMessages.filter((e) => e != msg);
 		if (this.createdMessages.length == 0 && getMain().input.touch.touchSupported) {
 			this.toggledVisible = false;
 			this.updateVisibility();
@@ -17621,10 +17684,10 @@ class Chat {
 			getMain().network.sendChatMessage(value);
 		}
 	}
-	receivedChatMessage(messageThing) {
+	receivedChatMessage(message: RawChatMessage) {
 		let e = this.createdMessages[this.createdMessages.length - 1];
-		if (messageThing.type == "playerMessage") {
-			const i = messageThing.data.playerId;
+		if (message.type == "playerMessage") {
+			const i = message.data.playerId;
 			const s = this.game.players.get(i);
 			if (!e || i != e.playerId) {
 				const messageEl = document.createElement("div");
@@ -17667,7 +17730,7 @@ class Chat {
 			const n = getMain();
 			const msg = document.createElement("div");
 			const a = n.settingsManager.getValue("chatProfanityFilterEnabled");
-			if (messageThing.data.guardianRejected) {
+			if (message.data.guardianRejected) {
 				if (s && s.hasOwnership) {
 					if (a) {
 						msg.classList.add("filtered-error");
@@ -17678,7 +17741,7 @@ class Chat {
 					return;
 				}
 			}
-			let r = messageThing.data.message.split(" ");
+			let r = message.data.message.split(" ");
 			r = r.map((t) => {
 				if (
 					((t) => {
@@ -17728,19 +17791,18 @@ class Chat {
 		this.el.classList.toggle("up", this.game.cornerStatsUi.visible);
 	}
 }
-class os extends Ve {
+class MapCollider extends ColliderBase {
 	radius;
 	pos = new Vector3();
-	aabb;
-	constructor(...t) {
-		super(...t);
+	constructor(worldMatrix: Matrix4, opts) {
+		super(worldMatrix, opts);
 		this.radius = this.worldMatrix.getMaxScaleOnAxis();
 		this.pos.setFromMatrixPosition(this.worldMatrix);
 		const e = this.pos.clone().subScalar(this.radius);
 		const i = this.pos.clone().addScalar(this.radius);
 		this.aabb = new Box3(e, i);
 	}
-	getSphereManifold(t, e) {
+	getSphereManifold(t: Vector3, e: number): SphereManifold {
 		return ze(t, e, this.pos, this.radius);
 	}
 	rayCast(from: Vector3, dir: Vector3): RayCastHit | null {
@@ -17773,7 +17835,7 @@ class os extends Ve {
 	}
 }
 class OctreeNode {
-	items: Collider[] = [];
+	items: ColliderBase[] = [];
 	allChildren: OctreeNode[] = [];
 	children = new Set<OctreeNode>();
 	constructor(
@@ -17857,12 +17919,20 @@ class OctreeNode {
 		}
 	}
 }
+export interface RayCastCache {
+	from: Vector3;
+	to: Vector3;
+	dir: Vector3;
+	length: number;
+	octreeNodes: Set<OctreeNode>;
+}
+export type RayCastFilter = (hit: RayCastHit) => boolean;
 class PhysicsManager {
-	rigidBodies = new Set();
-	mapColliders: Collider[] = [];
+	rigidBodies = new Set<PlayerBody>();
+	mapColliders: ColliderBase[] = [];
 	rootOctreeNode: OctreeNode | null = null;
 	octreeMaxDepth = 5;
-	mapBounds = null;
+	mapBounds: Box3 | null = null;
 	octreeAxisVoxelCount = 0;
 	worldToOctreeVoxelSpaceMultiplier = new Vector3();
 	isLoweringTimeScale = false;
@@ -17880,7 +17950,7 @@ class PhysicsManager {
 		});
 	}
 	destructor() {}
-	loop(t, e) {
+	loop(t: number, e: number): void {
 		if (this.isLoweringTimeScale) {
 			this.timeScale -= 0.0003 * e;
 			if (this.timeScale < 0.01) {
@@ -17919,16 +17989,16 @@ class PhysicsManager {
 		this.isLoweringTimeScale = false;
 		this.timeScale = 1;
 	}
-	registerRigidBody(t) {
+	registerRigidBody(t: RigidBody): RigidBody {
 		this.rigidBodies.add(t);
 		return t;
 	}
-	removeRigidBody(t) {
+	removeRigidBody(t: RigidBody): void {
 		this.rigidBodies.delete(t);
 	}
-	addMapCollider(t) {
+	addMapCollider(t: { matrix: number[]; colliderType?: string; [key: string]: unknown }): ColliderBase {
 		const e = new Matrix4().fromArray(t.matrix);
-		const i = t.colliderType == "sphere" ? new os(e, t) : new je(e, t);
+		const i = t.colliderType == "sphere" ? new MapCollider(e, t) : new BoxCollider(e, t);
 		this.mapColliders.push(i);
 		return i;
 	}
@@ -17956,7 +18026,7 @@ class PhysicsManager {
 		this.rootOctreeNode = new OctreeNode(t);
 		this.rootOctreeNode.addItems(this.mapColliders);
 		this.rootOctreeNode.subdivideRecursive({
-			boundsContainsCb: (t, e) => !!t.aabb && t.aabb.intersectsBox(e),
+			boundsContainsCb: (t: ColliderBase, e: Box3) => !!t.aabb && t.aabb.intersectsBox(e),
 			maxDepth: this.octreeMaxDepth,
 			itemCountDivideLimit: 10,
 		});
@@ -17968,9 +18038,9 @@ class PhysicsManager {
 		}
 		const minSpace = this.worldToOctreeVoxelSpace(box.min);
 		const maxSpace = this.worldToOctreeVoxelSpace(box.max);
-		for (let x = minSpace[0]; x <= maxSpace[0]; x++) {
-			for (let y = minSpace[1]; y <= maxSpace[1]; y++) {
-				for (let z = minSpace[2]; z <= maxSpace[2]; z++) {
+		for (let x = minSpace[0]!; x <= maxSpace[0]!; x++) {
+			for (let y = minSpace[1]!; y <= maxSpace[1]!; y++) {
+				for (let z = minSpace[2]!; z <= maxSpace[2]!; z++) {
 					const path = this.octreeVoxelSpaceToNodePath([x, y, z]);
 					if (path) {
 						const node = this.getOctreeNodeForPath(path);
@@ -17983,8 +18053,8 @@ class PhysicsManager {
 		}
 		return nodes;
 	}
-	getCollidersFromOctreeNodes(octreeNodes): Set<Collider> {
-		const e = new Set();
+	getCollidersFromOctreeNodes(octreeNodes: Iterable<OctreeNode>): Set<ColliderBase> {
+		const e = new Set<ColliderBase>();
 		for (const i of octreeNodes) {
 			for (const t of i.items) {
 				e.add(t);
@@ -18005,7 +18075,7 @@ class PhysicsManager {
 		e.multiply(this.worldToOctreeVoxelSpaceMultiplier);
 		return [Math.floor(e.x), Math.floor(e.y), Math.floor(e.z)];
 	}
-	octreeVoxelSpaceToNodePath([e, i, s]) {
+	octreeVoxelSpaceToNodePath([e, i, s]: [number, number, number]): number[] | null {
 		if (
 			e < 0 ||
 			i < 0 ||
@@ -18050,7 +18120,7 @@ class PhysicsManager {
 			if (rootOctreeNode.allChildren.length <= 0) {
 				return rootOctreeNode;
 			}
-			rootOctreeNode = rootOctreeNode.allChildren[i];
+			rootOctreeNode = rootOctreeNode.allChildren[i] ?? null;
 		}
 		return rootOctreeNode;
 	}
@@ -18064,59 +18134,142 @@ class PhysicsManager {
 	}
 	*getPlayerColliders() {
 		for (const t of this.rigidBodies) {
-			if (t instanceof RigidBody) {
+			if (t instanceof PlayerBody) {
 				for (const e of t.colliders) {
 					yield e;
 				}
 			}
 		}
 	}
-	getRayCastCache(t, e) {
-		const i = e.clone().sub(t);
-		i.setLength(1);
-		if (i.length() == 0) {
+	getRayCastCache(from: Vector3, to: Vector3): RayCastCache | null {
+		const dir = to.clone().sub(from);
+		dir.setLength(1);
+		if (dir.length() == 0) {
 			return null;
 		}
-		const s = new Box3();
-		s.expandByPoint(t);
-		s.expandByPoint(e);
-		const octreeNodes = this.getOctreeNodesInAabb(s);
+		const bounds = new Box3();
+		bounds.expandByPoint(from);
+		bounds.expandByPoint(to);
+		const octreeNodes = this.getOctreeNodesInAabb(bounds);
 		return {
-			from: t.clone(),
-			to: e.clone(),
-			dir: i,
-			length: t.distanceTo(e),
+			from: from.clone(),
+			to: to.clone(),
+			dir,
+			length: from.distanceTo(to),
 			octreeNodes,
 		};
 	}
-	rayCastMapColliders(t, e = null) {
-		return this.rayCastHelper(t, this.getCollidersFromOctreeNodes(t.octreeNodes), e);
+	rayCastMapColliders(cache: RayCastCache, filter: RayCastFilter | null = null): RayCastHit | null {
+		return this.rayCastHelper(cache, this.getCollidersFromOctreeNodes(cache.octreeNodes), filter);
 	}
-	rayCastPlayerColliders(t, e = null) {
-		return this.rayCastHelper(t, this.getPlayerColliders(), e);
+	rayCastPlayerColliders(cache: RayCastCache, filter: RayCastFilter | null = null): RayCastHit | null {
+		return this.rayCastHelper(cache, this.getPlayerColliders(), filter);
 	}
-	rayCastHelper(t, colliders: Collider[], i = null) {
-		let s = null;
+	rayCastHelper(
+		cache: RayCastCache,
+		colliders: Iterable<{ rayCast(from: Vector3, dir: Vector3): RayCastHit | null }>,
+		filter: RayCastFilter | null = null,
+	): RayCastHit | null {
+		let closest: RayCastHit | null = null;
 		for (const collider of colliders) {
-			const e = collider.rayCast(t.from, t.dir);
-			if (e && e.dist < t.length && (!s || e.dist < s.dist)) {
-				const t = e;
-				if (i && !i(t)) {
+			const hit = collider.rayCast(cache.from, cache.dir);
+			if (hit && hit.dist < cache.length && (!closest || hit.dist < closest.dist)) {
+				if (filter && !filter(hit)) {
 					continue;
 				}
-				s = t;
+				closest = hit;
 			}
 		}
-		return s;
+		return closest;
 	}
 }
-type GlobalVariables = { probability?: number };
-class ls {
-	lastReceivedGlobalVariables: GlobalVariables = {};
-	lastReceivedRandomVariablesArray: GlobalVariables[] = [];
+export type ColorArray = [number, number, number];
+export type VectorArray = [number, number, number];
+/** Map variables as received from mapConfigs/{mapName}.json (see mapConfig.v1.json schema). All fields optional; defaults apply. */
+export interface MapVariables {
+	name?: string;
+	probability?: number;
+	floorDeathHeight?: number;
+	flyRoofHeight?: number;
+	flySphereRadius?: number;
+	flySphereCenter?: VectorArray;
+	sphereDeathRadius?: number;
+	cloudsHeight?: number;
+	waterSfxVolume?: number;
+	waterSfxHeight?: number;
+	windSfxVolume?: number;
+	windSfxBoostVolume?: number;
+	windSfxBoostHeight?: number;
+	birdsSfxVolume?: number;
+	jungleSfxVolume?: number;
+	rainSfxVolume?: number;
+	insectsSfxVolume?: number;
+	skyHighColor?: ColorArray;
+	skyMidColor?: ColorArray;
+	skyLowColor?: ColorArray;
+	skyPower?: number;
+	fogAmount?: number;
+	fogHeightAmount?: number;
+	fogHeightOffset?: number;
+	fogHeightDistFalloff?: number;
+	fogHeightAmountMin?: number;
+	fogHeightAmountMax?: number;
+	colorMultiplier?: ColorArray;
+	colorMultiplierAdjust?: number;
+	colorAdder?: ColorArray;
+	colorAdderAdjust?: number;
+	saturation?: number;
+	lightningEnabled?: boolean;
+}
+/** Map variables with all defaults applied. */
+export interface ResolvedMapVariables {
+	floorDeathHeight: number;
+	sphereDeathRadius: number;
+	flyRoofHeight: number;
+	flySphereCenter: VectorArray;
+	flySphereRadius: number;
+	cloudsHeight: number;
+	waterSfxVolume: number;
+	waterSfxHeight: number;
+	windSfxVolume: number;
+	windSfxBoostVolume: number;
+	windSfxBoostHeight: number;
+	birdsSfxVolume: number;
+	jungleSfxVolume: number;
+	rainSfxVolume: number;
+	insectsSfxVolume: number;
+	skyHighColor: ColorArray;
+	skyMidColor: ColorArray;
+	skyLowColor: ColorArray;
+	skyPower: number;
+	fogAmount: number;
+	fogHeightAmount: number;
+	fogHeightOffset: number;
+	fogHeightDistFalloff: number;
+	fogHeightAmountMin: number;
+	fogHeightAmountMax: number;
+	colorMultiplier: ColorArray;
+	colorMultiplierAdjust: number;
+	colorAdder: ColorArray;
+	colorAdderAdjust: number;
+	saturation: number;
+	lightningEnabled: boolean;
+}
+/** Top-level shape of mapConfigs/{mapName}.json (see mapConfig.v1.json schema). */
+export interface MapConfigFile {
+	$schema?: string;
+	mirrorMode?: "rotate" | "flipX" | "flipZ";
+	globalMapVariables?: MapVariables;
+	randomMapVariableSets?: MapVariables[];
+	kingOfTheHillPosition?: VectorArray;
+}
+type GlobalVariables = MapVariables;
+class MapVariablesManager {
+	lastReceivedGlobalVariables: MapVariables = {};
+	lastReceivedRandomVariablesArray: MapVariables[] = [];
 	currentVariablesIndex = -1;
 	variablesIndexSeed = 123;
-	defaultValues = {
+	defaultValues: ResolvedMapVariables = {
 		floorDeathHeight: -16,
 		sphereDeathRadius: 0,
 		flyRoofHeight: Infinity,
@@ -18150,7 +18303,7 @@ class ls {
 		lightningEnabled: false,
 	};
 	onVariablesChangedCbs = new Set<() => void>();
-	currentVariables;
+	currentVariables: ResolvedMapVariables;
 	constructor() {
 		this.currentVariables = {
 			...this.defaultValues,
@@ -18158,9 +18311,9 @@ class ls {
 	}
 	init() {}
 	setVariables(
-		receivedGlobalVariables: GlobalVariables | undefined,
-		lastReceivedRandomVariablesArray: GlobalVariables[]
-	) {
+		receivedGlobalVariables: MapVariables | null | undefined,
+		lastReceivedRandomVariablesArray: MapVariables[]
+	): void {
 		this.lastReceivedGlobalVariables = receivedGlobalVariables || {};
 		this.lastReceivedRandomVariablesArray = lastReceivedRandomVariablesArray;
 		this.updateVariablesIndex();
@@ -18191,50 +18344,77 @@ class ls {
 		};
 		this.onVariablesChangedCbs.forEach((cb) => cb());
 	}
-	onVariablesChanged(t) {
-		this.onVariablesChangedCbs.add(t);
+	onVariablesChanged(cb: () => void): void {
+		this.onVariablesChangedCbs.add(cb);
 	}
-	get(t) {
-		return this.currentVariables[t];
+	get<K extends keyof ResolvedMapVariables>(key: K): ResolvedMapVariables[K] {
+		return this.currentVariables[key];
 	}
 }
+interface RawGameplayData {
+	flags: { flagTeamId: number; pos: number[]; rot: number[] }[];
+	spawnPositions: { pos: number[]; rot: number[] }[][];
+	mapName: string;
+	assetName: string;
+	kingOfTheHillPosition: number[];
+	colliders: unknown;
+}
+interface GameplayData {
+	flags: { flagTeamId: number; pos: Vector3; rot: Quaternion }[];
+	spawnPositions: { pos: Vector3; rot: Quaternion }[][];
+	mapName: string;
+	assetName: string;
+	kingOfTheHillPosition: Vector3;
+}
+interface GameplayDataInfo {
+	type: "gameplay-data";
+	gameplayData: GameplayData;
+}
+interface CollidersInfo {
+	type: "colliders";
+	colliders: unknown;
+}
+interface SceneInfo {
+	type: "scene";
+	scene: unknown;
+	appearingObjects: unknown;
+	hinges: unknown;
+}
+type MapLoadingInfo = GameplayDataInfo | CollidersInfo | SceneInfo;
 class MapLoader {
-	configManager;
-	mapsConfig;
 	onIsLoadingMapChangeCbs = new Set();
 	isLoadingMap = false;
 	loadCloudsCalled = false;
 	environmentIsInit = false;
-	cachedMapHashes = new Set();
+	cachedMapHashes = new Set<string>();
 	fetchingMapCbs = new Map();
-	onOneMapAvailableCbs = new Set();
+	onOneMapAvailableCbs = new Set<() => void>();
 	firstMapDownloaded = false;
-	onFirstMapDownloadedCbs = new Set();
+	onFirstMapDownloadedCbs = new Set<() => void>();
 	onMapCachedCbs = new Set();
-	mapVariablesManager = new ls();
-	cloudsObj;
-	currentLoadingMapContexts;
-	lastMapLoadRequestId;
-	constructor(t, e) {
-		this.configManager = t;
-		this.mapsConfig = e;
+	mapVariablesManager = new MapVariablesManager();
+	cloudsObj: Object3D | null = null;
+	currentLoadingMapContexts = new Map<number, {
+		cb: (info: MapLoadingInfo) => void,
+		loadingText: InfoText
+	}>();
+	lastMapLoadRequestId = 0;
+	lastLoadMapRequest: { options: unknown; cb: (info: MapLoadingInfo) => void } | null = null;
+	constructor(public configManager: ConfigManager, public mapsConfig: MapsConfig) {
 		this.mapVariablesManager.onVariablesChanged(() => {
 			this.updateWeatherParams();
 			this.updateCloudHeight();
 		});
-		this.cloudsObj = null;
-		this.currentLoadingMapContexts = new Map();
-		this.lastMapLoadRequestId = 0;
 	}
 	async init() {
 		getMain();
-		this.mapsConfig.onConfigChange(async (t) => {
+		this.mapsConfig.onConfigChange(async (t: { maps?: { assetName: string; isNasset?: boolean; hash: string }[] }) => {
 			this.cachedMapHashes.clear();
 			const e = await this.openCache();
 			if (e) {
 				const i = [];
 				let s = false;
-				for (const n of t.maps) {
+				for (const n of t.maps ?? []) {
 					const t = n.isNasset ? ".nasset" : ".glb";
 					const o = n.assetName + t;
 					const a = new URL(`${this.configManager.basePath}maps/${o}`);
@@ -18273,7 +18453,7 @@ class MapLoader {
 	async cacheRemainingMaps() {
 		const t = getMain();
 		await this.waitForFirstMapDownload();
-		await t.assets.getPackage("main").waitForLoad();
+		await t.assets.getPackage("main")!.waitForLoad();
 		if (!this.mapsConfig.loadedConfigData) {
 			throw new Error("Assertion error, mapsconfig isn't loaded");
 		}
@@ -18303,7 +18483,7 @@ class MapLoader {
 			return null;
 		}
 	}
-	markMapAsCached(t, e = true) {
+	markMapAsCached(t: string, e = true): void {
 		if (!this.cachedMapHashes.has(t)) {
 			this.cachedMapHashes.add(t);
 			this.fireFirstMapAvailable();
@@ -18312,14 +18492,14 @@ class MapLoader {
 			}
 		}
 	}
-	hasCachedMap(t) {
-		return this.cachedMapHashes.has(t);
+	hasCachedMap(hash: string) {
+		return this.cachedMapHashes.has(hash);
 	}
 	async deleteLegacyCaches() {
 		if (typeof caches === "undefined") {
 			return;
 		}
-		let t = [];
+		let t: string[] = [];
 		try {
 			t = await caches.keys();
 		} catch (error) {
@@ -18366,7 +18546,7 @@ class MapLoader {
 		if (this.cachedMapHashes.size > 0) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onOneMapAvailableCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onOneMapAvailableCbs.add(resolve));
 		await t;
 	}
 	fireFirstMapAvailable() {
@@ -18379,21 +18559,21 @@ class MapLoader {
 		if (this.firstMapDownloaded) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onFirstMapDownloadedCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onFirstMapDownloadedCbs.add(() => resolve()));
 		await t;
 	}
-	onMapCached(t) {
+	onMapCached(t: () => void): void {
 		this.onMapCachedCbs.add(t);
 	}
 	fireOnMapCachedCbs() {
-		this.onMapCachedCbs.forEach((t) => t());
+		for (const cb of this.onMapCachedCbs as Set<() => void>) cb();
 	}
 	reloadMap() {
 		if (this.lastLoadMapRequest) {
-			this.loadMap(this.lastLoadMapRequest.options, this.lastLoadMapRequest.cb);
+			this.loadMap(this.lastLoadMapRequest.options as { request: { type: string; [k: string]: unknown }; [k: string]: unknown }, this.lastLoadMapRequest.cb);
 		}
 	}
-	async loadDevMap(t) {
+	async loadDevMap(t: (info: MapLoadingInfo) => void): Promise<void> {
 		await this.loadMap(
 			{
 				request: {
@@ -18404,7 +18584,7 @@ class MapLoader {
 			t,
 		);
 	}
-	async loadLoadingMap(t) {
+	async loadLoadingMap(t: (info: MapLoadingInfo) => void): Promise<void> {
 		await this.loadMap(
 			{
 				request: {
@@ -18415,7 +18595,7 @@ class MapLoader {
 			t,
 		);
 	}
-	async loadConfigMap(t, e, i, { retryOnFail = false } = {}) {
+	async loadConfigMap(t: string, e: Record<string, unknown>, i: (info: MapLoadingInfo) => void, { retryOnFail = false } = {}): Promise<void> {
 		const config = this.mapsConfig.getListedMapConfigByHash(t);
 		try {
 			if (!config) {
@@ -18444,7 +18624,7 @@ class MapLoader {
 			await this.reloadMapsConfigAndRetryLoadConfigMap(t, e, i);
 		}
 	}
-	async loadConfigMapWithDialogMessage(t, e, i) {
+	async loadConfigMapWithDialogMessage(t: string, e: Record<string, unknown>, i: (info: MapLoadingInfo) => void): Promise<boolean> {
 		try {
 			await this.loadConfigMap(t, e, i, {
 				retryOnFail: true,
@@ -18478,7 +18658,7 @@ class MapLoader {
 			return false;
 		}
 	}
-	async loadMap(t, cb) {
+	async loadMap(params: { request: { type: string; [k: string]: unknown }; [k: string]: unknown }, cb: (info: MapLoadingInfo) => void): Promise<void> {
 		const loadingText = getMain().mainInfoTextManager.requestInfoText("Loading map...", {
 			showPercentage: true,
 			priority: 1,
@@ -18486,21 +18666,21 @@ class MapLoader {
 		});
 		loadingText.setPercentage(0);
 		this.initEnvironment();
-		const s = this.lastMapLoadRequestId++;
-		this.currentLoadingMapContexts.set(s, {
+		const requestID = this.lastMapLoadRequestId++;
+		this.currentLoadingMapContexts.set(requestID, {
 			cb,
 			loadingText,
 		});
 		const n = await getMain().assets.getMessenger();
 		try {
-			const o = await n.send.loadMap(t, s);
+			const o = await n.send.loadMap(params, requestID);
 			this.loadMapResponseCbReceived(o, cb);
 		} finally {
 			getMain().mainInfoTextManager.removeInfoText(loadingText);
-			this.currentLoadingMapContexts.delete(s);
+			this.currentLoadingMapContexts.delete(requestID);
 		}
 	}
-	async reloadMapsConfigAndRetryLoadConfigMap(t, e, i) {
+	async reloadMapsConfigAndRetryLoadConfigMap(t: string, e: Record<string, unknown>, i: (info: MapLoadingInfo) => void): Promise<void> {
 		await this.mapsConfig.load();
 		return await this.loadConfigMap(t, e, i, {
 			retryOnFail: false,
@@ -18510,43 +18690,43 @@ class MapLoader {
 		if (!this.firstMapDownloaded) {
 			this.firstMapDownloaded = true;
 			for (const t of this.onFirstMapDownloadedCbs) {
-				t();
+				(t as () => void)();
 			}
 			this.onFirstMapDownloadedCbs.clear();
 		}
 	}
-	reportMapLoadProgress(t, e) {
+	reportMapLoadProgress(t: number, e: number): void {
 		const i = this.currentLoadingMapContexts.get(e);
 		if (i) {
 			i.loadingText.setPercentage(t);
 		}
 	}
-	setGamplayObjects(t, e) {
+	setGamplayObjects(rawGameplayData: RawGameplayData, e: number): void {
 		const i = this.currentLoadingMapContexts.get(e);
 		if (!i) {
 			return;
 		}
-		const s = t.flags.map((t) => ({
+		const flags = rawGameplayData.flags.map((t) => ({
 			flagTeamId: t.flagTeamId,
 			pos: new Vector3().fromArray(t.pos),
 			rot: new Quaternion().fromArray(t.rot),
 		}));
-		const spawnPositions = t.spawnPositions.map((t) =>
+		const spawnPositions = rawGameplayData.spawnPositions.map((t) =>
 			t.map((t) => ({
 				pos: new Vector3().fromArray(t.pos),
 				rot: new Quaternion().fromArray(t.rot),
 			})),
 		);
-		const kingOfTheHillPosition = new Vector3().fromArray(t.kingOfTheHillPosition);
+		const kingOfTheHillPosition = new Vector3().fromArray(rawGameplayData.kingOfTheHillPosition);
 		i.cb({
 			type: "colliders",
-			colliders: t.colliders,
+			colliders: rawGameplayData.colliders,
 		});
 		const gameplayData = {
-			flags: s,
+			flags: flags,
 			spawnPositions,
-			mapName: t.mapName,
-			assetName: t.assetName,
+			mapName: rawGameplayData.mapName,
+			assetName: rawGameplayData.assetName,
 			kingOfTheHillPosition,
 		};
 		i.cb({
@@ -18554,9 +18734,9 @@ class MapLoader {
 			gameplayData,
 		});
 	}
-	loadMapResponseCbReceived(t, e) {
+	loadMapResponseCbReceived(t: any, e: (info: MapLoadingInfo) => void): void {
 		const scene = AssetsManager.deserializeThreeObject(t.scene);
-		scene.traverse((t) => {
+		scene!.traverse((t: Object3D) => {
 			t.frustumCulled = false;
 		});
 		const hinges = [];
@@ -18599,7 +18779,7 @@ class MapLoader {
 			hinges,
 		});
 		if (t.lobbyCamPositions) {
-			const e = t.lobbyCamPositions.map((t) => ({
+			const e = t.lobbyCamPositions.map((t: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[]; }) => ({
 				posA: new Vector3().fromArray(t.posA),
 				rotA: new Quaternion().fromArray(t.rotA),
 				posB: new Vector3().fromArray(t.posB),
@@ -18657,8 +18837,8 @@ class MapLoader {
 			this.cloudsObj.position.y = this.mapVariablesManager.get("cloudsHeight");
 		}
 	}
-	static disposeMapGeometries(t) {
-		t.traverse((t) => {
+	static disposeMapGeometries(t: Object3D): void {
+		t.traverse((t: Object3D) => {
 			if (t instanceof Mesh) {
 				t.geometry.dispose();
 			}
@@ -18669,7 +18849,7 @@ class MapLoader {
 			return;
 		}
 		this.loadCloudsCalled = true;
-		const t = await getMain().assets.getPackage("main").getFileAsBuffer("clouds.glb");
+		const t = await getMain().assets.getPackage("main")!.getFileAsBuffer("clouds.glb");
 		const e = await getMain().assets.getMessenger();
 		const i = await e.send.loadClouds(t);
 		this.cloudsObj = AssetsManager.deserializeThreeObject(i);
@@ -18680,44 +18860,40 @@ class MapLoader {
 	}
 }
 class PreferredMapManager {
-	mapLoader;
-	mapsConfigLoader;
 	votedScores = new Map();
-	_forcingSoloMap = null;
-	onMatchMakeDataChangeCbs = new Set();
-	constructor(t, e) {
-		this.mapLoader = t;
-		this.mapsConfigLoader = e;
-		t.onMapCached(() => {
+	_forcingSoloMap: string | null = null;
+	onMatchMakeDataChangeCbs = new Set<() => void>();
+	constructor(public mapLoader: MapLoader, public mapsConfigLoader: MapsConfig) {
+		mapLoader.onMapCached(() => {
 			this.onMatchMakeDataChangeCbs.forEach((t) => t());
 		});
 	}
-	onMatchMakeDataChange(t) {
-		this.onMatchMakeDataChangeCbs.add(t);
+	onMatchMakeDataChange(cb: () => void) {
+		this.onMatchMakeDataChangeCbs.add(cb);
 	}
 	getMatchMakePreferredMapHashes() {
 		if (!this.mapsConfigLoader.loadedConfigData) {
 			return null;
 		}
-		const e = [];
+		const preferredMapHashes: { hash: string; preference: number; }[] = [];
 		const forcingSoloMap = this.forcingSoloMap;
 		if (forcingSoloMap) {
-			e.push({
+			preferredMapHashes.push({
 				hash: forcingSoloMap,
 				preference: 1,
 			});
 		}
 		let n = Infinity;
 		let o = -Infinity;
-		for (const t of this.mapsConfigLoader.loadedConfigData.maps) {
-			if (forcingSoloMap && forcingSoloMap !== t.hash) {
+		for (const map of this.mapsConfigLoader.loadedConfigData.maps) {
+			if (forcingSoloMap && forcingSoloMap !== map.hash) {
 				continue;
 			}
-			if (!this.mapLoader.hasCachedMap(t.hash)) {
+			if (!this.mapLoader.hasCachedMap(map.hash)) {
 				continue;
 			}
 			let preference = 0;
-			const a = this.votedScores.get(t.assetName);
+			const a = this.votedScores.get(map.assetName);
 			if (a) {
 				preference = a.votedScore;
 				if (a.hasTemporaryBoost) {
@@ -18727,23 +18903,23 @@ class PreferredMapManager {
 			}
 			n = Math.min(n, preference);
 			o = Math.max(o, preference);
-			e.push({
-				hash: t.hash,
+			preferredMapHashes.push({
+				hash: map.hash!,
 				preference,
 			});
 		}
 		n = clampTo01(n);
 		o = clamp(o, n, 1);
 		if (n == o) {
-			for (const t of e) {
+			for (const t of preferredMapHashes) {
 				t.preference = 0;
 			}
 		} else {
-			for (const t of e) {
+			for (const t of preferredMapHashes) {
 				t.preference = q(n, o, 0, 1, t.preference, true);
 			}
 		}
-		return e;
+		return preferredMapHashes;
 	}
 	getMatchMakeData() {
 		if (!this.mapsConfigLoader.loadedConfigData) {
@@ -18804,8 +18980,8 @@ class PreferredMapManager {
 		}
 		this.getOrCreateMapVoteData(e.assetName).lastPlayedCounter = 0;
 	}
-	forceSoloMap(t) {
-		this._forcingSoloMap = t;
+	forceSoloMap(hash: string | null) {
+		this._forcingSoloMap = hash;
 		this.onMatchMakeDataChangeCbs.forEach((t) => t());
 	}
 	disableForcedSoloMap() {
@@ -18819,8 +18995,16 @@ class PreferredMapManager {
 		return this._forcingSoloMap;
 	}
 }
-class cs {
-	appearingObjects = [];
+export interface AppearingObjectsEntry {
+	objects: Array<{ object: Object3D; startPos: Vector3; endPos: Vector3; animationFinished: boolean; duration: number; [key: string]: unknown }>;
+	triggers: Array<{ pos: Vector3; radius: number }>;
+	hasBeenTriggered: boolean;
+	allAnimationsFinished: boolean;
+	t: number;
+	behavior: string;
+}
+class AppearingObjectsManager {
+	appearingObjects: AppearingObjectsEntry[] = [];
 	destructed = false;
 	constructor() {}
 	destructor() {
@@ -18836,7 +19020,7 @@ class cs {
 		}
 		this.appearingObjects = [];
 	}
-	setAppearingObjects(t) {
+	setAppearingObjects(t: Array<{ objects: Array<{ object: Object3D; startOffset?: Vector3; [key: string]: unknown }>; triggers: Array<{ pos: Vector3; radius: number }>; behavior: string }>): void {
 		if (this.destructed) {
 			return;
 		}
@@ -18850,9 +19034,10 @@ class cs {
 				scene.add(s.object);
 				t.push({
 					...s,
-					startPos: s.object.position.clone().add(s.startOffset),
+					startPos: s.object.position.clone().add(s.startOffset ?? new Vector3()),
 					endPos: s.object.position.clone(),
 					animationFinished: false,
+					duration: Number(s.duration ?? 0),
 				});
 			}
 			this.appearingObjects.push({
@@ -18865,7 +19050,7 @@ class cs {
 			});
 		}
 	}
-	updatePlayerPositions(t) {
+	updatePlayerPositions(t: Vector3[]): void {
 		for (const e of this.appearingObjects) {
 			const i = e.behavior == "appear" || e.behavior == "toggle";
 			const s = e.behavior == "toggle";
@@ -18907,7 +19092,7 @@ class cs {
 			}
 		}
 	}
-	loop(t, e) {
+	loop(t: number, e: number): void {
 		for (const t of this.appearingObjects) {
 			if (!t.hasBeenTriggered || t.allAnimationsFinished) {
 				continue;
@@ -18935,8 +19120,15 @@ class cs {
 		}
 	}
 }
+export interface HingeObject {
+	object: Object3D;
+	behavior: string;
+	defaultWorldMatrix: Matrix4;
+	defaultWorldMatrixInv: Matrix4;
+	worldPos: Vector3;
+}
 class HingeManager {
-	hingeObjects = [];
+	hingeObjects: HingeObject[] = [];
 	activeHingeObjects = new Map();
 	onHingeMoveCbs = new Map();
 	destructed = false;
@@ -18945,7 +19137,7 @@ class HingeManager {
 		this.setHingeObjects([]);
 		this.destructed = true;
 	}
-	setHingeObjects(t) {
+	setHingeObjects(t: Array<{ hinge: Object3D; behavior: string }>): void {
 		if (this.destructed) {
 			return;
 		}
@@ -18968,7 +19160,7 @@ class HingeManager {
 			scene.add(hinge);
 		}
 	}
-	shootHinge(t, e, i) {
+	shootHinge(t: number, e: Vector3, i: Vector3): HingeObject | null {
 		const s = this.hingeObjects[t];
 		if (!s) {
 			return null;
@@ -18984,7 +19176,7 @@ class HingeManager {
 		let r = this.activeHingeObjects.get(t);
 		if (!r) {
 			r = {
-				physicsValue: new Ee({
+				physicsValue: new SpringValue({
 					dampening,
 					springMultiplier,
 				}),
@@ -19099,7 +19291,7 @@ class GameTimerUi {
 		this.el.style.display = t ? "" : "none";
 	}
 }
-class gs {
+class EliminationTeamScore {
 	el = document.createElement("div");
 	teamId;
 	teamColor;
@@ -19116,7 +19308,7 @@ class gs {
 		const i = (t = Math.min(t, 10)) - this.playerDots.length;
 		const s = -i;
 		for (let t = 0; t < i; t++) {
-			const t = new qi(this.teamColor);
+			const t = new ScoreDot(this.teamColor);
 			this.playerDots.push(t);
 			this.el.append(t.el);
 		}
@@ -19150,7 +19342,7 @@ class EliminationScoreUi {
 			if (t == 0) {
 				continue;
 			}
-			const e = new gs(t);
+			const e = new EliminationTeamScore(t);
 			this.el.appendChild(e.el);
 			this.scoreTeams[t] = e;
 		}
@@ -19172,13 +19364,13 @@ class EliminationScoreUi {
 		}
 		return null;
 	}
-	setVisible(t) {
-		this.el.style.display = t ? "" : "none";
+	setVisible(visible: boolean): void {
+		this.el.style.display = visible ? "" : "none";
 	}
 }
-class fs {
+class GamemodeLabel {
 	el = document.createElement("div");
-	gamemodeEl;
+	gamemodeEl: HTMLSpanElement;
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("active-gamemode-container", "blueNight", "whiteBigText");
 		builtAt.appendChild(this.el);
@@ -19187,22 +19379,22 @@ class fs {
 		this.gamemodeEl.textContent = "-";
 		this.el.append(this.gamemodeEl);
 	}
-	destructor() {
+	destructor(): void {
 		this.gameWrapper.removeChild(this.el);
 	}
-	setActiveGamemode(t) {
-		this.gamemodeEl.textContent = X(t);
+	setActiveGamemode(gamemode: number): void {
+		this.gamemodeEl.textContent = X(gamemode);
 	}
-	setVisible(t) {
-		this.el.style.display = t ? "" : "none";
+	setVisible(visible: boolean): void {
+		this.el.style.display = visible ? "" : "none";
 	}
 }
 class KingOfTheHillUi {
 	visible = true;
 	el = document.createElement("div");
-	progressEls;
-	redScore;
-	blueScore;
+	progressEls: HTMLDivElement[] = [];
+	redScore = 0;
+	blueScore = 0;
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("king-of-the-hill-ui-container", "wrinkledPaper");
 		this.el.style.cssText = `
@@ -19230,7 +19422,7 @@ class KingOfTheHillUi {
 			n.append(o);
 			o.style.cssText = `
 \t\t\t--wrinkled-paper-seed: ${i};
-\t\t\t--wrinkled-paper-color: ${s.cssColor};
+\t\t\t--wrinkled-paper-color: ${s!.cssColor};
 \t\t\t`;
 			this.el.append(e);
 			const a = document.createElement("div");
@@ -19247,15 +19439,15 @@ class KingOfTheHillUi {
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	setProgress(t, e, i) {
-		this.redScore = t;
-		this.blueScore = e;
-		const s = t / i;
-		const n = e / i;
-		this.progressEls[0].style.width = `${100 * s}%`;
-		this.progressEls[1].style.width = `${100 * n}%`;
+	setProgress(redScore: number, blueScore: number, total: number): void {
+		this.redScore = redScore;
+		this.blueScore = blueScore;
+		const redRatio = redScore / total;
+		const blueRatio = blueScore / total;
+		this.progressEls[0]!.style.width = `${100 * redRatio}%`;
+		this.progressEls[1]!.style.width = `${100 * blueRatio}%`;
 	}
-	getWinningTeam() {
+	getWinningTeam(): number | null {
 		if (this.redScore > this.blueScore) {
 			return Y;
 		}
@@ -19264,11 +19456,11 @@ class KingOfTheHillUi {
 		}
 		return null;
 	}
-	setVisible(t) {
-		this.visible = t;
+	setVisible(visible: boolean): void {
+		this.visible = visible;
 		this.updateVisibility();
 	}
-	updateVisibility() {
+	updateVisibility(): void {
 		const visible = this.visible;
 		this.el.style.display = visible ? "" : "none";
 	}
@@ -19284,7 +19476,7 @@ class OnlineGame {
 	arrowManager: ArrowManager;
 	crosshair;
 	flags: Flag[] = [];
-	appearingObjectsManager = new cs();
+	appearingObjectsManager = new AppearingObjectsManager();
 	gameIsVisible = false;
 	receivedColliders = false;
 	scene: Object3D | null = null;
@@ -19292,8 +19484,8 @@ class OnlineGame {
 	onUsedForCamShotsOnlyChangeCbs = new Set();
 	_usedForCameraShotsOnly = false;
 	uiVisible = false;
-	activeGamemodeUi: fs | null = null;
-	flagScoreUi: Wi | null = null;
+	activeGamemodeUi: GamemodeLabel | null = null;
+	flagScoreUi: FlagScoreboard | null = null;
 	eliminationScoreUi: EliminationScoreUi | null = null;
 	gameTimerUi: GameTimerUi | null = null;
 	kingOfTheHillUi: KingOfTheHillUi | null = null;
@@ -19332,7 +19524,7 @@ class OnlineGame {
 	onMyPlayerChangeCbs = new Set<() => void>();
 	onGameEndCbs = new Set<() => void>();
 	onGameEndFinishCbs = new Set<() => void>();
-	gameEndWaitTimers: ts[] = [];
+	gameEndWaitTimers: GameEndTimer[] = [];
 	gameEndTimerSuddenChangeDisabled: boolean;
 	onEstimatedMaxGameEndWaitTimeSuddenChangeCbs = new Set<() => void>();
 	onSdkGameplayStartedChangeCbs = new Set<() => void>();
@@ -19345,10 +19537,10 @@ class OnlineGame {
 	gameEndReceivedCoins: number;
 	gameEndCoinsAlreadyDoubled: boolean;
 	gameEndShowStatsScreen: boolean;
-	gameEndStatsShowTimer: ts | null;
-	gameEndAdBreakTimer: ts | null;
-	gameEndRewardedAdTimer: ts | null;
-	gameEndStatsAfterRewardedAdTimer: ts | null;
+	gameEndStatsShowTimer: GameEndTimer | null;
+	gameEndAdBreakTimer: GameEndTimer | null;
+	gameEndRewardedAdTimer: GameEndTimer | null;
+	gameEndStatsAfterRewardedAdTimer: GameEndTimer | null;
 	currentLoadedMapHash: string | null;
 	boundUpdateUiVisible: () => void;
 	boundOnPlayerListDown: () => void;
@@ -19507,32 +19699,32 @@ class OnlineGame {
 	get sdkGameplayStarted() {
 		return !this.gameEnded && !this.isDoingGameEndSteps && !this.destructed;
 	}
-	onSdkGameplayStartedChange(t) {
-		this.onSdkGameplayStartedChangeCbs.add(t);
+	onSdkGameplayStartedChange(cb: () => void): void {
+		this.onSdkGameplayStartedChangeCbs.add(cb);
 	}
-	fireSdkGameplayStartedChange() {
-		this.onSdkGameplayStartedChangeCbs.forEach((t) => t());
+	fireSdkGameplayStartedChange(): void {
+		this.onSdkGameplayStartedChangeCbs.forEach((cb) => cb());
 	}
-	setActiveGamemode(t) {
-		this.activeGamemode = t;
+	setActiveGamemode(gamemode: number): void {
+		this.activeGamemode = gamemode;
 		if (!this.activeGamemodeUi) {
-			this.activeGamemodeUi = new fs(this.gameWrapper);
+			this.activeGamemodeUi = new GamemodeLabel(this.gameWrapper);
 		}
-		this.activeGamemodeUi.setActiveGamemode(t);
-		$(t)
+		this.activeGamemodeUi.setActiveGamemode(gamemode);
+		$(gamemode)
 			? this.flagScoreUi ||
-				((this.flagScoreUi = new Wi(this.gameWrapper, this.teamCount)),
+				((this.flagScoreUi = new FlagScoreboard(this.gameWrapper, this.teamCount)),
 				this.flagScoreUi.onNeedsNotification(this.showFlagNotification.bind(this)))
 			: this.flagScoreUi && (this.flagScoreUi.destructor(), (this.flagScoreUi = null));
-		a0(t)
+		a0(gamemode)
 			? this.gameTimerUi || (this.gameTimerUi = new GameTimerUi(this.gameWrapper))
 			: this.gameTimerUi && (this.gameTimerUi.destructor(), (this.gameTimerUi = null));
-		t == a1
+		gamemode == a1
 			? this.eliminationScoreUi ||
 				(this.eliminationScoreUi = new EliminationScoreUi(this.gameWrapper, this.teamCount))
 			: this.eliminationScoreUi &&
 				(this.eliminationScoreUi.destructor(), (this.eliminationScoreUi = null));
-		if (t == a2) {
+		if (gamemode == a2) {
 			if (!this.kingOfTheHillUi) {
 				this.kingOfTheHillUi = new KingOfTheHillUi(this.gameWrapper);
 			}
@@ -19546,7 +19738,7 @@ class OnlineGame {
 				this.kingOfTheHillSphere.parent.remove(this.kingOfTheHillSphere);
 			}
 		}
-		this.playersListDialog.setActiveGamemode(t);
+		this.playersListDialog.setActiveGamemode(gamemode);
 	}
 	createKingOfTheHillSphereIfNeeded() {
 		if (this.activeGamemode != a2) {
@@ -19564,7 +19756,7 @@ class OnlineGame {
 		const s = [0.04, 0.04, 0];
 		for (let t = 0; t < i.byteLength; t += 3) {
 			for (let e = 0; e < s.length; e++) {
-				i[t + e] = 0.3 * s[e];
+				i[t + e] = 0.3 * s[e]!;
 			}
 		}
 		t.setAttribute("color", new BufferAttribute(i, 3));
@@ -19587,9 +19779,9 @@ class OnlineGame {
 			this.kingOfTheHillSphere.updateWorldMatrix(false, true);
 		}
 	}
-	setGameTimerTimeRemaining(t) {
+	setGameTimerTimeRemaining(timeRemainingMs: number): void {
 		if (this.gameTimerUi) {
-			this.gameTimerUi.setTimeRemaining(t);
+			this.gameTimerUi.setTimeRemaining(timeRemainingMs);
 		}
 	}
 	async loadMap(t) {
@@ -19648,11 +19840,11 @@ class OnlineGame {
 	}
 	#C: string | null = null;
 	updateMapGameplayData(mapGameplayData: {
-		flags: { flagTeamId: number; pos: Vector3; rot: Quaternion }[];
-		spawnPositions: { pos: Vector3; rot: Quaternion }[][];
+		flags: { flagTeamId: number; pos: number[]; rot: number[] }[];
+		spawnPositions: { pos: number[]; rot: number[] }[][];
 		mapName: string;
 		assetName: string;
-		kingOfTheHillPosition: Vector3;
+		kingOfTheHillPosition: number[];
 	}): void {
 		if (!this.destructed) {
 			for (const t of this.flags) {
@@ -19831,8 +20023,8 @@ class OnlineGame {
 		}
 		this.playersListDialog.playersListChanged();
 	}
-	createFlag(t, e, i) {
-		const s = new Flag(this.flags.length, t, e, i, this, this.physics);
+	createFlag(teamId: number, position, rotation) {
+		const s = new Flag(this.flags.length, teamId, position, rotation, this, this.physics);
 		s.onCurrentHoldingPlayerChange(() => {
 			this.updateFlagGrabbedStates();
 		});
@@ -20416,12 +20608,12 @@ class OnlineGame {
 		this.gameEndAdBreakTimer = this.createGameEndWaitTimer(10, "adbreak");
 		this.updateGameEndShowStatsScreen();
 		r.start();
-		await Te.promise(1000 * this.gameEndLoweringTimeScaleDuration);
+		await Timeout.promise(1000 * this.gameEndLoweringTimeScaleDuration);
 		if (this.destructed || this.finishedGameEndFlow) {
 			return;
 		}
 		this.physics.startLoweringTimeScale();
-		await Te.promise(1000 * a);
+		await Timeout.promise(1000 * a);
 		if (this.destructed || this.finishedGameEndFlow) {
 			return;
 		}
@@ -20542,7 +20734,7 @@ class OnlineGame {
 		return t;
 	}
 	createGameEndWaitTimer(t = 0, e = "") {
-		const i = new ts(t, e);
+		const i = new GameEndTimer(t, e);
 		i.onSuddenChange(() => {
 			this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
 		});
@@ -20705,7 +20897,7 @@ class OnlineGame {
 		this.#M = 0;
 	}
 }
-class Ss extends Dialog {
+class SquadDialog extends Dialog {
 	networkManager: NetworkManager;
 	squadManager: SquadManager;
 	gameManager: GameManager;
@@ -20715,13 +20907,13 @@ class Ss extends Dialog {
 	squadIdText: HTMLDivElement;
 	copyUrlButton: CustomButton;
 	clipboardPermissionGranted: boolean;
-	joinSquadIdInput: Ae;
+	joinSquadIdInput: TextInput;
 	joinSquadIdButton: CustomButton;
 	membersTbody: HTMLTableSectionElement;
 	inSquadButtonsContainer: HTMLDivElement;
 	boundOnReadyToJoinChange: (ready: boolean) => void;
 	startButton: CustomButton;
-	squadSettingsDialog: Le | null;
+	squadSettingsDialog: SquadSettingsDialog | null;
 	currentAvatarBlobUrlReferences: Set<BlobURLReference>;
 	boundUpdateSquadId: () => void;
 	boundOnSquadIdChange: () => void;
@@ -20828,7 +21020,7 @@ class Ss extends Dialog {
 			}
 			squadManager.joinExistingSquad(this.joinSquadIdInput.value);
 		});
-		this.joinSquadIdInput = new Ae({
+		this.joinSquadIdInput = new TextInput({
 			placeholder: "Enter a code",
 			extraClasses: ["join-squad-input"],
 			maxLength: 8,
@@ -20887,7 +21079,7 @@ class Ss extends Dialog {
 			iconSize: 1.5,
 			onClick: () => {
 				if (!this.squadSettingsDialog) {
-					this.squadSettingsDialog = new Le(gameWrapper, this.squadManager);
+					this.squadSettingsDialog = new SquadSettingsDialog(gameWrapper, this.squadManager);
 					getMain().dialogManager.addDialog(this.squadSettingsDialog);
 					this.squadSettingsDialog.addOnCloseCb(() => {
 						this.squadSettingsDialog = null;
@@ -20958,7 +21150,7 @@ class Ss extends Dialog {
 		} catch (error) {
 			console.error(error);
 			let e = "An unknown error occurred while requesting the squad id.";
-			if (error instanceof Ie) {
+			if (error instanceof MatchmakeConnectionError) {
 				e = "Could not connect to the server. Please try again later.";
 			}
 			getMain().dialogManager.showAlert({
@@ -21161,7 +21353,7 @@ class Ss extends Dialog {
 		this.inSquadButtonsContainer.classList.toggle("hidden", !i);
 	}
 }
-class vs {
+class MapListItem {
 	#A;
 	#joinButton;
 	onJoinClickedCbs = new Set<() => void>();
@@ -21256,13 +21448,13 @@ class vs {
 		this.el.classList.add("highlight", "wrinkledPaper");
 	}
 }
-class Cs extends Dialog {
-	#T = new Map<string, vs>();
+class MapsDialog extends Dialog {
+	#T = new Map<string, MapListItem>();
 	configManager: ConfigManager;
 	preferredMapManager: PreferredMapManager;
 	gameManager: GameManager;
 	mapsContainer = document.createElement("div");
-	maps: vs[] = [];
+	maps: MapListItem[] = [];
 	constructor(gameWrapper: HTMLElement, configManager: ConfigManager, preferredMapManager: PreferredMapManager, gameManager: GameManager) {
 		super(gameWrapper);
 		this.configManager = configManager;
@@ -21292,7 +21484,7 @@ class Cs extends Dialog {
 			if (mapConfig.hiddenInUi) {
 				continue;
 			}
-			const mapItem = new vs(this.configManager, mapConfig);
+			const mapItem = new MapListItem(this.configManager, mapConfig);
 			this.maps.push(mapItem);
 			if (mapConfig.assetName) {
 				this.#T.set(mapConfig.assetName, mapItem);
@@ -21360,7 +21552,7 @@ class Cs extends Dialog {
 		}
 	}
 }
-class ks extends Dialog {
+class IosInstallDialog extends Dialog {
 	constructor(gameWrapper: HTMLElement) {
 		super(gameWrapper, {
 			startVisible: false,
@@ -21427,17 +21619,17 @@ class MainMenu {
 	visible;
 	onVisibilityChangeCbs;
 	contentVisible;
-	userProfileDialog: Pe | null;
+	userProfileDialog: ProfileDialog | null;
 	cornerProfile;
 	menuButtonsContainer;
 	loginButton;
 	settingsDialog: SettingsDialog | null;
 	settingsButton;
-	shopDialog: ke | null;
+	shopDialog: ShopDialog | null;
 	shopButton;
-	squadDialog: Ss | null;
+	squadDialog: SquadDialog | null;
 	squadButton;
-	mapsDialog: Cs | null;
+	mapsDialog: MapsDialog | null;
 	mapsButton;
 	fullScreenButton;
 	exitFullScreenButton;
@@ -21446,7 +21638,7 @@ class MainMenu {
 	installPromptAccepted;
 	updateButton;
 	exitButton;
-	promoBanner: Me | null;
+	promoBanner: PromoBanner | null;
 	currentMusicSfx: SFXSound | null;
 	hideUi;
 	constructor(public gameWrapper: HTMLElement) {
@@ -21484,7 +21676,7 @@ class MainMenu {
 		e.classList.add("main-menu-top-left");
 		this.el.appendChild(e);
 		this.userProfileDialog = null;
-		this.cornerProfile = new xe();
+		this.cornerProfile = new CornerProfile();
 		this.cornerProfile.onClick((t) => {
 			this.openUserProfileDialog({
 				showExtraStats: t.altKey,
@@ -21575,7 +21767,7 @@ class MainMenu {
 					(await (async () => {
 						let t;
 						if (Fs) {
-							const e = new ks(getMain().gameWrapper);
+							const e = new IosInstallDialog(getMain().gameWrapper);
 							getMain().dialogManager.addDialog(e);
 							t = "dismissed";
 						} else {
@@ -21929,7 +22121,7 @@ class MainMenu {
 		this.contentVisible = true;
 		this.menuButtonsContainer.classList.remove("hidden");
 		const t = getMain();
-		this.promoBanner = new Me(
+		this.promoBanner = new PromoBanner(
 			t.config,
 			this,
 			t.gameManager,
@@ -22005,7 +22197,7 @@ class MainMenu {
 	}
 	openShopDialog() {
 		if (!this.shopDialog) {
-			this.shopDialog = new ke(this.gameWrapper);
+			this.shopDialog = new ShopDialog(this.gameWrapper);
 			getMain().dialogManager.addDialog(this.shopDialog);
 			this.shopDialog.addOnCloseCb(() => {
 				this.shopDialog = null;
@@ -22015,7 +22207,7 @@ class MainMenu {
 	}
 	openUserProfileDialog(t) {
 		if (!this.userProfileDialog) {
-			this.userProfileDialog = new Pe(this.gameWrapper, t);
+			this.userProfileDialog = new ProfileDialog(this.gameWrapper, t);
 			getMain().dialogManager.addDialog(this.userProfileDialog);
 			this.userProfileDialog.addOnCloseCb(() => {
 				this.userProfileDialog = null;
@@ -22025,7 +22217,7 @@ class MainMenu {
 	openSquadDialog() {
 		if (!this.squadDialog) {
 			this.makeMainMenuVisibleFromUserGesture();
-			this.squadDialog = new Ss(
+			this.squadDialog = new SquadDialog(
 				this.gameWrapper,
 				getMain().network,
 				getMain().network.squadManager,
@@ -22044,7 +22236,7 @@ class MainMenu {
 			return this.mapsDialog;
 		}
 		const t = getMain();
-		this.mapsDialog = new Cs(this.gameWrapper, t.config, t.preferredMapManager, t.gameManager);
+		this.mapsDialog = new MapsDialog(this.gameWrapper, t.config, t.preferredMapManager, t.gameManager);
 		getMain().dialogManager.addDialog(this.mapsDialog);
 		this.mapsDialog.addOnCloseCb(() => {
 			this.mapsDialog = null;
@@ -22052,7 +22244,7 @@ class MainMenu {
 		return this.mapsDialog;
 	}
 }
-class qs {
+class GameAdBanner {
 	pokiSize;
 	el = document.createElement("div");
 	visible;
@@ -22100,9 +22292,9 @@ class AdBanners {
 	hasRemoveAdsEntitlement = false;
 	constructor(public gameWrapper: HTMLElement) {}
 	async init() {
-		this.desktopBanner = new qs("desktop", "728x90");
+		this.desktopBanner = new GameAdBanner("desktop", "728x90");
 		this.gameWrapper.append(this.desktopBanner.el);
-		this.mobileBanner = new qs("mobile", "320x50");
+		this.mobileBanner = new GameAdBanner("mobile", "320x50");
 		this.gameWrapper.append(this.mobileBanner.el);
 		getMain().mainMenu.onVisibilityChange((t) => {
 			this.setPageVisibility("mainMenu", t && getMain().gameManager.joinedOnce);
@@ -22145,7 +22337,7 @@ class AdBanners {
 		getMain().poki.updateBannerVisibility();
 	}
 }
-class Ws extends Dialog {
+class AlertDialog extends Dialog {
 	indexPriority = 3;
 	closeOnButtonClick;
 	titleEl = document.createElement("h2");
@@ -22331,7 +22523,7 @@ class DialogManager {
 		}
 	}
 	showAlert(t) {
-		const e = new Ws(this.gameWrapper, t);
+		const e = new AlertDialog(this.gameWrapper, t);
 		this.addDialog(e);
 		return e;
 	}
@@ -22427,7 +22619,7 @@ class DialogManager {
 		}
 	}
 }
-class js {
+class InputKey {
 	keyCodes;
 	mouseButtons;
 	gamepadButtons;
@@ -22512,7 +22704,7 @@ class js {
 		this.onPressedUpCbs.delete(e);
 	}
 }
-class Gs {
+class TouchControl {
 	el = document.createElement("div");
 	visible = true;
 	currentUsingTouchId = null;
@@ -22559,7 +22751,7 @@ class Gs {
 		this.el.style.display = t ? "" : "none";
 	}
 }
-class zs {
+class TouchResponseArea {
 	cancelWhenLeaving;
 	constructor(t = false) {
 		this.cancelWhenLeaving = t;
@@ -22568,7 +22760,7 @@ class zs {
 		return false;
 	}
 }
-class $s extends zs {
+class TouchCircleArea extends TouchResponseArea {
 	pos;
 	radius;
 	constructor(t, e, i) {
@@ -22580,7 +22772,7 @@ class $s extends zs {
 		return new Vector2(t.clientX, t.clientY).distanceTo(this.pos) < this.radius;
 	}
 }
-class _s extends Gs {
+class TouchJoystick extends TouchControl {
 	currentValue = new Vector2();
 	hideWhenUsed;
 	containerPos = new Vector2();
@@ -22639,7 +22831,7 @@ class _s extends Gs {
 	}
 	setDefaultPos(t) {
 		this.defaultPos = t.clone();
-		if (this.responsiveArea instanceof $s) {
+		if (this.responsiveArea instanceof TouchCircleArea) {
 			this.responsiveArea.pos.copy(this.defaultPos);
 		}
 		this.resetPos();
@@ -22667,7 +22859,7 @@ class _s extends Gs {
 		this.stickEl.style.transform = `translate(${i.x}px, ${i.y}px) translate(-50%, -50%)`;
 	}
 }
-class Js extends Gs {
+class TouchLookInput extends TouchControl {
 	currentTouchId = null;
 	prevTouchPos = new Vector2();
 	lastDeltaPos = new Vector2();
@@ -22694,7 +22886,7 @@ class Js extends Gs {
 		this.currentTouchId = null;
 	}
 }
-class Ks extends Gs {
+class TouchButton extends TouchControl {
 	left;
 	right;
 	top;
@@ -22702,16 +22894,8 @@ class Ks extends Gs {
 	radius;
 	linkedInputKeys;
 	pressed;
-	constructor({
-		left = null,
-		right = null,
-		top = null,
-		bottom = null,
-		radius = 35,
-		responsiveArea = null,
-		img = null,
-		cancelOthers = false,
-	} = {}) {
+	constructor(opts: { left?: number | null; right?: number | null; top?: number | null; bottom?: number | null; radius?: number; responsiveArea?: TouchControlArea | null; img?: string | null; cancelOthers?: boolean } = {}) {
+		const { left = null, right = null, top = null, bottom = null, radius = 35, responsiveArea = null, img = null, cancelOthers = false } = opts;
 		super({
 			responsiveArea,
 			cancelOthers,
@@ -22750,7 +22934,7 @@ class Ks extends Gs {
 		this.updateResponsiveAreaPos();
 	}
 	updateResponsiveAreaPos() {
-		if (this.responsiveArea instanceof $s) {
+		if (this.responsiveArea instanceof TouchCircleArea) {
 			let t = 0;
 			let e = 0;
 			if (this.left) {
@@ -22794,7 +22978,7 @@ class Ks extends Gs {
 		this.linkedInputKeys.add(t);
 	}
 }
-class Ys extends zs {
+class TouchScreenRegion extends TouchResponseArea {
 	left;
 	right;
 	top;
@@ -22812,25 +22996,25 @@ class Ys extends zs {
 		return e > this.left && e < this.right && i > this.top && i < this.bottom;
 	}
 }
-class Xs {
+class TouchControls {
 	touchListener = document.createElement("div");
-	uiContainer;
-	joyStick;
-	lookInput;
-	jumpButton;
-	fireButton;
-	toggleWeaponButton;
-	chatButton;
-	playerListButton;
-	thirdPersonButton;
-	touchElements;
-	smallCornerButtons;
-	lastDeltaLook;
-	lastUpdateTouchesTime;
-	touchSupported;
-	onTouchSupportedChangeCbs;
-	onTouchListenerClickCbs;
-	constructor(t) {
+	uiContainer: HTMLDivElement;
+	joyStick: TouchJoystick | null = null;
+	lookInput: TouchLookInput | null = null;
+	jumpButton: TouchButton | null = null;
+	fireButton: TouchButton | null = null;
+	toggleWeaponButton: TouchButton | null = null;
+	chatButton: TouchButton | null = null;
+	playerListButton: TouchButton | null = null;
+	thirdPersonButton: TouchButton | null = null;
+	touchElements: TouchControl[] = [];
+	smallCornerButtons: TouchButton[] = [];
+	lastDeltaLook: Vector2 = new Vector2();
+	lastUpdateTouchesTime = 0;
+	touchSupported = false;
+	onTouchSupportedChangeCbs = new Set<() => void>();
+	onTouchListenerClickCbs = new Set<() => void>();
+	constructor(t: HTMLElement) {
 		this.touchListener.classList.add("touchListener", "fullScreen");
 		t.appendChild(this.touchListener);
 		this.uiContainer = document.createElement("div");
@@ -22854,63 +23038,63 @@ class Xs {
 			(t) => {
 				if (!this.touchSupported) {
 					this.touchSupported = true;
-					this.joyStick = new _s({
-						responsiveArea: new Ys(0, 0.5, 0, 1),
+					this.joyStick = new TouchJoystick({
+						responsiveArea: new TouchScreenRegion(0, 0.5, 0, 1) as any,
 					});
 					this.uiContainer.append(this.joyStick.el);
-					this.lookInput = new Js();
+					this.lookInput = new TouchLookInput();
 					this.uiContainer.append(this.lookInput.el);
-					this.jumpButton = new Ks({
+					this.jumpButton = new TouchButton({
 						right: 150,
 						bottom: 30,
-						responsiveArea: new $s(null, 50, false),
+						responsiveArea: new TouchCircleArea(null, 50, false),
 						img: "static/img/touchUI/jump.svg",
 					});
 					this.jumpButton.addInputKey(getMain().input.getKey("jump"));
 					this.uiContainer.append(this.jumpButton.el);
-					this.fireButton = new Ks({
+					this.fireButton = new TouchButton({
 						right: 80,
 						bottom: 100,
 						radius: 50,
-						responsiveArea: new $s(null, 70, false),
+						responsiveArea: new TouchCircleArea(null, 70, false),
 						img: "static/img/touchUI/shoot.svg",
 					});
 					this.fireButton.addInputKey(getMain().input.getKey("fire"));
 					this.uiContainer.append(this.fireButton.el);
-					this.toggleWeaponButton = new Ks({
+					this.toggleWeaponButton = new TouchButton({
 						right: 30,
 						bottom: 200,
-						responsiveArea: new $s(null, 40, false),
+						responsiveArea: new TouchCircleArea(null, 40, false),
 						img: "static/img/touchUI/toggleWeapon.svg",
 					});
 					this.toggleWeaponButton.addInputKey(getMain().input.getKey("toggleWeapon"));
 					this.toggleWeaponButton.setVisibility(false);
 					this.uiContainer.append(this.toggleWeaponButton.el);
-					this.playerListButton = new Ks({
+					this.playerListButton = new TouchButton({
 						left: 20,
 						top: 100,
 						radius: 15,
-						responsiveArea: new $s(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20, false),
 						img: "static/img/touchUI/playerList.svg",
 						cancelOthers: true,
 					});
 					this.playerListButton.addInputKey(getMain().input.getKey("playerListTouch"));
 					this.uiContainer.append(this.playerListButton.el);
-					this.thirdPersonButton = new Ks({
+					this.thirdPersonButton = new TouchButton({
 						left: 60,
 						top: 100,
 						radius: 15,
-						responsiveArea: new $s(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20, false),
 						img: "static/img/touchUI/view.svg",
 						cancelOthers: true,
 					});
 					this.thirdPersonButton.addInputKey(getMain().input.getKey("toggleThirdPerson"));
 					this.uiContainer.append(this.thirdPersonButton.el);
-					this.chatButton = new Ks({
+					this.chatButton = new TouchButton({
 						left: 100,
 						top: 100,
 						radius: 15,
-						responsiveArea: new $s(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20, false),
 						img: "static/img/touchUI/chat.svg",
 						cancelOthers: true,
 					});
@@ -23143,50 +23327,50 @@ class InputManager {
 	constructor(t) {
 		this.keys.set(
 			"left",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyA", "ArrowLeft"],
 			}),
 		);
 		this.keys.set(
 			"right",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyD", "ArrowRight"],
 			}),
 		);
 		this.keys.set(
 			"up",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyW", "ArrowUp"],
 			}),
 		);
 		this.keys.set(
 			"down",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyS", "ArrowDown"],
 			}),
 		);
 		this.keys.set(
 			"flyUp",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyE", "Space"],
 			}),
 		);
 		this.keys.set(
 			"flyDown",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyQ", "ShiftLeft"],
 			}),
 		);
 		this.keys.set(
 			"jump",
-			new js({
+			new InputKey({
 				keyCodes: ["Space"],
 				gamepadButtons: [0],
 			}),
 		);
 		this.keys.set(
 			"fire",
-			new js({
+			new InputKey({
 				keyCodes: [],
 				gamepadButtons: [7],
 				mouseButtons: [0],
@@ -23194,54 +23378,54 @@ class InputManager {
 		);
 		this.keys.set(
 			"prevWeapon",
-			new js({
+			new InputKey({
 				keyCodes: ["wheelUp"],
 				gamepadButtons: [4],
 			}),
 		);
 		this.keys.set(
 			"nextWeapon",
-			new js({
+			new InputKey({
 				keyCodes: ["wheelDown"],
 				gamepadButtons: [5],
 			}),
 		);
 		this.keys.set(
 			"toggleWeapon",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyQ", "wheelUp", "wheelDown"],
 				gamepadButtons: [4, 5],
 			}),
 		);
 		this.keys.set(
 			"playerList",
-			new js({
+			new InputKey({
 				keyCodes: ["Tab"],
 				gamepadButtons: [8],
 			}),
 		);
 		this.keys.set(
 			"mainMenu",
-			new js({
+			new InputKey({
 				keyCodes: ["Escape"],
 				gamepadButtons: [9],
 			}),
 		);
-		this.keys.set("playerListTouch", new js());
+		this.keys.set("playerListTouch", new InputKey());
 		this.keys.set(
 			"toggleThirdPerson",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyY"],
 				gamepadButtons: [3],
 			}),
 		);
 		this.keys.set(
 			"chat",
-			new js({
+			new InputKey({
 				keyCodes: ["KeyT"],
 			}),
 		);
-		this.keys.set("toggleChatVisibility", new js());
+		this.keys.set("toggleChatVisibility", new InputKey());
 		this.desiredPointerLockedState = false;
 		this.forceUnlockedPointer = false;
 		this.currentLockedKeys = "";
@@ -23336,7 +23520,7 @@ class InputManager {
 		});
 		this.stickDeadZone = 0.1;
 		this.gamepadLookSensivity = 1.2;
-		this.touch = new Xs(t);
+		this.touch = new TouchControls(t);
 		this.mouseMove = new Vector2();
 		this.walkInput = new Vector2();
 		this.lookInput = new Vector2();
@@ -23755,7 +23939,7 @@ export interface ShopConfigData {
 export interface PromosConfigData {
 	activePromos: PromoItem[];
 }
-class rn {
+class ConfigLoaderBase {
 	configManager;
 	configPath;
 	onConfigChangeCbs = new Set();
@@ -23807,7 +23991,7 @@ class rn {
 		}
 	}
 }
-class MapsConfig extends rn {
+class MapsConfig extends ConfigLoaderBase {
 	override loadedConfigData: MapsConfigData | null = null;
 	transformData(t) {
 		if (!t) {
@@ -23861,7 +24045,7 @@ class MapsConfig extends rn {
 		return null;
 	}
 }
-class PromosConfig extends rn {
+class PromosConfig extends ConfigLoaderBase {
 	override loadedConfigData: PromosConfigData | null = null;
 	transformData(t) {
 		if (t) {
@@ -23877,7 +24061,7 @@ class PromosConfig extends rn {
 		};
 	}
 }
-class ShopsConfig extends rn {
+class ShopsConfig extends ConfigLoaderBase {
 	override loadedConfigData: ShopConfigData | null = null;
 	transformData(t) {
 		if (t) {
@@ -24193,9 +24377,9 @@ export class GameManager {
 			this.onIsInGamesLoopChangeCbs.forEach((e) => e(t));
 		}
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		if (this.activeGame) {
-			this.activeGame.loop(t, e);
+			this.activeGame.loop(now, dt);
 		}
 		if (this.rainSfx) {
 			const e = getMain();
@@ -24205,9 +24389,9 @@ export class GameManager {
 				let o = 0;
 				if (n > 0) {
 					let e = 0;
-					e += Math.cos(0.02 * t);
-					e += Math.cos(0.06 * t);
-					e += Math.cos(0.09 * t);
+					e += Math.cos(0.02 * now);
+					e += Math.cos(0.06 * now);
+					e += Math.cos(0.09 * now);
 					o += clampTo01(e / 3) * n * 3;
 				}
 				e.materials.setLightningValue(o);
@@ -24542,11 +24726,11 @@ class GameCamera {
 		this.thirdPersonMode = "none";
 		this.onThirdPersonChangeCbs = new Set();
 		this.thirdPersonPhysicsNeedsReset = false;
-		this.thirdPersonPhysics = new De({
+		this.thirdPersonPhysics = new SpringVector3({
 			dampening: 0.1,
 			springMultiplier: 0.08,
 		});
-		this.thirdPersonOffsetPhysics = new De({
+		this.thirdPersonOffsetPhysics = new SpringVector3({
 			dampening: 0.1,
 			springMultiplier: 0.08,
 		});
@@ -24651,7 +24835,7 @@ class GameCamera {
 			if (s.activeWeapon) {
 				r = s.activeWeapon.adjustFov(r);
 			}
-			this.cam.fov = l_1(this.cam.fov, r, 0.1);
+			this.cam.fov = lerp(this.cam.fov, r, 0.1);
 			this.cam.updateProjectionMatrix();
 			this.cam.updateMatrixWorld();
 		} else if (this.lobbyCamPositions && ((o = true), n.renderer.needsRenderFrame)) {
@@ -25086,7 +25270,7 @@ class RenderOverlay {
 	}
 }
 class GameRenderer {
-	renderer: Renderer = null;
+	renderer: WebGLRenderer | null = null;
 	canvas: HTMLCanvasElement | null = null;
 	freezeFrameCanvas: HTMLCanvasElement | null = null;
 	freezeFrameCtx: CanvasRenderingContext2D | null = null;
@@ -25113,7 +25297,7 @@ class GameRenderer {
 			this.freezeFrameDirty = true;
 		});
 		t.settingsManager.onValueChange("quality", (t) => {
-			this.rawResolutionMultiplier = t;
+			this.rawResolutionMultiplier = Number(t);
 			this.onResize();
 		});
 		t.settingsManager.onValueChange("antialias", () => {
@@ -25133,7 +25317,7 @@ class GameRenderer {
 			this.canvas = null;
 		}
 		this.renderer = null;
-		const antialias = getMain().settingsManager.getValue("antialias");
+		const antialias = Boolean(getMain().settingsManager.getValue("antialias"));
 		try {
 			this.renderer = new WebGLRenderer({
 				antialias,
@@ -25195,14 +25379,14 @@ class GameRenderer {
 			this.freezeFrameCanvas.height = this.canvas.height;
 		}
 	}
-	setSize(t, e) {
+	setSize(t: number, e: number): void {
 		this.renderWidth = t;
 		this.renderHeight = e;
 		if (this.renderer && t > 0 && e > 0) {
 			this.renderer.setSize(t, e, false);
 		}
 	}
-	createRenderView(...params) {
+	createRenderView(...params: any[]): RenderView {
 		const e = new RenderView(...params);
 		this.renderViews.add(e);
 		return e;
@@ -25210,12 +25394,12 @@ class GameRenderer {
 	removeRenderView(view: RenderView) {
 		this.renderViews.delete(view);
 	}
-	createRenderOverlay(...params) {
+	createRenderOverlay(...params: any[]): RenderOverlay {
 		const e = new RenderOverlay(...params);
 		this.renderOverlays.add(e);
 		return e;
 	}
-	removeRenderOverlay(t) {
+	removeRenderOverlay(t: RenderOverlay): void {
 		this.renderOverlays.delete(t);
 	}
 	queryScreenshot() {
@@ -25223,7 +25407,7 @@ class GameRenderer {
 			this.queriedScreenshotCallbacks.push(resolve);
 		});
 	}
-	loop(t, e) {
+	loop(t: number, e: number): void {
 		if (this.mainCanvasRenderEnabled) {
 			this.updateMainCanvasRenderEnabled();
 		}
@@ -25260,7 +25444,7 @@ class GameRenderer {
 		}
 		this.setMainCanvasRenderEnabled(t);
 	}
-	setMainCanvasRenderEnabled(t) {
+	setMainCanvasRenderEnabled(t: boolean): void {
 		if (t != this.mainCanvasRenderEnabled) {
 			this.mainCanvasRenderEnabled = t;
 			if (t) {
@@ -25339,7 +25523,7 @@ class GameRenderer {
 						if (!this.renderer) {
 							return null;
 						}
-						this.renderer.domElement.toBlob(resolve);
+						this.renderer.domElement.toBlob(resolve as BlobCallback);
 					});
 					const screenshot = await screenshotPromise;
 					for (const cb of this.queriedScreenshotCallbacks) {
@@ -25360,7 +25544,7 @@ class GameRenderer {
 			this.freezeFrameCtx.drawImage(this.canvas, 0, 0);
 		}
 		for (let t = this.afterFrameRenderCbs.length - 1; t >= 0; t--) {
-			const e = this.afterFrameRenderCbs[t];
+const e = this.afterFrameRenderCbs[t]!;
 			e.waitCount--;
 			if (e.waitCount <= 0) {
 				e.cb();
@@ -25381,7 +25565,7 @@ class SkeletonsManager {
 	cachedPoses = new Map<string, Object3D>();
 	loadingPoseCbs = new Map<string, Set<(value: Object3D) => void>>();
 	constructor() {}
-	async getSkeleton(name: string, { clone = false, signal = null } = {}) {
+	async getSkeleton(name: string, { clone = false, signal = null }: { clone?: boolean; signal?: AbortSignal | null } = {}) {
 		let ret = this.cachedPoses.get(name);
 		if (!ret) {
 			let loadingPoseCb = this.loadingPoseCbs.get(name);
@@ -25413,16 +25597,32 @@ class SkeletonsManager {
 		return ret;
 	}
 }
+export interface SfxOpts {
+	name?: string;
+	autoPlay?: boolean;
+	volume?: number;
+	minPitch?: number;
+	maxPitch?: number;
+	volumeFront?: number;
+	volumeBack?: number;
+	isMusic?: boolean;
+	loop?: boolean;
+	allowWithoutUserEvent?: boolean;
+	overrideMute?: boolean;
+	pos?: Vector3 | null;
+	connectToDestination?: boolean;
+	[key: string]: unknown;
+}
 class Sound {
-	opts;
-	ctx;
+	opts: SfxOpts;
+	ctx: AudioContext;
 	loaded = false;
 	loading = false;
-	buffer = null;
-	onLoadCbs: (() => void)[] = [];
+	buffer: AudioBuffer | null = null;
+	onLoadCbs: ((value?: unknown) => void)[] = [];
 	constructor(
-		public opts,
-		public ctx,
+		public opts: SfxOpts,
+		public ctx: AudioContext,
 	) {}
 	async init() {
 		if (this.loaded) {
@@ -25459,27 +25659,25 @@ class Sound {
 	}
 }
 class SFXSound {
-	cachedSfx;
-	opts;
+	opts: SfxOpts;
 	destructed = false;
-	sourceNode = null;
-	gainNode = null;
-	frontGainNode = null;
-	frontSplitterNode = null;
-	backGainNode = null;
-	backSplitterNode = null;
-	channelMergerNode = null;
-	finalNode = null;
-	pannerNode = null;
+	sourceNode: AudioBufferSourceNode | null = null;
+	gainNode: GainNode | null = null;
+	frontGainNode: GainNode | null = null;
+	frontSplitterNode: ChannelSplitterNode | null = null;
+	backGainNode: GainNode | null = null;
+	backSplitterNode: ChannelSplitterNode | null = null;
+	channelMergerNode: ChannelMergerNode | null = null;
+	finalNode: AudioNode | null = null;
+	pannerNode: PannerNode | null = null;
 	preventDestructOnNextStop = false;
 	lastSetVolume = 0;
-	isLoopPlaying = null;
+	isLoopPlaying: boolean | null = null;
 	muted = false;
 	forceMuted = false;
 	startTime = 0;
-	pitch;
-	constructor(t, e = {}) {
-		this.cachedSfx = t;
+	pitch: number;
+	constructor(public cachedSfx: Sound, params: Partial<SfxOpts> = {}) {
 		this.opts = {
 			autoPlay: true,
 			volume: 1,
@@ -25493,8 +25691,8 @@ class SFXSound {
 			overrideMute: false,
 			pos: null,
 			connectToDestination: true,
-			...t.opts,
-			...e,
+			...cachedSfx.opts,
+			...params,
 		};
 		const i = this.opts.minPitch || 0;
 		const s = this.opts.maxPitch || 0;
@@ -25512,7 +25710,7 @@ class SFXSound {
 		if (this.opts.pos) {
 			if (
 				getMain().cam.pos.distanceTo(this.opts.pos) >
-				getMain().settingsManager.getValue("sfxDistanceCutoff")
+				Number(getMain().settingsManager.getValue("sfxDistanceCutoff"))
 			) {
 				return void this.destructor();
 			}
@@ -25524,22 +25722,22 @@ class SFXSound {
 		this.setMuted(getMain().sfx.muted);
 		return true;
 	}
-	setVolume(t, e = false) {
+	setVolume(t: number, e = false): void {
 		const ctx = getMain().sfx.ctx;
 		if (!ctx) {
 			return;
 		}
 		this.lastSetVolume = t;
-		t *= getMain().settingsManager.getValue(this.opts.isMusic ? "musicVolume" : "sfxVolume") / 100;
+		t *= Number(getMain().settingsManager.getValue(this.opts.isMusic ? "musicVolume" : "sfxVolume")) / 100;
 		this.gainNode &&
 			(e
 				? (this.gainNode.gain.value = t)
 				: this.gainNode.gain.linearRampToValueAtTime(t, ctx.currentTime + 0.1));
 	}
-	volumeSettingChanged(t) {
+	volumeSettingChanged(t: string): void {
 		this.setVolume(this.lastSetVolume);
 	}
-	setMuted(t, e = false) {
+	setMuted(t: boolean, e = false): void {
 		this.muted = t;
 		this.forceMuted = e;
 		if (this.opts.overrideMute && !e) {
@@ -25594,12 +25792,12 @@ class SFXSound {
 			}
 			if (e.destination.maxChannelCount >= 6) {
 				this.frontGainNode = e.createGain();
-				this.frontGainNode.gain.value = this.opts.volumeFront;
+				this.frontGainNode.gain.value = this.opts.volumeFront ?? 1;
 				this.finalNode.connect(this.frontGainNode);
 				this.frontSplitterNode = e.createChannelSplitter(2);
 				this.frontGainNode.connect(this.frontSplitterNode);
 				this.backGainNode = e.createGain();
-				this.backGainNode.gain.value = this.opts.volumeBack;
+				this.backGainNode.gain.value = this.opts.volumeBack ?? 0;
 				this.finalNode.connect(this.backGainNode);
 				this.backSplitterNode = e.createChannelSplitter(2);
 				this.backGainNode.connect(this.backSplitterNode);
@@ -25685,15 +25883,22 @@ class SFXSound {
 	}
 }
 class SoundFX {
+	// :skull:
+	static supported: boolean;
 	supported: boolean;
 	packageName: `sfx${string}`;
 	cachedSfx: {
-		[k: string]: Pn;
+		[k: string]: Sound;
 	} = {};
 	createdSfx: SFXSound[] = [];
 	settingsMuted = true;
 	adsMuted = false;
 	muted = true;
+	ctx?: AudioContext;
+	boundUserEvent?: () => Promise<void>;
+	addedUserEventListeners?: boolean;
+	soundsConfig;
+	ctxStatePossiblyInvalid;
 	constructor() {
 		window.AudioContext = window.AudioContext || window.webkitAudioContext;
 		this.supported = !!AudioContext;
@@ -25947,29 +26152,29 @@ class SoundFX {
 					volume: 0.4,
 				},
 				{
-					name: "ui/coin/0",
+					name: "ChargedAttack/coin/0",
 					volume: 0.4,
 				},
 				{
-					name: "ui/coin/1",
+					name: "ChargedAttack/coin/1",
 					volume: 0.4,
 				},
 				{
-					name: "ui/coin/2",
+					name: "ChargedAttack/coin/2",
 					volume: 0.4,
 				},
 				{
-					name: "ui/coin/3",
+					name: "ChargedAttack/coin/3",
 					volume: 0.4,
 				},
 				{
-					name: "ui/coin/pile",
+					name: "ChargedAttack/coin/pile",
 					volume: 0.4,
 					minPitch: 0.8,
 					maxPitch: 1.1,
 				},
 				{
-					name: "ui/purchaseShopItem",
+					name: "ChargedAttack/purchaseShopItem",
 					volume: 0.3,
 					minPitch: 0.95,
 					maxPitch: 1.05,
@@ -26087,7 +26292,7 @@ class SoundFX {
 			}
 			this._audioFormatSet = true;
 		}
-		return this._audioFormat;
+		return this._audioFormat!;
 	}
 	static get audioFormatCamelCase() {
 		const audioFormat = this.audioFormat;
@@ -26099,8 +26304,8 @@ class SoundFX {
 	init() {
 		if (this.supported) {
 			this.downloadPackage();
-			for (const t of Object.values(this.cachedSfx)) {
-				t.init();
+			for (const sfx of Object.values(this.cachedSfx)) {
+				sfx.init();
 			}
 			getMain().settingsManager.onValueChange("musicVolume", (t) => {
 				for (const e of this.createdSfx) {
@@ -26119,13 +26324,13 @@ class SoundFX {
 		}
 	}
 	async downloadPackage() {
-		const t = getMain().assets.addPackage(this.packageName, {
+		const pkg = getMain().assets.addPackage(this.packageName, {
 			manualDownload: true,
 		});
 		await getMain().mapLoader.waitForFirstMapDownload();
-		t.startDownloading();
+		pkg!.startDownloading();
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		if (this.supported && this.ctx && this.ctx.state == "running" && this.ctx.listener) {
 			const t = getMain().cam.pos;
 			const e = getMain().cam.rot;
@@ -26187,12 +26392,12 @@ class SoundFX {
 			this.ctxStatePossiblyInvalid = false;
 		}
 	}
-	async playSound(t, e) {
-		const i = this.cachedSfx[t];
+	async playSound(name: string, params?: object) {
+		const i = this.cachedSfx[name];
 		if (!i) {
-			return void console.warn(`attempted to play sound ${t} but it doesn't exist`);
+			return void console.warn(`attempted to play sound ${name} but it doesn't exist`);
 		}
-		const sfx = new SFXSound(i, e);
+		const sfx = new SFXSound(i, params);
 		if (await sfx.init()) {
 			this.createdSfx.push(sfx);
 			return sfx;
@@ -26319,7 +26524,7 @@ class MatchMaking {
 			}
 			for (let t = 0; t < 3; t++) {
 				if (t > 0) {
-					await Te.promise(2000 * t);
+					await Timeout.promise(2000 * t);
 				}
 				const e = await this.attemptSingleWsConnection();
 				if (e) {
@@ -26392,7 +26597,7 @@ class MatchMaking {
 	}
 	async assertInitConnection() {
 		if (!(await this.initConnection())) {
-			throw new Ie();
+			throw new MatchmakeConnectionError();
 		}
 	}
 	get connected() {
@@ -26692,7 +26897,7 @@ class SquadManager {
 	matchMakeSquadMembers = new Map<number, MatchMakeSquadMember>();
 	matchMakeSquadMembersOnGameJoin = new Map<number, MatchMakeSquadMember>();
 	includeUnjoinedMembers = false;
-	includeUnjoinedMembersTimeout: Te;
+	includeUnjoinedMembersTimeout: Timeout;
 	waitingForSquadLoadingText: InfoText | undefined;
 	waitingForSquadStartLoadingText: InfoText | undefined;
 	gameSquadPlayers: SquadPlayer[] = [];
@@ -26702,7 +26907,7 @@ class SquadManager {
 	onServerReadyForStartStateChangeCbs = new Set<() => void>();
 	onServerReadyForStartTrueCbs = new Set<() => void>();
 	clientStartClicked = false;
-	clientStartClickedTimeout: Te;
+	clientStartClickedTimeout: Timeout;
 	serverStartClicked = false;
 	startClicked = false;
 	onStartClickedChangeCbs = new Set<() => void>();
@@ -26723,11 +26928,11 @@ class SquadManager {
 		public gameManager: GameManager,
 	) {
 		this.matchMakeManager = matchMakeManager;
-		this.includeUnjoinedMembersTimeout = new Te(() => {
+		this.includeUnjoinedMembersTimeout = new Timeout(() => {
 			this.includeUnjoinedMembers = false;
 			this.updateSquadMembersData();
 		}, 30000);
-		this.clientStartClickedTimeout = new Te(() => {
+		this.clientStartClickedTimeout = new Timeout(() => {
 			this.clientStartClicked = false;
 			this.updateStartClicked();
 		}, 2000);
@@ -27321,33 +27526,33 @@ class SquadManager {
 		this.onSquadMembersChangeCbs.forEach((t) => t());
 	}
 }
-function Tn(t, e = -1, i = 1, s = 8) {
-	t = q(e, i, 0, 2 ** s - 1, t, true);
-	return (t = Math.round(t));
+function Tn(value: number, min = -1, max = 1, bits = 8): number {
+	value = q(min, max, 0, 2 ** bits - 1, value, true);
+	return (value = Math.round(value));
 }
-function En(t, e = 1) {
-	return Tn(t, 0, e, 32);
+function En(value: number, max = 1): number {
+	return Tn(value, 0, max, 32);
 }
-function Dn(t, e, i) {
-	return Tn(t, e, i, 16);
+function Dn(value: number, min: number, max: number): number {
+	return Tn(value, min, max, 16);
 }
-function On(t, e = 1) {
-	return Tn(t, 0, e, 16);
+function On(value: number, max = 1): number {
+	return Tn(value, 0, max, 16);
 }
-function Fn(t, e = -1, i = 1, s = 8) {
-	return (t = q(0, 2 ** s - 1, e, i, t, true));
+function Fn(value: number, min = -1, max = 1, bits = 8): number {
+	return (value = q(0, 2 ** bits - 1, min, max, value, true));
 }
-function Bn(t, e, i) {
-	return Fn(t, e, i, 16);
+function Bn(value: number, min: number, max: number): number {
+	return Fn(value, min, max, 16);
 }
-function Vn(t, e = 1) {
-	return Fn(t, 0, e, 16);
+function Vn(value: number, max = 1): number {
+	return Fn(value, 0, max, 16);
 }
-function Rn(t, e = 1) {
-	return Fn(t, -e, e, 8);
+function Rn(value: number, max = 1): number {
+	return Fn(value, -max, max, 8);
 }
-function Un(t, e = 1) {
-	return Fn(t, 0, e, 8);
+function Un(value: number, max = 1): number {
+	return Fn(value, 0, max, 8);
 }
 function decodeTextPacket(buffer, e = 4) {
 	if (buffer.byteLength < e + 4) {
@@ -27383,6 +27588,21 @@ function Wn(t, e) {
 	new Uint8Array(o, 8).set(i);
 	return o;
 }
+export interface WorldBounds {
+	minX: number;
+	minY: number;
+	minZ: number;
+	maxX: number;
+	maxY: number;
+	maxZ: number;
+}
+export interface CreatedArrow {
+	arrowId: number;
+	pos: Vector3;
+	dir: Vector3;
+	fireAmount01: number;
+	networkOffsetPos: Vector3;
+}
 class NetworkManager {
 	ws: WebSocket | null = null;
 	joiningLoadingText: InfoText | null = null;
@@ -27401,7 +27621,7 @@ class NetworkManager {
 	lastDisconnectReasonExtra: number[] = [];
 	nextCloseIsIntentional = false;
 	isInitialPageLoadConnection = false;
-	timeoutDialog: Ws | null = null;
+	timeoutDialog: AlertDialog | null = null;
 	nextJoinReconnectToken: string | null = null;
 	nextJoinGameId = -1;
 	nextJoinRequestId: string | null = null;
@@ -28012,14 +28232,14 @@ class NetworkManager {
 			}
 			e.setPlayerNameVerified(t);
 		} else if (s[0] == 34) {
-			const t = getMain().gameManager.getOnlineGame();
-			if (!t) {
+			const game = getMain().gameManager.getOnlineGame();
+			if (!game) {
 				return;
 			}
-			const i = decodeTextPacket(buffer);
-			if (i) {
-				const e = JSON.parse(i);
-				t.chat.receivedChatMessage(e);
+			const json = decodeTextPacket(buffer);
+			if (json) {
+				const messageData = JSON.parse(json);
+				game.chat.receivedChatMessage(messageData);
 			}
 		} else if (s[0] == 38) {
 			const t = Hn(buffer);
@@ -28132,7 +28352,7 @@ class NetworkManager {
 				case 10:
 					title = "Final warning";
 					s =
-						"We have recently detected cheats on your account, device, or IP. This is your last chance to walk the path of honor. Disarm your cheats and refresh this page. Should you persist, you will be exiled for 24 hours. Subsequent violations result in a 1-week and then a 3-week banishment.";
+						"We have recently detected cheats on your account, device, or IP. This is your last chance to walk the path of honor. Disarm your cheats and refresh this page. Should you persist, you will ShopCustomizationView exiled for 24 hours. Subsequent violations result in a 1-week and then a 3-week banishment.";
 					e = [];
 					allowCurtainClose = false;
 					break;
@@ -28329,22 +28549,22 @@ class NetworkManager {
 		h[7] = ((t, e = 1) => Tn(t, -e, e, 8))(rotY, 0.5 * Math.PI);
 		this.send(r);
 	}
-	getWorldBounds(t) {
+	getWorldBounds(game: OnlineGame | OfflineGame | null): WorldBounds {
 		let minX = 0;
 		let minY = 0;
 		let minZ = 0;
 		let maxX = 0;
 		let maxY = 0;
 		let maxZ = 0;
-		if (t) {
-			const r = t.physics.mapBounds;
-			if (r) {
-				minX = r.min.x - 5;
-				minY = r.min.y - 5;
-				minZ = r.min.z - 5;
-				maxX = r.max.x + 5;
-				maxY = r.max.y + 5;
-				maxZ = r.max.z + 5;
+		if (game) {
+			const bounds = game.physics.mapBounds;
+			if (bounds) {
+				minX = bounds.min.x - 5;
+				minY = bounds.min.y - 5;
+				minZ = bounds.min.z - 5;
+				maxX = bounds.max.x + 5;
+				maxY = bounds.max.y + 5;
+				maxZ = bounds.max.z + 5;
 			}
 		}
 		return {
@@ -28356,58 +28576,58 @@ class NetworkManager {
 			maxZ,
 		};
 	}
-	*getDefaultFlagNetworkPositions(t) {
-		for (const e of t.flags) {
-			yield this.mapWorldPosToNetworkPos(t, e.position.x, e.position.y, e.position.z);
+	*getDefaultFlagNetworkPositions(game: OnlineGame): Generator<[number, number, number]> {
+		for (const flag of game.flags) {
+			yield this.mapWorldPosToNetworkPos(game, flag.position.x, flag.position.y, flag.position.z);
 		}
 	}
-	getDefaultSpawnNetworkPositions(t) {
-		if (!t.spawnPositions) {
+	getDefaultSpawnNetworkPositions(game: OnlineGame): [number, number, number][][] | null {
+		if (!game.spawnPositions) {
 			return null;
 		}
-		const e = [];
-		for (const i of t.spawnPositions) {
-			const s = [];
-			for (const { pos } of i) {
-				const i = this.mapWorldPosToNetworkPos(t, pos.x, pos.y, pos.z);
-				s.push(i);
+		const encoded: [number, number, number][][] = [];
+		for (const spawnGroup of game.spawnPositions) {
+			const encodedGroup: [number, number, number][] = [];
+			for (const { pos } of spawnGroup) {
+				const encodedPos = this.mapWorldPosToNetworkPos(game, pos.x, pos.y, pos.z);
+				encodedGroup.push(encodedPos);
 			}
-			e.push(s);
+			encoded.push(encodedGroup);
 		}
-		return e;
+		return encoded;
 	}
-	getKingOfTheHillNetworkPosition(t) {
-		const t_kingOfTheHillPosition = t.kingOfTheHillPosition;
+	getKingOfTheHillNetworkPosition(game: OnlineGame): [number, number, number] {
+		const hillPosition = game.kingOfTheHillPosition;
 		return this.mapWorldPosToNetworkPos(
-			t,
-			t_kingOfTheHillPosition.x,
-			t_kingOfTheHillPosition.y,
-			t_kingOfTheHillPosition.z,
+			game,
+			hillPosition.x,
+			hillPosition.y,
+			hillPosition.z,
 		);
 	}
-	mapWorldPosToNetworkPos(t, e, i, s) {
-		const n = this.getWorldBounds(t);
-		return [Dn(e, n.minX, n.maxX), Dn(i, n.minY, n.maxY), Dn(s, n.minZ, n.maxZ)];
+	mapWorldPosToNetworkPos(game: OnlineGame, x: number, y: number, z: number): [number, number, number] {
+		const bounds = this.getWorldBounds(game);
+		return [Dn(x, bounds.minX, bounds.maxX), Dn(y, bounds.minY, bounds.maxY), Dn(z, bounds.minZ, bounds.maxZ)];
 	}
-	mapNetworkPosToWorldPos(t, e, i, s) {
-		const n = this.getWorldBounds(t);
-		return [Bn(e, n.minX, n.maxX), Bn(i, n.minY, n.maxY), Bn(s, n.minZ, n.maxZ)];
+	mapNetworkPosToWorldPos(game: OnlineGame, x: number, y: number, z: number): [number, number, number] {
+		const bounds = this.getWorldBounds(game);
+		return [Bn(x, bounds.minX, bounds.maxX), Bn(y, bounds.minY, bounds.maxY), Bn(z, bounds.minZ, bounds.maxZ)];
 	}
-	mapNetworkVelocityToWorldVelocity(t, e, i) {
-		return [Bn(t, -30, 30), Bn(e, -30, 30), Bn(i, -30, 30)];
+	mapNetworkVelocityToWorldVelocity(x: number, y: number, z: number): [number, number, number] {
+		return [Bn(x, -30, 30), Bn(y, -30, 30), Bn(z, -30, 30)];
 	}
-	sendCreateArrow(t, e, { arrowId, pos, dir, fireAmount01 }) {
+	sendCreateArrow(game: OnlineGame, playerId: number, { arrowId, pos, dir, fireAmount01 }: { arrowId: number; pos: Vector3; dir: Vector3; fireAmount01: number }): CreatedArrow {
 		const a = new ArrayBuffer(22);
 		const r = new Uint32Array(a, 0, 4);
 		const l = new Uint16Array(a, 0);
 		r[0] = 3;
-		l[2] = e;
+		l[2] = playerId;
 		l[3] = arrowId;
-		const [h, d, c] = this.mapWorldPosToNetworkPos(t, pos.x, pos.y, pos.z);
+		const [h, d, c] = this.mapWorldPosToNetworkPos(game, pos.x, pos.y, pos.z);
 		l[4] = h;
 		l[5] = d;
 		l[6] = c;
-		const [p, g, m] = this.mapNetworkPosToWorldPos(t, h, d, c);
+		const [p, g, m] = this.mapNetworkPosToWorldPos(game, h, d, c);
 		const f = Dn(dir.x, -1, 1);
 		const w = Dn(dir.y, -1, 1);
 		const b = Dn(dir.z, -1, 1);
@@ -28572,7 +28792,7 @@ class NetworkManager {
 		this.send([31, t ? 1 : 0]);
 	}
 }
-class jn extends Dialog {
+class LoginDialog extends Dialog {
 	#E = null;
 	#D = null;
 	type;
@@ -28722,7 +28942,7 @@ class jn extends Dialog {
 		return null;
 	}
 }
-class Gn {
+class PeliLinkFlow {
 	isLoggedIn;
 	profileHasPeliEmail;
 	callbacks;
@@ -28841,7 +29061,7 @@ class Gn {
 		}
 	}
 }
-class zn extends Dialog {
+class AccountExistsDialog extends Dialog {
 	#O;
 	#F;
 	#B;
@@ -29001,7 +29221,7 @@ class AuthManager {
 			}
 		});
 		this.refreshSessionInstance = new Waiter(async () => {
-			const t = Ot("auth/refreshSession");
+			const t = apiPath("auth/refreshSession");
 			await this.fetchAuthSessionData(t, null, {
 				fromRefreshAttempt: true,
 			});
@@ -29028,7 +29248,7 @@ class AuthManager {
 					if (!getMain().profileState.isPeliSession) {
 						const e = await this.createPeliSession(false);
 						if (!e.success && e.error == "peli-account-not-found" && t.session.isLoggedIn) {
-							this.currentPeliLoginMigrationFlow = new Gn(
+							this.currentPeliLoginMigrationFlow = new PeliLinkFlow(
 								this.isLoggedIn,
 								Boolean(getMain().profileState.peliAccountEmail),
 								{
@@ -29125,7 +29345,7 @@ class AuthManager {
 		this.onGuestSessionDataChangeCbs.add(t);
 	}
 	async showLoginDialog(t = "login") {
-		const e = new jn(this.gameWrapper, t);
+		const e = new LoginDialog(this.gameWrapper, t);
 		getMain().dialogManager.addDialog(e);
 		const i = await e.waitForFlowEnd();
 		if (t == "linknew") {
@@ -29251,7 +29471,7 @@ class AuthManager {
 			let n = false;
 			let o = null;
 			if (this.isLoggedIn && t) {
-				const t = Ot("auth/linkNewAccount");
+				const t = apiPath("auth/linkNewAccount");
 				let e = null;
 				try {
 					e = await Mt(t.href, {
@@ -29271,7 +29491,7 @@ class AuthManager {
 					}
 				}
 			} else {
-				const e = Ot("auth/getSession");
+				const e = apiPath("auth/getSession");
 				if (!t) {
 					s.set("allowPeliCreation", "false");
 				}
@@ -29317,7 +29537,7 @@ class AuthManager {
 				getMain().profileState.clearAndRefetch();
 			} else if (t.error == "account-already-exists") {
 				if (t.usedPelicanParty) {
-					const t = new zn(this.gameWrapper);
+					const t = new AccountExistsDialog(this.gameWrapper);
 					getMain().dialogManager.addDialog(t);
 				} else {
 					getMain().dialogManager.showAlert({
@@ -29354,7 +29574,7 @@ class AuthManager {
 		if (!i_issuer) {
 			return null;
 		}
-		const n = Ot("auth/getIssuerConfig");
+		const n = apiPath("auth/getIssuerConfig");
 		let o;
 		n.searchParams.set("issuer", i_issuer);
 		try {
@@ -29386,7 +29606,7 @@ class AuthManager {
 		}
 		l.searchParams.set("response_type", h);
 		l.searchParams.set("client_id", a.clientId);
-		const c = Ot("auth/oAuthCallback");
+		const c = apiPath("auth/oAuthCallback");
 		c.searchParams.set("issuer", i_issuer);
 		l.searchParams.set("redirect_uri", c.href);
 		const u = new Set(["openid", "email"]);
@@ -29519,7 +29739,7 @@ class AuthManager {
 			this.setAuthTokenBody(t, i);
 			i.set("nonce", e);
 			if (this.isLoggedIn) {
-				const t = Ot("auth/linkNewAccount");
+				const t = apiPath("auth/linkNewAccount");
 				let e = null;
 				try {
 					e = await Mt(t.href, {
@@ -29535,7 +29755,7 @@ class AuthManager {
 					n = await e.text();
 				}
 			} else {
-				const t = Ot("auth/getSession");
+				const t = apiPath("auth/getSession");
 				const { success, error } = await this.fetchAuthSessionData(t, i);
 				s = success;
 				if (s) {
@@ -29583,7 +29803,7 @@ class AuthManager {
 		if (!t) {
 			return false;
 		}
-		const e = Ot("auth/mergeGuestAccount");
+		const e = apiPath("auth/mergeGuestAccount");
 		const i = new URLSearchParams();
 		i.set("guestData", t);
 		let s = null;
@@ -29745,11 +29965,11 @@ class AuthManager {
 		return s;
 	}
 	async unlinkPeliAccount() {
-		const t = Ot("auth/unlinkPeliAccount");
+		const t = apiPath("auth/unlinkPeliAccount");
 		return await this.handleUnlinkRequest(t, null, true);
 	}
 	async unlinkAccount(t) {
-		const e = Ot("auth/unlinkAccount");
+		const e = apiPath("auth/unlinkAccount");
 		const i = new URLSearchParams();
 		i.set("issuer", t.issuer);
 		i.set("email", t.email);
@@ -29800,7 +30020,7 @@ class AuthManager {
 		const t = await this.peliLogout();
 		if (t != "logged-out" && t != "dismissed") {
 			if (this.currentSessionData) {
-				const t = Ot("auth/logout");
+				const t = apiPath("auth/logout");
 				const e = new URLSearchParams();
 				e.set("tokenId", this.currentSessionData.secureId);
 				e.set("token", this.currentSessionData.token);
@@ -29836,7 +30056,7 @@ class AuthManager {
 	async logoutEverywhere() {
 		try {
 			await this.waitForInit();
-			const t = Ot("auth/logoutEverywhere");
+			const t = apiPath("auth/logoutEverywhere");
 			const e = await Mt(t.href, {
 				method: "POST",
 				credentials: "include",
@@ -29918,7 +30138,7 @@ class AuthManager {
 	}
 	async postGuestAccountDataToRestService() {
 		const t = await this.getGuestAccountData();
-		const e = Ot("auth/guestAccountData");
+		const e = apiPath("auth/guestAccountData");
 		const i = new URLSearchParams();
 		i.set("guestData", t ?? "");
 		const s = await fetch(e.href, {
@@ -29946,7 +30166,7 @@ class AuthManager {
 		if (this.isLoggedIn) {
 			return;
 		}
-		const t = Ot("auth/guestAccountData");
+		const t = apiPath("auth/guestAccountData");
 		const e = await this.getRestAuthHeader(false);
 		if (!e) {
 			return false;
@@ -29963,7 +30183,7 @@ class AuthManager {
 		this.setGuestAccountData(s, true);
 	}
 	async deleteGuestAccountDataFromRestService() {
-		const t = Ot("auth/guestAccountData");
+		const t = apiPath("auth/guestAccountData");
 		const e = await this.getRestAuthHeader(false);
 		if (!e) {
 			return true;
@@ -30017,10 +30237,10 @@ class AuthManager {
 		}
 	}
 }
-class _n {
+class State {
 	onStateChangedCbs = new Set();
 	cachedStateIndexDbKey = "cachedState";
-	getStateUrl = "";
+	abstract getStateUrl = "";
 	fetchCurrentDataInstance;
 	stateIsStale = true;
 	constructor(
@@ -30086,7 +30306,7 @@ class _n {
 		await this.fetchCurrentDataInstance.waitForFinishIfRunning();
 	}
 	async fetchCurrentDataFn() {
-		const t = Ot(this.getStateUrl);
+		const t = apiPath(this.getStateUrl);
 		const { success, authError, data } = await this.authManager.requestWithAuthHeader(async (e) => {
 			if (!e) {
 				return {
@@ -30139,10 +30359,10 @@ class _n {
 		}
 	}
 	loadStateData(t) {}
-	getCurrentState() {
+	override getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
 		throw new Error("Base class");
 	}
-	clearCurrentDataImpl() {}
+	override clearCurrentDataImpl(): void {}
 }
 export interface LinkedAccount {
 	issuer: string;
@@ -30156,9 +30376,9 @@ export interface UsernameData {
 	verified?: boolean;
 	[key: string]: unknown;
 }
-class ProfileState extends _n {
-	cachedStateIndexDbKey = "cachedProfileState";
-	getStateUrl = "profile/getProfile";
+class ProfileState extends State {
+	override cachedStateIndexDbKey = "cachedProfileState";
+	override getStateUrl = "profile/getProfile";
 	isGuest = true;
 	stats: Record<string, number> = {};
 	maxLinkedAccountsReached = false;
@@ -30171,8 +30391,8 @@ class ProfileState extends _n {
 	isPeliSession = false;
 	canUnlinkPeliAccount = false;
 	linkedAccounts: LinkedAccount[] = [];
-	constructor(...t) {
-		super(...t);
+	constructor(...t: unknown[]) {
+		super(...t as any[]);
 	}
 	getCurrentState() {
 		return {
@@ -30191,7 +30411,7 @@ class ProfileState extends _n {
 			canUnlinkPeliAccount: this.canUnlinkPeliAccount,
 		};
 	}
-	loadStateData(t) {
+	override loadStateData(t: { ownedCoins: number; purchasedItems: number[] } | null): void {
 		if (t) {
 			this.isGuest = t.isGuest;
 			this.stats = t.stats || {};
@@ -30223,7 +30443,7 @@ class ProfileState extends _n {
 		return "Guest";
 	}
 	async setUsername(t) {
-		const e = Ot("profile/username");
+		const e = apiPath("profile/username");
 		const i = new URLSearchParams();
 		i.set("username", t);
 		const s = await this.authManager.requestWithAuthHeader(async (t) => {
@@ -30273,38 +30493,38 @@ class ProfileState extends _n {
 		return clamp(e, -100, 100);
 	}
 }
-class ShopState extends _n {
-	cachedStateIndexDbKey = "cachedShopState";
-	getStateUrl = "shop/getShopState";
+class ShopState extends State {
+	override cachedStateIndexDbKey = "cachedShopState";
+	override getStateUrl = "shop/getShopState";
 	ownedCoins = 0;
-	purchasedItems = new Set();
-	purchasingItemTasks = new Map();
-	constructor(...t) {
-		super(...t);
+	purchasedItems = new Set<number>();
+	purchasingItemTasks = new Map<number, Promise<unknown>>();
+	constructor(...t: unknown[]) {
+		super(...(t as any));
 	}
-	getCurrentState() {
+	override getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
 		return {
 			ownedCoins: this.ownedCoins,
 			purchasedItems: Array.from(this.purchasedItems),
 		};
 	}
-	loadStateData(t) {
+	override loadStateData(t: { ownedCoins: number; purchasedItems: number[] } | null): void {
 		if (t) {
 			this.ownedCoins = t.ownedCoins;
 			this.purchasedItems = new Set(t.purchasedItems);
 			this.#R();
 		}
 	}
-	clearCurrentDataImpl() {
+	override clearCurrentDataImpl(): void {
 		this.ownedCoins = 0;
 		this.purchasedItems.clear();
 	}
-	async sendPurchaseItemRequest(t) {
+	async sendPurchaseItemRequest(t: any): Promise<unknown> {
 		const e = t.id;
 		let i = this.purchasingItemTasks.get(e);
 		if (!i) {
 			i = (async () => {
-				const i = Ot("shop/purchaseItem");
+				const i = apiPath("shop/purchaseItem");
 				return await this.authManager.requestWithAuthHeader(async (s) => {
 					if (!s) {
 						return {
@@ -30351,10 +30571,10 @@ class ShopState extends _n {
 		this.purchasingItemTasks.delete(e);
 		return s;
 	}
-	async purchasePaidItem(t, e) {
-		const { success, errorCode } = await this.sendPurchaseItemRequest(t);
+	async purchasePaidItem(t: any, e: any): Promise<boolean> {
+		const { success, errorCode } = (await this.sendPurchaseItemRequest(t)) as { success: boolean; errorCode: string };
 		if (success) {
-			getMain().sfx.playSound("ui/purchaseShopItem");
+			getMain().sfx.playSound("ChargedAttack/purchaseShopItem");
 			return true;
 		}
 		if (errorCode === "not-enough-coins") {
@@ -30373,7 +30593,7 @@ class ShopState extends _n {
 		}
 		return false;
 	}
-	async purchaseRewardedItem(t, e, i, placement) {
+	async purchaseRewardedItem(t: any, e: any, i: any, placement: any): Promise<boolean> {
 		if (this.purchasedItems.has(t.id)) {
 			i.showAlert({
 				title: "Purchase Failed",
@@ -30389,7 +30609,7 @@ class ShopState extends _n {
 			})) && (await this.purchasePaidItem(t, i))
 		);
 	}
-	async purchaseItem(t, e, i, s) {
+	async purchaseItem(t: any, e: any, i: any, s: any): Promise<boolean> {
 		let n = false;
 		if (this.getVisibleItemPrice(t)) {
 			n = await this.purchasePaidItem(t, i);
@@ -30398,18 +30618,18 @@ class ShopState extends _n {
 		}
 		return n;
 	}
-	getVisibleItemPrice(t) {
+	getVisibleItemPrice(t: any): number {
 		if (t.hasRewardedAd && !isSteam()) {
 			return 0;
 		}
 		return t.price || 0;
 	}
-	provideNewCoinCount(t) {
+	provideNewCoinCount(t: number): void {
 		this.ownedCoins = t;
 		this.fireStateChanged();
 	}
 	async doubleLastGameCoins() {
-		const t = Ot("shop/doubleLastGameCoins");
+		const t = apiPath("shop/doubleLastGameCoins");
 		return await this.authManager.requestWithAuthHeader(async (e) => {
 			if (!e) {
 				return {
@@ -30450,16 +30670,16 @@ class ShopState extends _n {
 			};
 		});
 	}
-	async requestCheatCoins(t) {
+	async requestCheatCoins(t: any): Promise<boolean> {
 		return false;
 	}
-	isPurchasingItem(t) {
+	isPurchasingItem(t: any): boolean {
 		return this.purchasingItemTasks.has(t);
 	}
-	itemIsPurchased(t) {
+	itemIsPurchased(t: any): boolean {
 		return this.purchasedItems.has(t);
 	}
-	async waitForItemPurchase(t) {
+	async waitForItemPurchase(t: any): Promise<void> {
 		const e = this.purchasingItemTasks.get(t);
 		if (e) {
 			await e;
@@ -31059,13 +31279,13 @@ class AvatarsManager {
 			gender: skinObjectOpts.skin.gender || "male",
 		});
 		d.init();
-		const c = new re({
+		const c = new SkinModel({
 			skinObjectOpts,
 			useWorldWeather: false,
 		});
 		let u = null;
 		if (config.bow) {
-			u = new ce({
+			u = new BowAssetLoader({
 				useWorldWeather: false,
 			});
 			u.setConfig(config.bow);
@@ -31214,7 +31434,7 @@ class AvatarsManager {
 		);
 	}
 }
-class eo {
+class ClassImageReference {
 	classId;
 	classSelectionImageManager;
 	_needsUpdates = false;
@@ -31348,7 +31568,7 @@ class ClassSelectionImageManager {
 	}
 	createUpdateReference(t) {
 		const e = this.getOrCreateBlobUrlData(t);
-		const i = new eo(t, this);
+		const i = new ClassImageReference(t, this);
 		e.updateReferences.add(i);
 		if (e.url) {
 			i.fireUrlChangeCbs(e.url);
@@ -31594,7 +31814,7 @@ class FullScreenManager {
 		}
 		const e = getMain().dialogManager.showAlert({
 			title: "Enable Auto Full Screen?",
-			text: "Do you automatically want to enter full screen when joining a game? (This can be disabled later in settings)",
+			text: "Do you automatically want to enter full screen when joining a game? (This can ShopCustomizationView disabled later in settings)",
 			buttons: [
 				{
 					text: "Heck Yeah!",
@@ -31640,18 +31860,18 @@ class FullScreenManager {
 		this.onFullScreenChangeCbs.add(t);
 	}
 }
-class ro extends Dialog {
+class RewardKeysDialog extends Dialog {
 	rewardsListEl;
-	constructor(t, e, i) {
-		super(t, {
+	constructor(gameWrapper: HTMLElement | null, rewards, claim: () => void) {
+		super(gameWrapper!, {
 			startVisible: false,
 		});
-		const s = e.length > 1;
+		const multiple = rewards.length > 1;
 		this.el.innerHTML = `
 \t\t\t<h2 class="dialogTitle blueNight">Claim your reward</h2>
-\t\t\t<p>The key you provided will give you the following ${s ? "rewards" : "reward"}:</p>
+\t\t\t<p>The key you provided will give you the following ${multiple ? "rewards" : "reward"}:</p>
 \t\t\t<div class="reward-key-rewards-list"></div>
-\t\t\t<p>Would you like to claim ${s ? "these rewards" : "this reward"}?<br>Make sure you are logged in with the correct account!</p>
+\t\t\t<p>Would you like to claim ${multiple ? "these rewards" : "this reward"}?<br>Make sure you are logged in with the correct account!</p>
 \t\t`;
 		const n = this.el.querySelector(".reward-key-rewards-list");
 		if (!(n instanceof HTMLDivElement)) {
@@ -31659,14 +31879,14 @@ class ro extends Dialog {
 		}
 		this.rewardsListEl = n;
 		this.addButtonsContainer();
-		const o = this.addButton({
+		const claimButton = this.addButton({
 			text: "Claim reward",
 			onClick: () => {
-				o.enabled = false;
-				i();
+				claimButton.enabled = false;
+				claim();
 			},
 		});
-		this.initRewardsList(e);
+		this.initRewardsList(rewards);
 	}
 	async initRewardsList(t) {
 		const shopConfig = getMain().config.shopConfig;
@@ -31688,7 +31908,7 @@ class ro extends Dialog {
 				if (!n) {
 					continue;
 				}
-				const o = new ge(this.gameWrapper, n, {
+				const o = new ShopItem(this.gameWrapper, n, {
 					usage: "preview",
 					dialog: this,
 					renderOptions: {
@@ -31710,7 +31930,7 @@ class RewardKeysManager {
 			getMain().mainMenu.makeMainMenuVisibleFromUserGesture();
 			const e = getMain().dialogManager;
 			const i = await (async (claimReward_1) => {
-				const e = Ot("rewardKeys/view");
+				const e = apiPath("rewardKeys/view");
 				e.searchParams.set("key", claimReward_1);
 				return await getMain().auth.requestWithAuthHeader(async (t) => {
 					if (!t) {
@@ -31764,12 +31984,12 @@ class RewardKeysManager {
 			} else if (i.status == "not-logged-in") {
 				e.showAlert({
 					title: "Failed to claim the reward",
-					text: "You may not be logged in",
+					text: "You may not ShopCustomizationView logged in",
 				});
 			} else if (i.status == "success") {
-				const s = new ro(getMain().gameWrapper, i.rewards, async () => {
+				const s = new RewardKeysDialog(getMain().gameWrapper, i.rewards, async () => {
 					const i = await (async (claimReward_1) => {
-						const e = Ot("rewardKeys/claim");
+						const e = apiPath("rewardKeys/claim");
 						e.searchParams.set("key", claimReward_1);
 						return await getMain().auth.requestWithAuthHeader(async (t) => {
 							if (t) {
@@ -31827,9 +32047,9 @@ class PilgrimAchievementManager {
 	#U;
 	#q;
 	#H = new Set();
-	constructor(t, e) {
-		this.#U = t;
-		this.#q = e;
+	constructor(indexedDb: IndexedDB, mapsConfig: MapsConfig) {
+		this.#U = indexedDb;
+		this.#q = mapsConfig;
 		this.#W();
 	}
 	async #W() {
@@ -31909,7 +32129,7 @@ export class Main {
 				},
 			});
 		} catch (error) {
-			console.warn("Failed to load Pelican Party sdk, the user may be offline");
+			console.warn("Failed to load Pelican Party sdk, the user may ShopCustomizationView offline");
 			console.error(error);
 			return null;
 		}
@@ -31976,7 +32196,7 @@ export class Main {
 			throw new Error("Game wrapper not found");
 		}
 		this.scene.autoUpdate = false;
-		Oi.setCurrentScene(this.scene);
+		DebugDraw.setCurrentScene(this.scene);
 		this.poki = new Poki(this.thirdPartyEnabled);
 		this.boundLoop = this.vsyncLoop.bind(this);
 		const getFrameCap = () => {
@@ -32226,13 +32446,13 @@ export class Main {
 		now = this.now;
 		this.dt = dt;
 		this.dt16 = this.dt / 16.6666;
-		this.smoothDt = l_1(this.smoothDt, this.dt, 0.1);
+		this.smoothDt = lerp(this.smoothDt, this.dt, 0.1);
 		this.mainMenu.loop(now, dt);
 		this.input.loop(now, dt);
 		this.gameManager.loop(now, dt);
 		this.cam.loop(now, dt);
 		this.screenFlash.loop(now);
-		Oi.loop();
+		DebugDraw.loop();
 		this.renderer.loop(now, dt);
 		this.sfx.loop(now, dt);
 	}

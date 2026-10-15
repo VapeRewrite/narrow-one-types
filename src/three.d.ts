@@ -28,7 +28,7 @@ export interface AssetWorkerSend {
 declare class AssetWorkerMessenger {
     returnTransferSupport: boolean;
     lastRequestId: number;
-    sendHandler: (data: {
+    sendHandler: ((data: {
         sendData: {
             direction: "request" | "response";
             id: any;
@@ -37,7 +37,7 @@ declare class AssetWorkerMessenger {
             returnValue: any;
         };
         transfer: [];
-    }) => Promise<void>;
+    }) => Promise<void>) | null;
     responseHandlers: null;
     onRequestIdMessageCbs: Map<any, any>;
     serializeErrorHook: ((arg0: unknown) => any) | null;
@@ -81,8 +81,8 @@ declare class AssetWorkerMessenger {
 export declare const characterPartNames: string[];
 declare const partNamesNeedsFlip: string[];
 declare const partNames: string[];
-declare function Hl(e: never, { skipObjsFn }?: {
-    skipObjsFn?: null | undefined;
+declare function Hl(e: Object3D, { skipObjsFn }?: {
+    skipObjsFn?: ((obj: Object3D) => boolean) | null;
 }): any;
 declare const zl = 0;
 export declare const a7 = 2;
