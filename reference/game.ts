@@ -5969,7 +5969,12 @@ class SkinPreview {
 	smoothCamTargetRot;
 	activeCamFollowingTarget: Object3D | null = null;
 	activeSlotPositionId: string | null = null;
-	camPositions;
+	camPositions = new Map<string, {
+		pos: Vector3,
+		rot?: number,
+		mouseYMultiplier?: number,
+		activeFollowingTarget?: Object3D
+	}>();
 	boundOnMouseMove;
 	lastMouseX;
 	lastMouseY;
@@ -6078,7 +6083,6 @@ class SkinPreview {
 		this.smoothCamTargetRot = 0;
 		this.activeCamFollowingTarget = null;
 		this.activeSlotPositionId = null;
-		this.camPositions = new Map();
 		this.camPositions.set("full", {
 			pos: new Vector3(0, 1, 2.8),
 		});
@@ -22726,19 +22730,19 @@ class AlertDialog extends Dialog {
 class DialogManager {
 	curtainEl = document.createElement("div");
 	_curtainElVisible;
-	onCurtainVisibilityChangeCbs;
-	onNeedsUnlockedPointerChangeCbs;
+	onCurtainVisibilityChangeCbs = new Set<(visible: boolean) => void>();
+	onNeedsUnlockedPointerChangeCbs = new Set<() => void>();
 	needsUnlockedPointer;
 	lastDialogAddTime;
-	currentDialogStack;
-	onCurtainZIndexChangeCbs;
-	onAnyDialogVisibilityChangeCbs;
+	currentDialogStack: Dialog[] = [];
+	onCurtainZIndexChangeCbs = new Set<(zIndex: number) => void>();
+	onAnyDialogVisibilityChangeCbs = new Set<() => void>();
 	constructor(public gameWrapper: HTMLElement) {
 		this.curtainEl.classList.add("dialogCurtain", "fullScreen", "hidden");
 		gameWrapper.appendChild(this.curtainEl);
 		this._curtainElVisible = false;
-		this.onCurtainVisibilityChangeCbs = new Set();
-		this.onNeedsUnlockedPointerChangeCbs = new Set();
+		this.onCurtainVisibilityChangeCbs = new Set<(visible: boolean) => void>();
+		this.onNeedsUnlockedPointerChangeCbs = new Set<() => void>();
 		this.needsUnlockedPointer = false;
 		this.curtainEl.addEventListener("click", (t) => {
 			this.closeTopMostDialog();
@@ -22750,15 +22754,15 @@ class DialogManager {
 		});
 		this.lastDialogAddTime = 0;
 		this.currentDialogStack = [];
-		this.onCurtainZIndexChangeCbs = new Set();
-		this.onAnyDialogVisibilityChangeCbs = new Set();
+		this.onCurtainZIndexChangeCbs = new Set<(zIndex: number) => void>();
+		this.onAnyDialogVisibilityChangeCbs = new Set<() => void>();
 		this.onAnyDialogVisibilityChange(() => {
 			this.updateZIndices();
 			this.updateInertDialogs();
 			this.updateFrontDialogProperties();
 		});
 	}
-	addDialog(t) {
+	addDialog(t: Dialog) {
 		this.lastDialogAddTime = performance.now();
 		this.currentDialogStack.push(t);
 		this.sortStack();
@@ -22772,7 +22776,7 @@ class DialogManager {
 		});
 		this.fireAnyDialogVisibilityChangeCbs();
 	}
-	getDialogForEl(t) {
+	getDialogForEl(t: HTMLElement) {
 		for (const e of this.currentDialogStack) {
 			if (e.el == t) {
 				return e;
@@ -22785,7 +22789,7 @@ class DialogManager {
 			return null;
 		}
 		for (let t = this.currentDialogStack.length - 1; t >= 0; t--) {
-			const e = this.currentDialogStack[t];
+			const e = this.currentDialogStack[t]!;
 			if (e.visible) {
 				return e;
 			}
@@ -22794,7 +22798,7 @@ class DialogManager {
 	}
 	get firstClosableDialog() {
 		for (let t = this.currentDialogStack.length - 1; t >= 0; t--) {
-			const e = this.currentDialogStack[t];
+			const e = this.currentDialogStack[t]!;
 			if (e.visible && e.allowCurtainClose) {
 				return e;
 			}
@@ -22821,12 +22825,12 @@ class DialogManager {
 			firstClosableDialog.close();
 		}
 	}
-	showAlert(t) {
+	showAlert(t: any) {
 		const e = new AlertDialog(this.gameWrapper, t);
 		this.addDialog(e);
 		return e;
 	}
-	onAnyDialogVisibilityChange(t) {
+	onAnyDialogVisibilityChange(t: () => void) {
 		this.onAnyDialogVisibilityChangeCbs.add(t);
 	}
 	fireAnyDialogVisibilityChangeCbs() {
@@ -22885,25 +22889,25 @@ class DialogManager {
 			t.setInert(t != e);
 		}
 	}
-	setCurtainZIndex(t) {
+	setCurtainZIndex(t: number) {
 		this.curtainEl.style.zIndex = String(t);
 		for (const e of this.onCurtainZIndexChangeCbs) {
 			e(t);
 		}
 	}
-	onCurtainZIndexChange(t) {
+	onCurtainZIndexChange(t: (zIndex: number) => void) {
 		this.onCurtainZIndexChangeCbs.add(t);
 	}
 	onCurtainVisibilityChange(t: any) {
 		this.onCurtainVisibilityChangeCbs.add(t);
 	}
-	removeOnCurtainVisibilityChange(t) {
+	removeOnCurtainVisibilityChange(t: any) {
 		this.onCurtainVisibilityChangeCbs.delete(t);
 	}
-	onNeedsUnlockedPointerChange(t) {
+	onNeedsUnlockedPointerChange(t: () => void) {
 		this.onNeedsUnlockedPointerChangeCbs.add(t);
 	}
-	removeOnNeedsUnlockedPointerChange(t) {
+	removeOnNeedsUnlockedPointerChange(t: () => void) {
 		this.onNeedsUnlockedPointerChangeCbs.delete(t);
 	}
 	updateFrontDialogProperties() {
@@ -29376,7 +29380,7 @@ class PeliLinkFlow {
 		this.profileHasPeliEmail = e;
 		this.callbacks = i;
 	}
-	showAlert(t) {
+	showAlert(t: any) {
 		const e = getMain().dialogManager.showAlert(t);
 		this.createdAlerts.add(e);
 		e.addOnCloseCb(() => {

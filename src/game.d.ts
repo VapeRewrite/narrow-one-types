@@ -881,7 +881,7 @@ declare class ShopItem {
     setRenderOptions(renderOptions: ShopItemRenderOptions): void;
     setDefaultRotY(defaultRotY: number): void;
     reloadSkinObjectNow(): Promise<void>;
-    onSelectedChangeRequest(t: any): void;
+    onSelectedChangeRequest(cb: (selected: boolean) => void): void;
     setOwned(t: any): void;
     setIsHovering(t: any): void;
     startLooping(): void;
@@ -902,22 +902,22 @@ declare class ShopItemsGrid {
     gameWrapper: HTMLElement;
     el: HTMLDivElement;
     shopItems: Map<string, ShopItem>;
-    activeConfirmPurchaseDialogs: Set<unknown>;
+    activeConfirmPurchaseDialogs: Set<PurchaseConfirmDialog>;
     currentHoveringItem: ShopItem | null;
-    onHoveringItemChangeCbs: Set<unknown>;
-    onSelectedItemChangeRequestCbs: Set<unknown>;
+    onHoveringItemChangeCbs: Set<(hoveringItem: ShopItem | null) => void>;
+    onSelectedItemChangeRequestCbs: Set<(id: string, selected: boolean) => void>;
     constructor(gameWrapper: HTMLElement);
     destructor(): void;
     addShopItem(config: ShopItemConfig, options: ShopItemOptions): void;
     closeCreatedConfirmPurchaseDialogs(): void;
     destructShopItems(): void;
     loadShopItems(configs: ShopItemConfig[], opt: Omit<ShopItemOptions, "configIndex">): void;
-    setRenderOptions(t: any): void;
-    setSelectedItems(t: any): void;
-    setSelectedItemState(t: any, e: any): void;
-    onSelectedItemChangeRequest(t: any): void;
-    setPurchasedItems(t: any): void;
-    onHoveringItemChange(t: any): void;
+    setRenderOptions(renderOptions: ShopItemRenderOptions): void;
+    setSelectedItems(selectedItems: Set<string>): void;
+    setSelectedItemState(shopID: string, e: any): void;
+    onSelectedItemChangeRequest(cb: (id: string, selected: boolean) => void): void;
+    setPurchasedItems(purchasedItems: Set<string>): void;
+    onHoveringItemChange(cb: (hoveringItem: ShopItem | null) => void): void;
     sortShopItems(): void;
     performHighlightShopItemAction(t: any, e: any): void;
 }
@@ -1239,15 +1239,15 @@ declare class TextInput {
     set value(newValue: string);
 }
 declare class SquadSettingsDialog extends Dialog {
-    squadManager: any;
-    settings: Map<any, any>;
+    squadManager: SquadManager;
+    settings: Map<string, Setting<SettingValue, SettingOptions>>;
     privateSquadOnlySettings: Set<unknown>;
     privateSquadSetting: Setting<SettingValue, {
         text: string;
         type: "toggle";
     }>;
     leaderOnlyMessage: HTMLDivElement;
-    constructor(t: any, e: any);
+    constructor(gameWrapper: HTMLElement, squadManager: SquadManager);
     destructor(): void;
     onSquadSettingChange: (t: any, e: any) => void;
     onMySquadLeaderStateChange: () => void;
@@ -3294,33 +3294,33 @@ declare class DialogManager {
     gameWrapper: HTMLElement;
     curtainEl: HTMLDivElement;
     _curtainElVisible: boolean;
-    onCurtainVisibilityChangeCbs: Set<unknown>;
-    onNeedsUnlockedPointerChangeCbs: Set<unknown>;
+    onCurtainVisibilityChangeCbs: Set<(visible: boolean) => void>;
+    onNeedsUnlockedPointerChangeCbs: Set<() => void>;
     needsUnlockedPointer: boolean;
     lastDialogAddTime: number;
-    currentDialogStack: any[];
-    onCurtainZIndexChangeCbs: Set<unknown>;
-    onAnyDialogVisibilityChangeCbs: Set<unknown>;
+    currentDialogStack: Dialog[];
+    onCurtainZIndexChangeCbs: Set<(zIndex: number) => void>;
+    onAnyDialogVisibilityChangeCbs: Set<() => void>;
     constructor(gameWrapper: HTMLElement);
-    addDialog(t: any): void;
-    getDialogForEl(t: any): any;
-    get frontDialog(): any;
-    get firstClosableDialog(): any;
+    addDialog(t: Dialog): void;
+    getDialogForEl(t: HTMLElement): Dialog | null;
+    get frontDialog(): Dialog | null;
+    get firstClosableDialog(): Dialog | null;
     get hasAnyDialogs(): boolean;
     get curtainElVisible(): boolean;
     closeTopMostDialog(): void;
     showAlert(t: any): AlertDialog;
-    onAnyDialogVisibilityChange(t: any): void;
+    onAnyDialogVisibilityChange(t: () => void): void;
     fireAnyDialogVisibilityChangeCbs(): void;
     sortStack(): void;
     updateZIndices(): void;
     updateInertDialogs(): void;
-    setCurtainZIndex(t: any): void;
-    onCurtainZIndexChange(t: any): void;
+    setCurtainZIndex(t: number): void;
+    onCurtainZIndexChange(t: (zIndex: number) => void): void;
     onCurtainVisibilityChange(t: any): void;
     removeOnCurtainVisibilityChange(t: any): void;
-    onNeedsUnlockedPointerChange(t: any): void;
-    removeOnNeedsUnlockedPointerChange(t: any): void;
+    onNeedsUnlockedPointerChange(t: () => void): void;
+    removeOnNeedsUnlockedPointerChange(t: () => void): void;
     updateFrontDialogProperties(): void;
 }
 declare class TouchControl {
