@@ -3058,30 +3058,30 @@ class PagedView {
 		this.createdPageEls = [];
 		this.rootStructure = null;
 	}
-	setActiveStructure(t) {
-		this.rootStructure = t;
-		this.createAndPushPage(t);
+	setActiveStructure(rootStructure: PagedViewStructure) {
+		this.rootStructure = rootStructure;
+		this.createAndPushPage(rootStructure);
 	}
-	createAndPushPage(t) {
-		const e = document.createElement("div");
-		e.classList.add("paged-view-page");
-		if (t.headerVisible || t.headerVisible === undefined) {
+	createAndPushPage(page: PagedViewStructure) {
+		const el = document.createElement("div");
+		el.classList.add("paged-view-page");
+		if (page.headerVisible || page.headerVisible === undefined) {
 			const i = document.createElement("div");
 			i.classList.add("paged-view-page-header", "blueNight");
-			e.appendChild(i);
+			el.appendChild(i);
 			const s = document.createElement("div");
 			s.classList.add("paged-view-page-header-line", "wrinkledLine");
-			e.appendChild(s);
-			const n = t == this.rootStructure;
-			if (!n || t.onBackButtonClick) {
+			el.appendChild(s);
+			const n = page == this.rootStructure;
+			if (!n || page.onBackButtonClick) {
 				const backButton = new CustomButton({
 					ariaLabel: "Back",
 					isIconButton: true,
 					icon: "static/img/arrow.svg",
 					extraClasses: ["header-button", "header-back-button"],
 					onClick: () => {
-						if (t.onBackButtonClick) {
-							t.onBackButtonClick();
+						if (page.onBackButtonClick) {
+							page.onBackButtonClick();
 						}
 						if (!n) {
 							this.popPage();
@@ -3092,30 +3092,30 @@ class PagedView {
 			}
 			const o = document.createElement("h2");
 			o.classList.add("paged-view-page-header-title");
-			o.textContent = t.header || t.itemName || "";
+			o.textContent = page.header || page.itemName || "";
 			i.appendChild(o);
-			if (t.rightCorner) {
+			if (page.rightCorner) {
 				const e = document.createElement("div");
 				e.classList.add("paged-view-page-header-corner");
 				i.appendChild(e);
-				t.rightCorner(e);
+				page.rightCorner(e);
 			}
 		}
-		if (t.subPages && t.customSubPage) {
+		if (page.subPages && page.customSubPage) {
 			throw new Error("Structures cannot have both subPages and customSubPage");
 		}
-		if (t.customSubPageDestroyed && !t.customSubPage) {
+		if (page.customSubPageDestroyed && !page.customSubPage) {
 			throw new Error(
 				"customSubPageDestroyed is only supported when customSubPage is also provided",
 			);
 		}
 		let customSubPageEl = null;
 		const createdButtons = [];
-		if (t.subPages) {
+		if (page.subPages) {
 			const i = document.createElement("div");
 			i.classList.add("paged-view-page-items-list");
-			e.appendChild(i);
-			for (const e of t.subPages || []) {
+			el.appendChild(i);
+			for (const e of page.subPages || []) {
 				const button = new CustomButton({
 					icon: e.buttonIcon,
 					hasPeliPlusIcon: e.hasPeliPlusIcon,
@@ -3132,25 +3132,25 @@ class PagedView {
 				});
 			}
 		} else {
-			if (t.customSubPage) {
+			if (page.customSubPage) {
 				customSubPageEl = document.createElement("div");
 				customSubPageEl.classList.add("paged-view-page-custom-subpage");
-				e.appendChild(customSubPageEl);
-				t.customSubPage(customSubPageEl);
+				el.appendChild(customSubPageEl);
+				page.customSubPage(customSubPageEl);
 			}
 		}
-		this.el.appendChild(e);
+		this.el.appendChild(el);
 		this.createdPageEls.push({
-			el: e,
-			structure: t,
+			el: el,
+			structure: page,
 			visible: false,
 			customSubPageEl,
 			createdButtons,
 		});
-		e.classList.add("hiddenright", "hidden");
-		e.style.transition = "none";
-		e.offsetWidth;
-		e.style.transition = "";
+		el.classList.add("hiddenright", "hidden");
+		el.style.transition = "none";
+		el.offsetWidth;
+		el.style.transition = "";
 		this.updatePageVisibilities();
 		this.updateButtonVisibilies();
 	}
@@ -3181,7 +3181,7 @@ class PagedView {
 			}
 		}
 	}
-	jumpToSubPage(t) {
+	jumpToSubPage(subPage: PagedViewStructure) {
 		if (!this.rootStructure) {
 			throw new Error("Failed to jump to subpage, no root structure set");
 		}
@@ -3199,7 +3199,7 @@ class PagedView {
 				}
 			}
 			return null;
-		})(t, this.rootStructure);
+		})(subPage, this.rootStructure);
 		if (!e) {
 			throw new Error(
 				"Failed to jump to subpage, structure not found in the current root structure",
@@ -3238,8 +3238,8 @@ if (!ie || !Number.isFinite(ie) || Number.isNaN(ie) || ie < 0 || ie > 1) {
 	localStorage.setItem("peliGradualRolloutValue", String(ie));
 }
 export interface SkeletonLoadCb {
-	resolve: (value?: unknown) => void;
-	reject: (err: unknown) => void;
+	resolve(): void;
+	reject(err: unknown): void;
 }
 class PoseLayer {
 	skeletonObject: Object3D | null = null;
@@ -3274,21 +3274,21 @@ class PoseLayer {
 		const t = `${this._currentGender}/${this.skeletonPath}`;
 		const e = new AbortController();
 		this.currentlyLoadingPoseAbortController = e;
-		let i = null;
+		let err = null;
 		try {
 			this.skeletonObject = await getMain().skeletons.getSkeleton(t, {
 				signal: this.currentlyLoadingPoseAbortController.signal,
 			});
 		} catch (error) {
 			error instanceof DOMException && error.name;
-			i = error;
+			err = error;
 		}
-		if (!(i || this.skeletonObject)) {
-			i = new Error("Failed to load skeleton, result is null");
+		if (!(err || this.skeletonObject)) {
+			err = new Error("Failed to load skeleton, result is null");
 		}
-		if (i) {
+		if (err) {
 			for (const { reject } of this.onSkeletonLoadCbs) {
-				reject(i);
+				reject(err);
 			}
 			this.onSkeletonLoadCbs.clear();
 		} else if (!e.signal.aborted) {
@@ -5410,12 +5410,12 @@ class ShopItem {
 	onSelectedChangeRequest(cb: (selected: boolean) => void) {
 		this.onSelectedChangeRequestCbs.add(cb);
 	}
-	setOwned(t) {
-		this.owned = t;
-		this.el.classList.toggle("shopItemOwned", t);
-		this.el.classList.toggle("shopItemLocked", !t);
+	setOwned(owned: boolean) {
+		this.owned = owned;
+		this.el.classList.toggle("shopItemOwned", owned);
+		this.el.classList.toggle("shopItemLocked", !owned);
 		const amount = getMain().shopState.getVisibleItemPrice(this.config);
-		t || !amount
+		owned || !amount
 			? this.currencyWrapperEl && this.currencyWrapperEl.remove()
 			: this.currencyWrapperEl ||
 				((this.currencyWrapperEl = document.createElement("div")),
@@ -5426,14 +5426,14 @@ class ShopItem {
 				})),
 				this.currencyWrapperEl.appendChild(this.currencyContainer.el));
 	}
-	setIsHovering(t) {
-		if (t != this.isHovering) {
-			this.isHovering = t;
-			if (t) {
+	setIsHovering(hovering: boolean) {
+		if (hovering != this.isHovering) {
+			this.isHovering = hovering;
+			if (hovering) {
 				this.startLooping();
 			}
-			for (const e of this.onHoveringChangeCbs) {
-				e(t);
+			for (const cb of this.onHoveringChangeCbs) {
+				cb(hovering);
 			}
 		}
 	}
@@ -5571,15 +5571,16 @@ class ShopItem {
 			this.onConfirmPurchaseDialogOpenCbs.forEach((e) => e(t));
 		}
 	}
-	requestSelectedState(t) {
-		if (!(this.config.preventUnequip && !t)) {
-			this.onSelectedChangeRequestCbs.forEach((e) => e(t));
+	requestSelectedState(selected: boolean) {
+		if (!(this.config.preventUnequip && !selected)) {
+			this.onSelectedChangeRequestCbs.forEach((cb) => cb(selected));
 		}
 	}
 	onConfirmPurchaseDialogOpen(cb: (dialog: PurchaseConfirmDialog) => void) {
 		this.onConfirmPurchaseDialogOpenCbs.add(cb);
 	}
 }
+type HighlightShopItemAction = "highlight" | "highlight-and-equip" | "open";
 class ShopItemsGrid {
 	el = document.createElement("div");
 	shopItems = new Map<string, ShopItem>();
@@ -5653,10 +5654,10 @@ class ShopItemsGrid {
 			e.setSelectedState(selectedItems.has(e.id));
 		}
 	}
-	setSelectedItemState(shopID: string, e) {
+	setSelectedItemState(shopID: string, selected: boolean) {
 		const i = this.shopItems.get(shopID);
 		if (i) {
-			i.setSelectedState(e);
+			i.setSelectedState(selected);
 		}
 	}
 	onSelectedItemChangeRequest(cb: (id: string, selected: boolean) => void) {
@@ -5720,14 +5721,14 @@ class ShopItemsGrid {
 			this.el.appendChild(e.el);
 		}
 	}
-	performHighlightShopItemAction(t, e) {
-		const i = this.shopItems.get(t);
-		if (i) {
-			i.highlight();
-			e == "highlight" ||
-				(e == "highlight-and-equip"
-					? i.requestSelectedState(true)
-					: e == "open" && i.openConfirmPurchaseDialog());
+	performHighlightShopItemAction(itemID: string, action: HighlightShopItemAction) {
+		const item = this.shopItems.get(itemID);
+		if (item) {
+			item.highlight();
+			action == "highlight" ||
+				(action == "highlight-and-equip"
+					? item.requestSelectedState(true)
+					: action == "open" && item.openConfirmPurchaseDialog());
 		}
 	}
 }
@@ -6292,7 +6293,7 @@ class SkinPreview {
 			t.destructor();
 		}
 	}
-	loop(t: any, i: any) {
+	loop(now: number, dt: number) {
 		let s = false;
 		if (this.cam.position.distanceTo(this.smoothCamPosOffset) > 0.01) {
 			s = true;
@@ -6637,10 +6638,10 @@ class ShopCustomizationView {
 	pagedView: PagedView;
 	createdGrids: Map<
 		HTMLElement,
-		{ grid: ShopItemsGrid; reloadFilteredItems: () => void; pagedViewStructure: unknown }
+		{ grid: ShopItemsGrid; reloadFilteredItems: () => void; pagedViewStructure: PagedViewStructure }
 	>;
 	skinPreview: SkinPreview;
-	filterSubPages: Map<string, unknown>;
+	filterSubPages: Map<string, PagedViewStructure>;
 	showHiddenItems = false;
 	constructor(
 		public gameWrapper: HTMLElement,
@@ -7033,13 +7034,13 @@ class ShopCustomizationView {
 	loop(now: number, dt: number): void {
 		this.skinPreview.loop(now, dt);
 	}
-	updateShopState(purchasedItemIds: Set<unknown>): void {
+	updateShopState(purchasedItemIds: Set<string>): void {
 		for (const { grid } of this.createdGrids.values()) {
 			grid.setPurchasedItems(purchasedItemIds);
 		}
 	}
-	highlightOrOpenShopItem(categories: string[], itemId: string, action: string): void {
-		let subPage: unknown;
+	highlightOrOpenShopItem(categories: string[], itemId: string, action: HighlightShopItemAction): void {
+		let subPage: PagedViewStructure | undefined;
 		let grid: ShopItemsGrid | undefined;
 		for (const category of categories) {
 			subPage = this.filterSubPages.get(category);
@@ -7568,15 +7569,14 @@ class PresetSelectionItem {
 	}
 }
 class PresetsView {
-	skinManager: any;
-	onPresetOpenClickCbs = new Set();
+	onPresetOpenClickCbs = new Set<(presetIndex: number) => void>();
 	onBackButtonClickCbs = new Set();
 	el = document.createElement("div");
 	presetsList;
-	createdPresetItems;
+	createdPresetItems: PresetSelectionItem[] = [];
 	addPresetButton;
-	constructor(t) {
-		this.skinManager = t;
+	constructor(public skinManager: SkinsManager) {
+		this.skinManager = skinManager;
 		const e = document.createElement("div");
 		e.classList.add("dialog-title-header-container");
 		this.el.appendChild(e);
@@ -7597,12 +7597,11 @@ class PresetsView {
 		this.presetsList = document.createElement("div");
 		this.presetsList.classList.add("shop-skin-selection-list");
 		this.el.appendChild(this.presetsList);
-		this.createdPresetItems = [];
 		this.addPresetButton = new CustomButton({
 			text: "+",
 			extraClasses: ["shop-skin-selection-list-add-button"],
 			onClick: () => {
-				t.addPreset();
+				skinManager.addPreset();
 				this.updatePresetList();
 				this.presetsList.scroll(this.presetsList.scrollWidth, 0);
 			},
@@ -7820,7 +7819,7 @@ class ShopDialog extends Dialog {
 			this.currentPresetsView = null;
 		}
 	}
-	openShopItemSubPage(itemId: string, action: string): void {
+	openShopItemSubPage(itemId: string, action: HighlightShopItemAction): void {
 		const main = getMain();
 		const skinsManager = main.skins;
 		const loadedConfigData = main.config.shopConfig.loadedConfigData;
@@ -7859,7 +7858,7 @@ class ShopDialog extends Dialog {
 		}
 		throw new Error("Uncategorized shop items are not supported yet");
 	}
-	highlightShopItem(itemId: string, action: string): void {
+	highlightShopItem(itemId: string, action: HighlightShopItemAction): void {
 		this.openShopItemSubPage(itemId, action);
 	}
 	openShopItem(itemId: string): void {
@@ -31898,15 +31897,11 @@ class AvatarsManager {
 	}
 }
 class ClassImageReference {
-	classId;
-	classSelectionImageManager;
 	_needsUpdates = false;
 	lastBlobUrl = null;
 	blobUrlChangeCbs = new Set<(url: string) => void>();
 	onNeedsUpdatesChangeCbs = new Set<() => void>();
-	constructor(t, e) {
-		this.classId = t;
-		this.classSelectionImageManager = e;
+	constructor(public classId, public classSelectionImageManager: ClassSelectionImage) {
 	}
 	destructor() {
 		this.classSelectionImageManager.removeUpdateReference(this.classId, this);
@@ -32029,15 +32024,15 @@ class ClassSelectionImageManager {
 		}
 		return e;
 	}
-	createUpdateReference(t) {
-		const e = this.getOrCreateBlobUrlData(t);
-		const i = new ClassImageReference(t, this);
+	createUpdateReference(classId) {
+		const e = this.getOrCreateBlobUrlData(classId);
+		const i = new ClassImageReference(classId, this);
 		e.updateReferences.add(i);
 		if (e.url) {
 			i.fireUrlChangeCbs(e.url);
 		}
 		i.onNeedsUpdatesChange(() => {
-			this.loadClassBlobUrl(t);
+			this.loadClassBlobUrl(classId);
 		});
 		return i;
 	}
