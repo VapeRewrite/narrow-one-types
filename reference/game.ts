@@ -5499,16 +5499,16 @@ class ShopItem {
 			this.statsTooltip = null;
 		}
 	}
-	setSelectedState(t) {
-		this.selected = t;
+	setSelectedState(selected: boolean) {
+		this.selected = selected;
 		this.el.classList.toggle("selected", this.selected);
 		this.updateAriaLabel();
 	}
 	updateAriaLabel() {
-		let t = "";
+		let ariaLabel = "";
 		if (this.usage == "button") {
-			let e = "";
-			e = this.selected
+			let state = "";
+			state = this.selected
 				? "equipped"
 				: this.owned
 					? "not equipped"
@@ -5517,13 +5517,13 @@ class ShopItem {
 						: this.config.price
 							? `locked, unlock for ${this.config.price} coins`
 							: "locked";
-			t = `Shop item, ${this.config.id}, ${e}`;
+			ariaLabel = `Shop item, ${this.config.id}, ${state}`;
 		} else {
 			if (this.usage == "preview") {
-				t = "Shop item preview";
+				ariaLabel = "Shop item preview";
 			}
 		}
-		this.el.setAttribute("aria-label", t);
+		this.el.setAttribute("aria-label", ariaLabel);
 	}
 	*getSkinSlots() {
 		if (this.config.slots) {
