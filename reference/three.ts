@@ -500,7 +500,7 @@ const hc = [
 		cssColorLight: "#ececec",
 		cssColorDark: "#858585",
 	},
-];
+] as const;
 
 function uc(e: number, t: number) {
 	return (e == 0 && t == 0) || (e != noAttackTeam && t != noAttackTeam && (e == 3 ? t == 3 : e != t));

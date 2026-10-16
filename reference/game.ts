@@ -4583,6 +4583,9 @@ const de = {
 		stringPullAmountBottom: 0.02,
 	},
 };
+interface BowAssetConfig {
+	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number
+}
 class BowAssetLoader {
 	obj = new Object3D();
 	useWorldWeather;
@@ -4628,7 +4631,7 @@ class BowAssetLoader {
 			skinAssetName: null,
 		});
 	}
-	async setConfig(config: {arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number}) {
+	async setConfig(config: BowAssetConfig) {
 		this.arrowAssetLoader.setConfig({
 			skinAssetName: config.arrowSkin,
 			fallbackSkinAssetName: "baseSkins/arrow.glb",
@@ -7447,7 +7450,7 @@ class ClassSelectionImage {
 	imageEl;
 	seed;
 	updateReference;
-	constructor(public classId, { extraClasses = [] } = {}) {
+	constructor(public classId: string, { extraClasses = [] } = {}) {
 		this.el.classList.add(
 			"class-selection-image-container",
 			"wrinkledPaper",
@@ -7489,42 +7492,48 @@ class ClassSelectionImage {
 }
 class ClassSelectionItem {
 	el = document.createElement("div");
-	onClickCbs;
+	onClickCbs = new Set<() => void>();
 	classSelectionImage;
-	constructor(t) {
+	constructor(weapon: BowConfig) {
 		this.el.classList.add("shop-skin-selection-item", "shop-class-selection-item");
 		const e = document.createElement("h3");
 		e.classList.add("dialogTitle", "blueNight");
-		e.textContent = t.uiName;
+		e.textContent = weapon.uiName;
 		this.el.appendChild(e);
-		this.onClickCbs = new Set();
-		this.classSelectionImage = new ClassSelectionImage(t.id);
+		this.classSelectionImage = new ClassSelectionImage(weapon.id);
 		const { colors } = getMain().gameManager.getMyTeamColor();
 		this.classSelectionImage.setCssColor(colors.cssColor, colors.cssColorDark);
 		this.el.appendChild(this.classSelectionImage.el);
 		const editButton = new CustomButton({
 			text: "Edit",
 			onClick: () => {
-				this.onClickCbs.forEach((t) => t());
+				this.onClickCbs.forEach((cb) => cb());
 			},
 			extraClasses: ["shop-skin-selection-edit-button"],
 		});
 		this.el.appendChild(editButton.el);
 	}
-	set needsAvatarUpdates(t) {
-		this.classSelectionImage.needsUpdates = t;
+	set needsAvatarUpdates(value: boolean) {
+		this.classSelectionImage.needsUpdates = value;
 	}
 	destructor() {
 		this.classSelectionImage.destructor();
 	}
-	onClick(t) {
-		this.onClickCbs.add(t);
+	onClick(cb: () => void) {
+		this.onClickCbs.add(cb);
 	}
+}
+interface PresetSelectionItemConfig {
+	preset: SkinData;
+	onEditButtonClick(): void;
+	showDeleteButton: boolean;
+	onDeleteButtonClick(): void;
 }
 class PresetSelectionItem {
 	el = document.createElement("div");
-	avatarBlobUrlReference;
-	constructor({ preset, onEditButtonClick, showDeleteButton, onDeleteButtonClick }) {
+	avatarBlobUrlReference: BlobURLReference;
+	constructor({ preset, onEditButtonClick, showDeleteButton, onDeleteButtonClick }: PresetSelectionItemConfig) {
+		this.avatarBlobUrlReference = undefined as unknown as BlobURLReference;
 		this.el.classList.add("shop-skin-selection-item");
 		const n = document.createElement("div");
 		n.classList.add("shop-skin-selection-image", "wrinkledPaper", "wrinkled-paper-mask");
@@ -7550,10 +7559,9 @@ class PresetSelectionItem {
 			backgroundColor: n_1[2].cssColor,
 		});
 		this.avatarBlobUrlReference = a.getBlobUrlReference();
-		(async () => {
-			const t = await this.avatarBlobUrlReference.getBlobUrl();
+		this.avatarBlobUrlReference.getBlobUrl().then(t => {
 			n.style.backgroundImage = `url("${t}")`;
-		})();
+		});
 		if (showDeleteButton) {
 			const deleteButton = new CustomButton({
 				text: "x",
@@ -7570,7 +7578,7 @@ class PresetSelectionItem {
 }
 class PresetsView {
 	onPresetOpenClickCbs = new Set<(presetIndex: number) => void>();
-	onBackButtonClickCbs = new Set();
+	onBackButtonClickCbs = new Set<() => void>();
 	el = document.createElement("div");
 	presetsList;
 	createdPresetItems: PresetSelectionItem[] = [];
@@ -7586,7 +7594,7 @@ class PresetsView {
 			icon: "static/img/arrow.svg",
 			extraClasses: ["header-button", "header-back-button"],
 			onClick: () => {
-				this.onBackButtonClickCbs.forEach((t) => t());
+				this.onBackButtonClickCbs.forEach((cb) => cb());
 			},
 		});
 		e.appendChild(backButton.el);
@@ -7652,11 +7660,11 @@ class PresetsView {
 			e.destructor();
 		}
 	}
-	onPresetOpenClick(t) {
-		this.onPresetOpenClickCbs.add(t);
+	onPresetOpenClick(cb: (presetIndex: number) => void) {
+		this.onPresetOpenClickCbs.add(cb);
 	}
-	onBackButtonClick(t) {
-		this.onBackButtonClickCbs.add(t);
+	onBackButtonClick(cb: () => void) {
+		this.onBackButtonClickCbs.add(cb);
 	}
 }
 export type CustomizationId =
@@ -7703,16 +7711,16 @@ class ShopDialog extends Dialog {
 		);
 		this.classSelectionContainer.appendChild(this.classSelectionListEl);
 		this.createdClassSelectionItems = [];
-		for (const t of allWeapons) {
-			const e = new ClassSelectionItem(t);
+		for (const weapon of allWeapons) {
+			const e = new ClassSelectionItem(weapon);
 			this.classSelectionListEl.appendChild(e.el);
 			e.onClick(() => {
 				this.showCustomizationView({
 					id: {
 						type: "class",
-						classId: t.id,
+						classId: weapon.id,
 					},
-					rootHeader: t.uiName,
+					rootHeader: weapon.uiName,
 					dialog: this,
 				});
 			});
@@ -8027,14 +8035,13 @@ class ProfileDialog extends Dialog {
 }
 class CornerProfile {
 	el = document.createElement("button");
-	clickCbs;
+	clickCbs = new Set<(event: PointerEvent) => void>();
 	avatarEl;
 	usernameEl;
 	ownedCoins;
 	boundAvatarUrlChanged;
 	constructor() {
 		this.el.classList.add("main-menu-corner-profile");
-		this.clickCbs = new Set();
 		this.el.addEventListener("click", (t) => {
 			this.clickCbs.forEach((e) => e(t));
 		});
@@ -8059,11 +8066,11 @@ class CornerProfile {
 			this.setUsername(getMain().profileState.getUsername());
 		});
 	}
-	setUsername(t) {
-		if (!t) {
-			t = "Guest";
+	setUsername(username: string) {
+		if (!username) {
+			username = "Guest";
 		}
-		this.usernameEl.textContent = t;
+		this.usernameEl.textContent = username;
 		this.usernameEl.classList.toggle(
 			"blueNight",
 			((t, e = true) => {
@@ -8076,22 +8083,22 @@ class CornerProfile {
 					}
 				}
 				return true;
-			})(t),
+			})(username),
 		);
 	}
-	onClick(t) {
-		this.clickCbs.add(t);
+	onClick(cb: (event: PointerEvent) => void) {
+		this.clickCbs.add(cb);
 	}
-	setMainMenuVisibility(t) {
-		if (t) {
+	setMainMenuVisibility(visible: boolean) {
+		if (visible) {
 			getMain().playerAvatarManager.onAvatarUrlChange(this.boundAvatarUrlChanged);
 		} else {
 			getMain().playerAvatarManager.removeOnAvatarUrlChange(this.boundAvatarUrlChanged);
 		}
 	}
-	avatarUrlChanged(t) {
-		if (t) {
-			this.avatarEl.style.backgroundImage = `url("${t}")`;
+	avatarUrlChanged(url?: string) {
+		if (url) {
+			this.avatarEl.style.backgroundImage = `url("${url}")`;
 		}
 	}
 }
@@ -13706,12 +13713,12 @@ export class Player {
 	get legsMoveTForCos() {
 		return this.legsMoveT * this.legsMoveSpeed;
 	}
-	afterPhysicsLoop(t: number, i: unknown) {
+	afterPhysicsLoop(now: number, dt: number) {
 		if (this.prevWasOnFloor != this.rigidBody.isOnFloor) {
 			this.prevWasOnFloor = this.rigidBody.isOnFloor;
 			if (this.rigidBody.isOnFloor && this.rigidBody.prevInAirTime > 300) {
 				if (
-					t - this.lastAirJumpPressTime < 300 &&
+					now - this.lastAirJumpPressTime < 300 &&
 					this.lastAirJumpPressTime >= 0 &&
 					this.rigidBody.getAllowJump()
 				) {
@@ -13729,7 +13736,7 @@ export class Player {
 							minPitch: this.gender == "female" ? 1.1 : 0.9,
 							maxPitch: this.gender == "female" ? 1.2 : 1,
 						});
-						this.lastJumpLandTime = t;
+						this.lastJumpLandTime = now;
 						this.lastJumpLandAmount = volume;
 					}
 					this.hasTouchedFloorEver = true;
@@ -13773,7 +13780,7 @@ export class Player {
 					this.mostRecentWeaponSkeletonLayers = this.activeWeapon.getThirdPersonSkeletonLayers();
 				}
 				const i = this.mostRecentWeaponSkeletonLayers;
-				let s = t - this.lastActiveWeaponToggleTime;
+				let s = now - this.lastActiveWeaponToggleTime;
 				s -= this.currentToggleWeaponCooldown;
 				s /= 150;
 				if (this.equippingWeaponLayer) {
@@ -13815,10 +13822,10 @@ export class Player {
 		s.y += 2.2;
 		this.icon.setPos(s);
 		for (const e of this.holdingHandlers) {
-			e.loop(t, i as number);
+			e.loop(now, dt as number);
 		}
 		this.hasOwnership &&
-			t - this.lastPosSentTime > 50 &&
+			now - this.lastPosSentTime > 50 &&
 			(this.pos.distanceTo(this.lastSentPos) < 0.01 &&
 			this.lookRot.distanceTo(this.lastSentRot) < 0.01
 				? (this.noSentDataChangeUpdateCount++,
@@ -15349,8 +15356,8 @@ class Flag {
 		this.icon.setPos(t);
 		this.obj.updateWorldMatrix(false, true);
 	}
-	loop(t: number, e: number): void {
-		const i = (t - this.grabStartTime) / 1000;
+	loop(now: number, dt: number): void {
+		const i = (now - this.grabStartTime) / 1000;
 		const s = 2 * Math.PI * 2;
 		const n = q(0, 0.8, s, 0, i, true);
 		this.grabAnimationContainer.rotation.y = (1 / (10 * i + 1)) * n;
@@ -16119,10 +16126,10 @@ class ArrowManager {
 	getSphereGeo(t) {
 		return this.sphereGeos[t];
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		for (const [i, s] of this.arrows) {
 			for (const [i, n] of s) {
-				n.loop(t, e);
+				n.loop(now, dt);
 				if (n.existingTime > 5000) {
 					n.destructor();
 					s.delete(i);
@@ -16133,7 +16140,7 @@ class ArrowManager {
 			}
 		}
 		for (const i of this.oldPlayerArrows) {
-			i.loop(t, e);
+			i.loop(now, dt);
 			if (i.existingTime > 5000) {
 				i.destructor();
 				this.oldPlayerArrows.delete(i);
@@ -16284,7 +16291,7 @@ class Crosshair {
 		const i = settingsManager.getValue("crosshairOutlineColor");
 		this.el.style.setProperty("--outline-color", i as string);
 	}
-	loop(t: number, i: number) {
+	loop(now: number, dt: number) {
 		this.smoothAccuracy = lerp(this.smoothAccuracy, this.currentAccuracy, 0.5);
 		const s =
 			7 + this.smoothAccuracy * (getMain().settingsManager.getValue("crosshairAccuracyOffset") as number);
@@ -16655,10 +16662,10 @@ class FlagScoreboard {
 			}
 		}
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		for (const i of this.scoreItems) {
 			if (i) {
-				i.loop(t, e);
+				i.loop(now, dt);
 			}
 		}
 	}
@@ -19346,13 +19353,13 @@ class AppearingObjectsManager {
 			}
 		}
 	}
-	loop(t: number, e: number): void {
+	loop(now: number, dt: number): void {
 		for (const t of this.appearingObjects) {
 			if (!t.hasBeenTriggered || t.allAnimationsFinished) {
 				continue;
 			}
 			let i = true;
-			t.t += 0.001 * e;
+			t.t += 0.001 * dt;
 			for (const e of t.objects) {
 				if (e.animationFinished) {
 					continue;
@@ -19463,11 +19470,11 @@ class HingeManager {
 			}
 		}
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		for (const [i, s] of this.activeHingeObjects) {
 			const n = this.hingeObjects[i];
 			const { object, defaultWorldMatrix } = n;
-			s.physicsValue.loop(t, e);
+			s.physicsValue.loop(now, dt);
 			object.matrix.makeRotationZ(s.physicsValue.value);
 			object.matrix.premultiply(defaultWorldMatrix);
 			object.matrixWorld.copy(object.matrix);
@@ -19481,15 +19488,18 @@ class HingeManager {
 		}
 	}
 }
+interface TimeRemainingData {
+	remaining: number,
+	receivedAt: number,
+}
 class GameTimerUi {
-	gameWrapper;
 	visible = true;
 	el = document.createElement("div");
 	tenMinutesEl;
 	oneMinuteEl;
 	tenSecondsEl;
 	oneSecondEl;
-	timeRemainingData;
+	timeRemainingData: TimeRemainingData | null = null;
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("game-timer-container", "whiteBigText", "blueNight");
 		gameWrapper.appendChild(this.el);
@@ -19513,14 +19523,14 @@ class GameTimerUi {
 		this.el.appendChild(t);
 		return t;
 	}
-	setTimeRemaining(remaining) {
+	setTimeRemaining(remaining: number) {
 		this.timeRemainingData = {
 			remaining,
 			receivedAt: performance.now(),
 		};
 		this.updateVisibility();
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		if (this.timeRemainingData) {
 			const t = Math.max(
 				0,
@@ -20368,35 +20378,35 @@ class OnlineGame {
 			r.setDroppedPosition(e, i, s, n, o, a);
 		}
 	}
-	loop(e: number, s: number) {
-		for (const t of this.players.values()) {
-			t.loop(e, s);
+	loop(now: number, dt: number) {
+		for (const player of this.players.values()) {
+			player.loop(now, dt);
 		}
-		for (const t of this.flags) {
-			t.loop(e, s);
+		for (const flag of this.flags) {
+			flag.loop(now, dt);
 		}
 		if (this.flagScoreUi) {
-			this.flagScoreUi.loop(e, s);
+			this.flagScoreUi.loop(now, dt);
 		}
 		if (this.gameTimerUi) {
-			this.gameTimerUi.loop(e, s);
+			this.gameTimerUi.loop(now, dt);
 		}
 		this.chat.loop();
-		this.hingeManager.loop(e, s);
-		this.arrowManager.loop(e, s);
-		this.crosshair.loop(e, s);
-		this.appearingObjectsManager.loop(e, s);
+		this.hingeManager.loop(now, dt);
+		this.arrowManager.loop(now, dt);
+		this.crosshair.loop(now, dt);
+		this.appearingObjectsManager.loop(now, dt);
 		const n = getMain();
 		const cloudsObj = n.mapLoader.cloudsObj;
 		if (cloudsObj) {
-			cloudsObj.rotation.y = 0.00001 * e;
+			cloudsObj.rotation.y = 0.00001 * now;
 			cloudsObj.updateWorldMatrix(false, true);
 		}
-		const a = this.getMyPlayer();
-		let r = 0;
-		const l = n.mapLoader.mapVariablesManager.get("windSfxVolume");
-		if (typeof l === "number") {
-			r = l;
+		const myPlayer = this.getMyPlayer();
+		let windSFXVol = 0;
+		const windSfxVolume = n.mapLoader.mapVariablesManager.get("windSfxVolume");
+		if (typeof windSfxVolume === "number") {
+			windSFXVol = windSfxVolume;
 		}
 		let h = 0;
 		let d = 0;
@@ -20419,36 +20429,36 @@ class OnlineGame {
 		if (typeof w === "number") {
 			f = w;
 		}
-		if (a) {
-			const e = a.pos.y;
+		if (myPlayer) {
+			const y = myPlayer.pos.y;
 			const s = n.mapLoader.mapVariablesManager.get("windSfxBoostVolume");
 			if (typeof s === "number" && s > 0) {
-				const t = n.mapLoader.mapVariablesManager.get("windSfxBoostHeight");
-				if (typeof t === "number") {
-					const n = Math.max(0, t - e);
-					const o = clampTo01(1 / n - 0.2) * s;
-					r = Math.max(o, r);
+				const windSFXBoostHeight = n.mapLoader.mapVariablesManager.get("windSfxBoostHeight");
+				if (typeof windSFXBoostHeight === "number") {
+					const boostDiff = Math.max(0, windSFXBoostHeight - y);
+					const o = clampTo01(1 / boostDiff - 0.2) * s;
+					windSFXVol = Math.max(o, windSFXVol);
 				}
 			}
-			const o = n.mapLoader.mapVariablesManager.get("waterSfxVolume");
-			if (typeof o === "number" && o > 0) {
-				const i = n.mapLoader.mapVariablesManager.get("waterSfxHeight");
-				if (typeof i === "number") {
-					const s = Math.max(0, e - i);
+			const waterSFXVol = n.mapLoader.mapVariablesManager.get("waterSfxVolume");
+			if (typeof waterSFXVol === "number" && waterSFXVol > 0) {
+				const waterSFXHeight = n.mapLoader.mapVariablesManager.get("waterSfxHeight");
+				if (typeof waterSFXHeight === "number") {
+					const s = Math.max(0, y - waterSFXHeight);
 					h = clamp(0.07 / s, 0, 0.05);
-					h *= o;
+					h *= waterSFXVol;
 				}
 			}
 		}
-		n.gameManager.setAmbientVolumes(r, h, d, u, g, f);
+		n.gameManager.setAmbientVolumes(windSFXVol, h, d, u, g, f);
 		const b = Math.round((performance.now() - n.network.lastReceiveMessageTime) / 100);
 		this.cornerStatsUi.networkStabilityStat.setValue(b);
-		this.physics.loop(e, s);
+		this.physics.loop(now, dt);
 		for (const t of this.players.values()) {
-			t.afterPhysicsLoop(e, s);
+			t.afterPhysicsLoop(now, dt);
 		}
 		for (const t of this.flags) {
-			t.afterPhysicsLoop(e, s);
+			t.afterPhysicsLoop(now, dt);
 		}
 	}
 	getMyPlayer() {
@@ -24577,15 +24587,15 @@ class OfflineGame {
 			this.onSdkGameplayStartedChangeCbs.forEach((t) => t());
 		}
 	}
-	loop(t, e) {
-		this.hingeManager.loop(t, e);
-		this.arrowManager.loop(t, e);
-		this.crosshair.loop(t, e);
-		this.myPlayer.loop(t, e);
+	loop(now: number, dt: number) {
+		this.hingeManager.loop(now, dt);
+		this.arrowManager.loop(now, dt);
+		this.crosshair.loop(now, dt);
+		this.myPlayer.loop(now, dt);
 		if (this.receivedColliders) {
-			this.physics.loop(t, e);
+			this.physics.loop(now, dt);
 		}
-		this.myPlayer.afterPhysicsLoop(t, e);
+		this.myPlayer.afterPhysicsLoop(now, dt);
 	}
 	onMyPlayerChange(t: any) {}
 	getMyPlayer(): Player {
@@ -24937,7 +24947,7 @@ export class GameManager {
 			return this.activeGame.getMyTeamColor();
 		}
 		return {
-			colors: n_1[0],
+			colors: n_1[0]!,
 			myTeamId: 0,
 		};
 	}
@@ -31622,23 +31632,22 @@ class BlobURLReference {
 		if (this.blobUrl) {
 			return this.blobUrl;
 		}
-		const t = new Promise<void>((resolve) => {
+		const t = new Promise<string>((resolve) => {
 			this.onBlobUrlCreatedCbs.add(resolve);
 		});
 		return await t;
 	}
 }
 class Avatar {
-	blobUrlReferences = new Set();
-	onDestructedCbs = new Set();
+	blobUrlReferences = new Set<BlobURLReference>();
+	onDestructedCbs = new Set<() => void>();
 	blobUrl: string | null = null;
 	createAvatarInstance;
 	destructed = false;
 	constructor(
 		public avatarsManager: AvatarsManager,
-		public config,
+		public config: PartAvatarConfig,
 	) {
-		this.config = config;
 		this.createAvatarInstance = new Waiter(
 			async () => {
 				const avatarBlob = await this.avatarsManager.generateAvatarBlob(this.config);
@@ -31679,8 +31688,8 @@ class Avatar {
 		this.createAvatarInstance.run();
 		return t;
 	}
-	onDestructed(t) {
-		this.onDestructedCbs.add(t);
+	onDestructed(cb: () => void) {
+		this.onDestructedCbs.add(cb);
 	}
 }
 interface SkinOpts {
@@ -31695,7 +31704,7 @@ interface AvatarConfig {
 	backgroundAlpha: number;
 	clipPathType: string;
 	skeletonPoseLayers: string;
-	bow: null;
+	bow?: null;
 	skinObjectOpts: {
 		teamId: number;
 		skin: SkinOpts;
@@ -31854,7 +31863,7 @@ class AvatarsManager {
 		const P = await k;
 		return P || null;
 	}
-	configToCacheKey(config) {
+	configToCacheKey(config: AvatarConfig) {
 		const {
 			cameraType,
 			width,
@@ -31882,17 +31891,17 @@ class AvatarsManager {
 		d.push(getMain().skins.skinObjectOptsToCacheKey(skinObjectOpts));
 		return d.join("-");
 	}
-	getAvatar(config): Avatar {
+	getAvatar(config: PartAvatarConfig): Avatar {
 		const key = this.configToCacheKey(config);
-		let i = this.createdAvatars.get(key);
+		let avatar = this.createdAvatars.get(key);
 		return (
-			i ||
-			((i = new Avatar(this, config)),
-			i.onDestructed(() => {
+			avatar ||
+			((avatar = new Avatar(this, config)),
+			avatar.onDestructed(() => {
 				this.createdAvatars.delete(key);
 			}),
-			this.createdAvatars.set(key, i),
-			i)
+			this.createdAvatars.set(key, avatar),
+			avatar)
 		);
 	}
 }
@@ -31927,8 +31936,15 @@ class ClassImageReference {
 		this.blobUrlChangeCbs.forEach((cb) => cb(blobUrl));
 	}
 }
+interface Thing {
+	updateReferences: Set<unknown>;
+	reference: null;
+	url: null;
+	lastLoadingSym: null;
+	avatarDirty: boolean;
+}
 class ClassSelectionImageManager {
-	cachedBlobUrlDatas = new Map();
+	cachedBlobUrlDatas = new Map<string, Thing>();
 	teamId = 1;
 	constructor() {}
 	init() {
@@ -32010,8 +32026,8 @@ class ClassSelectionImageManager {
 		this.teamId = t;
 		this.markAllAvatarsDirty();
 	}
-	getOrCreateBlobUrlData(t) {
-		let e = this.cachedBlobUrlDatas.get(t);
+	getOrCreateBlobUrlData(classId: string) {
+		let e = this.cachedBlobUrlDatas.get(classId);
 		if (!e) {
 			e = {
 				updateReferences: new Set(),
@@ -32020,11 +32036,11 @@ class ClassSelectionImageManager {
 				lastLoadingSym: null,
 				avatarDirty: true,
 			};
-			this.cachedBlobUrlDatas.set(t, e);
+			this.cachedBlobUrlDatas.set(classId, e);
 		}
 		return e;
 	}
-	createUpdateReference(classId) {
+	createUpdateReference(classId: string) {
 		const e = this.getOrCreateBlobUrlData(classId);
 		const i = new ClassImageReference(classId, this);
 		e.updateReferences.add(i);
@@ -32188,10 +32204,10 @@ class MainInfoTextManager {
 }
 class PlayerAvatarManager {
 	gameLoaded = false;
-	avatar = null;
+	avatar: Avatar | null = null;
 	currentAvatarBlobreference = null;
-	onAvatarUrlChangeCbs = new Set();
-	currentBlobUrl = null;
+	onAvatarUrlChangeCbs = new Set<(url: string | null) => void>();
+	currentBlobUrl: string | null = null;
 	updateAvatarInstance;
 	constructor() {
 		this.updateAvatarInstance = new Waiter(async () => {
@@ -32199,11 +32215,11 @@ class PlayerAvatarManager {
 				return;
 			}
 			const t = this.avatar.getBlobUrlReference();
-			const e = await t.getBlobUrl();
-			if (e != this.currentBlobUrl) {
-				this.currentBlobUrl = e;
-				this.onAvatarUrlChangeCbs.forEach((t) => {
-					t(e);
+			const url = await t.getBlobUrl();
+			if (url != this.currentBlobUrl) {
+				this.currentBlobUrl = url;
+				this.onAvatarUrlChangeCbs.forEach((cb) => {
+					cb(url);
 				});
 			}
 			if (this.currentAvatarBlobreference) {
@@ -32221,22 +32237,22 @@ class PlayerAvatarManager {
 		this.avatarVisible = t;
 		this.updateAvatarInstance.run();
 	}
-	setAvatar(avatar) {
+	setAvatar(avatar: Avatar) {
 		this.avatar = avatar;
 		this.updateAvatarVisibility();
 	}
-	onAvatarUrlChange(t) {
-		this.onAvatarUrlChangeCbs.add(t);
-		t(this.currentBlobUrl);
+	onAvatarUrlChange(cb: (url: string | null) => void) {
+		this.onAvatarUrlChangeCbs.add(cb);
+		cb(this.currentBlobUrl);
 		this.updateAvatarInstance.run();
 	}
-	removeOnAvatarUrlChange(t) {
-		this.onAvatarUrlChangeCbs.delete(t);
+	removeOnAvatarUrlChange(cb: (url: string | null) => void) {
+		this.onAvatarUrlChangeCbs.delete(cb);
 	}
 }
 class FullScreenManager {
-	onFullScreenChangeCbs = new Set();
-	onAutoFullScreenChangeCbs = new Set();
+	onFullScreenChangeCbs = new Set<() => void>();
+	onAutoFullScreenChangeCbs = new Set<() => void>();
 	constructor() {
 		document.addEventListener("fullscreenchange", () => {
 			this.onFullScreenChangeCbs.forEach((t) => t());
