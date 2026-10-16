@@ -1,3 +1,5 @@
+import type { Object3D } from "three";
+
 // ---- unconfirmed numeric constants (could still be three enums) ----
 const e = 0;
 const n = 2;
@@ -317,15 +319,19 @@ for (const e of characterParts) {
 	}
 }
 
-function* Hl(e: Object3D, { skipObjsFn = null }: { skipObjsFn?: ((obj: Object3D) => boolean) | null } = {}) {
-	if (!skipObjsFn || skipObjsFn(e)) {
-		yield e;
+function* recurseChildren(
+	it: Object3D,
+	{ skipObjsFn = null }: { skipObjsFn?: ((obj: Object3D) => boolean) | null } = {}
+): Generator<Object3D> {
+	if (!skipObjsFn || skipObjsFn(it)) {
+		yield it;
 
-		for (const n of e.children) {
-			for (const e of Hl(n, {
+		for (const child of it.children) {
+			// SON
+			for (const childrenOfTheChildren of recurseChildren(child, {
 				skipObjsFn,
 			})) {
-				yield e;
+				yield childrenOfTheChildren;
 			}
 		}
 	}
@@ -429,7 +435,7 @@ function sc(e: number) {
 
 	t.push("totalScore");
 
-	if (globalThis.false) {
+	if (false) {
 		t.push("elo");
 	}
 
@@ -542,7 +548,7 @@ function mc(e: number, t: number, n: number) {
 	return [a, o, l];
 }
 
-function fc(e: number | undefined, t: number | undefined, n: number | undefined) {
+function fc(e: number, t: number, n: number) {
 	e = posMod(e, 1);
 	t = clampTo01(t);
 	n = clampTo01(n);
@@ -643,7 +649,7 @@ export {
 	Xl as al,
 	Zl as an,
 	lc as ao,
-	partNamesNeedsFlip as ar,
+	partNamesNeedsFlip,
 	clamp,
 	lerp,
 	posMod,
@@ -651,9 +657,9 @@ export {
 	wrap,
 	partNames,
 	Po as q,
-	noAttackTeam as noAttackTeam,
+	noAttackTeam,
 	uc as s,
-	Hl as t,
+	recurseChildren,
 	nc as u,
 	Ul as v,
 	inverseLerp,

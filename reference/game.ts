@@ -1,3 +1,4 @@
+declare const PokiSDK: any;
 import {
 	clamp,
 	lerp,
@@ -5,7 +6,7 @@ import {
 	AssetWorkerMessenger,
 	MapLoadError,
 	partNames,
-	t as t_1,
+	recurseChildren,
 	D as side,
 	F,
 	posMod,
@@ -2069,7 +2070,7 @@ class AssetsManager {
 		}
 		cbs.add(cb);
 	}
-	static deserializeThreeObject(t: any) {
+	static deserializeThreeObject(t: any): Mesh | Object3D | null {
 		if (!t) {
 			return null;
 		}
@@ -2091,8 +2092,8 @@ class AssetsManager {
 		i.updateWorldMatrix(false, true);
 		return i;
 	}
-	static deserializeThreeObjectRecursive(t: any, e: any) {
-		let i = null;
+	static deserializeThreeObjectRecursive(t: any, e: any): Mesh | Object3D {
+		let result = null;
 		const materials = getMain().materials;
 		if (t.geo != null && t.geo >= 0) {
 			let n = null;
@@ -2110,20 +2111,20 @@ class AssetsManager {
 				}
 			}
 			if (n) {
-				i = new Mesh(e[t.geo], n);
+				result = new Mesh(e[t.geo], n);
 			}
 		}
-		if (!i) {
-			i = new Object3D();
+		if (!result) {
+			result = new Object3D();
 		}
-		i.name = t.name;
+		result.name = t.name;
 		const n = new Matrix4().fromArray(t.matrix);
-		i.applyMatrix4(n);
+		result.applyMatrix4(n);
 		for (const s of t.children) {
 			const t = this.deserializeThreeObjectRecursive(s, e);
-			i.add(t);
+			result.add(t);
 		}
-		return i;
+		return result;
 	}
 	async loadGlbViaWorker(
 		t: unknown,
@@ -2937,13 +2938,13 @@ class SkinsManager {
 			colorizedItems,
 		};
 	}
-	skinNetworkDataToBowAssetData(t, e) {
+	skinNetworkDataToBowAssetData(targetBowID: string, opts: {equippedSkinIds?: string[];}) {
 		const i = new Set();
-		if (e.equippedSkinIds) {
-			for (const s of e.equippedSkinIds) {
+		if (opts.equippedSkinIds) {
+			for (const s of opts.equippedSkinIds) {
 				const e = this.purchasableItems.get(s);
 				if (e && e.bowSkin) {
-					if (t && e.bowSkin.bowId != t) {
+					if (targetBowID && e.bowSkin.bowId != targetBowID) {
 						continue;
 					}
 					for (const t of e.bowSkin.skins) {
@@ -2954,7 +2955,7 @@ class SkinsManager {
 		}
 		return {
 			skins: Array.from(i),
-			arrowSkin: this.skinNetworkDataToArrowSkinConfig(e),
+			arrowSkin: this.skinNetworkDataToArrowSkinConfig(opts),
 		};
 	}
 	skinNetworkDataToMeleeSkinConfig(skinData: SkinData): MeleeSkinConfig | null {
@@ -2972,17 +2973,17 @@ class SkinsManager {
 		}
 		return null;
 	}
-	skinNetworkDataToArrowSkinConfig(t) {
-		if (t.equippedSkinIds) {
-			const e = [];
-			for (const i of t.equippedSkinIds) {
+	skinNetworkDataToArrowSkinConfig(config: {equippedSkinIds?: string[]}): string {
+		if (config.equippedSkinIds) {
+			const arrowSkins = [];
+			for (const i of config.equippedSkinIds) {
 				const t = this.purchasableItems.get(i);
 				if (t && t.arrowSkin) {
-					e.push(t.arrowSkin);
+					arrowSkins.push(t.arrowSkin);
 				}
 			}
-			if (e.length == 1) {
-				return e[0];
+			if (arrowSkins.length == 1) {
+				return arrowSkins[0]!;
 			}
 		}
 		return "baseSkins/arrow.glb";
@@ -3314,7 +3315,7 @@ class PoseLayer {
 		if (!this.skeletonObject) {
 			throw new Error("Cannot build object links before the skeleton object is loaded");
 		}
-		for (const e of t_1(this.skeletonObject) as Object3D[]) {
+		for (const e of recurseChildren(this.skeletonObject)) {
 			const i = t.getObjectByName(e.name);
 			if (i) {
 				this.objectLinks.push([i, e]);
@@ -4208,23 +4209,23 @@ class GameMaterials {
 		return b;
 	}
 }
-function ae(obj: unknown, { skinMatrices = null } = {}) {
+function ae(obj: Object3D, { skinMatrices = null } = {}) {
 	let i = null;
-	const s = new Vector3();
-	for (const n of t_1(obj)) {
-		if (n instanceof Mesh && n.geometry) {
-			const t = n.geometry.attributes.position;
-			const o = n.geometry.attributes.skinIndex;
+	const expandPoint = new Vector3();
+	for (const child of recurseChildren(obj)) {
+		if (child instanceof Mesh && child.geometry) {
+			const t = child.geometry.attributes.position;
+			const o = child.geometry.attributes.skinIndex;
 			for (let n = 0; n < t.count; n++) {
-				s.fromBufferAttribute(t, n);
+				expandPoint.fromBufferAttribute(t, n);
 				if (o && skinMatrices) {
-					const t = skinMatrices[o.getX(n)];
-					s.applyMatrix4(t);
+					const matrix: Matrix4 = skinMatrices[o.getX(n)];
+					expandPoint.applyMatrix4(matrix);
 				}
 				if (i) {
-					i.expandByPoint(s);
+					i.expandByPoint(expandPoint);
 				} else {
-					i = new Box3(s.clone(), s.clone());
+					i = new Box3(expandPoint.clone(), expandPoint.clone());
 				}
 			}
 		}
@@ -4234,17 +4235,17 @@ function ae(obj: unknown, { skinMatrices = null } = {}) {
 	}
 	const n = i.getCenter(new Vector3());
 	let o = 0;
-	for (const i of t_1(obj)) {
+	for (const i of recurseChildren(obj)) {
 		if (i instanceof Mesh && i.geometry) {
 			const t = i.geometry.attributes.position;
 			const a = i.geometry.attributes.skinIndex;
 			for (let i = 0; i < t.count; i++) {
-				s.fromBufferAttribute(t, i);
+				expandPoint.fromBufferAttribute(t, i);
 				if (a && skinMatrices) {
 					const t = skinMatrices[a.getX(i)];
-					s.applyMatrix4(t);
+					expandPoint.applyMatrix4(t);
 				}
-				const r = n.distanceTo(s);
+				const r = n.distanceTo(expandPoint);
 				o = Math.max(o, r);
 			}
 		}
@@ -4252,17 +4253,17 @@ function ae(obj: unknown, { skinMatrices = null } = {}) {
 	return new Sphere(n, o);
 }
 class SkinModel {
-	skinObjectOpts;
+	skinObjectOpts: SkinObjectOpts;
 	isInit = false;
 	destructed = false;
-	obj = null;
-	materials = [];
+	obj: Object3D | null = null;
+	materials: Material[] = [];
 	lastSetMatrices = null;
 	onInitCbs = new Set();
 	getSkinAbortController = new AbortController();
 	useWorldWeather;
 	initCalled = false;
-	constructor({ skinObjectOpts, init = true, useWorldWeather = true }) {
+	constructor({ skinObjectOpts, init = true, useWorldWeather = true }: { skinObjectOpts: SkinObjectOpts, init?: boolean, useWorldWeather?: boolean }) {
 		this.skinObjectOpts = skinObjectOpts;
 		this.useWorldWeather = useWorldWeather;
 		if (init) {
@@ -4276,7 +4277,7 @@ class SkinModel {
 		}
 		this.materials = [];
 		if (this.obj) {
-			for (const t of t_1(this.obj)) {
+			for (const t of recurseChildren(this.obj)) {
 				if (t instanceof Mesh) {
 					t.geometry.dispose();
 				}
@@ -4307,10 +4308,10 @@ class SkinModel {
 		) {
 			this.obj = t;
 			const e = new Map();
-			this.obj.traverse((t) => {
-				if (t instanceof Mesh) {
-					if (Array.isArray(t.material)) {
-						const i = t.material;
+			this.obj.traverse((object) => {
+				if (object instanceof Mesh) {
+					if (Array.isArray(object.material)) {
+						const i = object.material;
 						for (const [s, n] of i.entries()) {
 							let i = e.get(n);
 							if (!i) {
@@ -4318,16 +4319,16 @@ class SkinModel {
 								this.materials.push(i);
 								e.set(n, i);
 							}
-							t.material[s] = i;
+							object.material[s] = i;
 						}
 					} else {
-						let i = e.get(t.material);
+						let i = e.get(object.material);
 						if (!i) {
-							i = t.material.clone();
+							i = object.material.clone();
 							this.materials.push(i);
-							e.set(t.material, i);
+							e.set(object.material, i);
 						}
-						t.material = i;
+						object.material = i;
 					}
 				}
 			});
@@ -4350,26 +4351,26 @@ class SkinModel {
 		const t = new Promise<undefined>((resolve) => this.onInitCbs.add(() => resolve(undefined)));
 		await t;
 	}
-	applySkeleton(t) {
-		this.lastSetMatrices = t.getMatrices();
+	applySkeleton(skeleton: PlayerSkeleton) {
+		this.lastSetMatrices = skeleton.getMatrices();
 		for (const t of this.materials) {
 			if (t.uniforms.skinMatrices) {
 				t.uniforms.skinMatrices.value = this.lastSetMatrices;
 			}
 		}
 	}
-	setHitFlashMaterialsTime(t) {
+	setHitFlashMaterialsTime(time: number) {
 		for (const e of this.materials) {
-			e.uniforms.time.value = t;
+			e.uniforms.time.value = time;
 		}
 	}
-	setHitFlashMaterialsValue(t, e, i) {
-		if (t < 0 || t >= 5) {
+	setHitFlashMaterialsValue(index: number, flashTime: number, flashPosition: Vector3) {
+		if (index < 0 || index >= 5) {
 			throw new Error("Invalid index");
 		}
 		for (const s of this.materials) {
-			s.uniforms.hitFlashTimes.value[t] = e;
-			s.uniforms.hitFlashPositions.value[t].copy(i);
+			s.uniforms.hitFlashTimes.value[index] = flashTime;
+			s.uniforms.hitFlashPositions.value[index].copy(flashPosition);
 		}
 	}
 	computeApproximateBoundingSphere() {
@@ -4382,15 +4383,15 @@ class SkinModel {
 	}
 }
 class PurchaseConfirmDialog extends Dialog {
-	onPurchaseSuccessCbs = new Set();
+	onPurchaseSuccessCbs = new Set<() => void>();
 	shopItem;
 	purchaseButton;
-	constructor(t, e, { renderOptions }) {
-		super(t, {
+	constructor(gameWrapper: HTMLElement, config: ShopItemConfig, { renderOptions }: {renderOptions: ShopItemRenderOptions}) {
+		super(gameWrapper, {
 			title: "Confirm your purchase",
 			testLabel: "confirmPurchase",
 		});
-		this.shopItem = new ShopItem(t, e, {
+		this.shopItem = new ShopItem(gameWrapper, config, {
 			usage: "preview",
 			renderOptions,
 			dialog: this,
@@ -4409,22 +4410,22 @@ class PurchaseConfirmDialog extends Dialog {
 			onClick: async () => {
 				await this.purchaseButtonClick();
 			},
-		};
-		const n = getMain().shopState.getVisibleItemPrice(e);
+		} as {testLabel: string, onClick(): Promise<void>; showCurrency?: boolean; currency?: number; text?: string; icon?: string;};
+		const n = getMain().shopState.getVisibleItemPrice(config);
 		if (n > 0) {
 			s.showCurrency = true;
 			s.currency = n;
 		} else {
 			s.text = "Get Item";
-			if (e.hasRewardedAd) {
+			if (config.hasRewardedAd) {
 				s.icon = "static/img/rewardedAdIcon.svg";
 			}
 		}
 		this.purchaseButton = this.addButton(s);
-		if (getMain().shopState.isPurchasingItem(e.id)) {
+		if (getMain().shopState.isPurchasingItem(config.id)) {
 			this.setButtonEnabled(false);
 			(async () => {
-				await getMain().shopState.waitForItemPurchase(e.id);
+				await getMain().shopState.waitForItemPurchase(config.id);
 				this.setButtonEnabled(true);
 			})();
 		}
@@ -4433,8 +4434,8 @@ class PurchaseConfirmDialog extends Dialog {
 		this.shopItem.destructor();
 		super.destructor();
 	}
-	setButtonEnabled(t) {
-		this.purchaseButton.enabled = t;
+	setButtonEnabled(enabled: boolean) {
+		this.purchaseButton.enabled = enabled;
 	}
 	async purchaseButtonClick() {
 		this.setButtonEnabled(false);
@@ -4446,36 +4447,30 @@ class PurchaseConfirmDialog extends Dialog {
 			this.setButtonEnabled(true);
 		}
 	}
-	onPurchaseSuccess(t) {
-		this.onPurchaseSuccessCbs.add(t);
+	onPurchaseSuccess(cb: () => void) {
+		this.onPurchaseSuccessCbs.add(cb);
 	}
 }
 class SingleAssetLoader {
 	obj = new Object3D();
 	label;
 	useWorldWeather;
-	currentlyLoadingAbortController;
-	currentAssetName;
-	currentMeleeAsset;
-	onFirstAssetLoadCbs;
-	onNewAssetLoadedCbs;
-	currentlyLoadedMaterials;
+	currentlyLoadingAbortController: AbortController | null = null;
+	currentAssetName = "";
+	currentMeleeAsset: Object3D | null = null;
+	onFirstAssetLoadCbs = new Set<() => void>();
+	onNewAssetLoadedCbs = new Set<() => void>();
+	currentlyLoadedMaterials = [];
 	constructor({ useWorldWeather = true, label = "" } = {}) {
 		this.obj.name = `${label} asset loader`;
 		this.label = label;
 		this.useWorldWeather = useWorldWeather;
-		this.currentlyLoadingAbortController = null;
-		this.currentAssetName = "";
-		this.currentMeleeAsset = null;
-		this.onFirstAssetLoadCbs = new Set();
-		this.onNewAssetLoadedCbs = new Set();
-		this.currentlyLoadedMaterials = [];
 	}
 	destructor() {
 		this.destroyMaterials();
 		this.destroyBowMeshes();
 	}
-	async setConfig(t) {
+	async setConfig(config: {skinAssetName?: string | null, fallbackSkinAssetName?: string | null; [k: string]: unknonw}) {
 		if (this.currentlyLoadingAbortController) {
 			this.currentlyLoadingAbortController.abort();
 		}
@@ -4483,13 +4478,13 @@ class SingleAssetLoader {
 		this.currentlyLoadingAbortController = e;
 		const i = getMain();
 		let s = null;
-		if (t.skinAssetName) {
-			const { skinAssetName, fallbackSkinAssetName } = t;
+		if (config.skinAssetName) {
+			const { skinAssetName, fallbackSkinAssetName } = config;
 			let o;
 			try {
 				o = await i.skins.buildConfigObject(
 					{
-						...t,
+						...config,
 						label: this.label,
 						skinAssetName,
 						fallbackSkinAssetName,
@@ -4527,7 +4522,7 @@ class SingleAssetLoader {
 	}
 	destroyBowMeshes() {
 		if (this.currentMeleeAsset) {
-			for (const t of t_1(this.currentMeleeAsset)) {
+			for (const t of recurseChildren(this.currentMeleeAsset)) {
 				if (t instanceof Mesh) {
 					t.geometry.dispose();
 				}
@@ -4538,14 +4533,14 @@ class SingleAssetLoader {
 		if (!this.isLoadingAsset) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onFirstAssetLoadCbs.add(resolve));
 		await t;
 	}
 	get isLoadingAsset() {
 		return !this.currentMeleeAsset || Boolean(this.currentlyLoadingAbortController);
 	}
-	onNewAssetLoaded(t) {
-		this.onNewAssetLoadedCbs.add(t);
+	onNewAssetLoaded(cb: () => void) {
+		this.onNewAssetLoadedCbs.add(cb);
 	}
 }
 const de = {
@@ -4591,33 +4586,23 @@ const de = {
 class BowAssetLoader {
 	obj = new Object3D();
 	useWorldWeather;
-	lastFireAmount01;
-	lastVisibleCount;
-	currentBowAsset;
-	onFirstAssetLoadCbs;
-	onAssetChangeCbs;
-	currentlyLoadingAbortController;
-	currentlyLoadedMaterials;
-	currentArrowObjs;
-	currentArrowOffsets;
-	onArrowDestroyCallbacks;
+	lastFireAmount01 = 0;
+	lastVisibleCount = 0;
+	currentBowAsset: Object3D | null = null;
+	onFirstAssetLoadCbs = new Set<() => void>();
+	onAssetChangeCbs = new Set<(bow: Mesh) => void>();
+	currentlyLoadingAbortController: AbortController | null = null;
+	currentlyLoadedMaterials: Material[] = [];
+	currentArrowObjs: Object3D[] = [];
+	currentArrowOffsets: Vector2[] = [];
+	onArrowDestroyCallbacks = new Set<() => void>();
 	arrowAssetLoader;
 	arrowObjectsConfig;
-	arrowPointIdle;
-	arrowPointLoaded;
+	arrowPointIdle = new Object3D();
+	arrowPointLoaded = new Object3D();
 	constructor({ useWorldWeather = true } = {}) {
 		this.obj.name = "Bow asset loader";
 		this.useWorldWeather = useWorldWeather;
-		this.lastFireAmount01 = 0;
-		this.lastVisibleCount = 0;
-		this.currentBowAsset = null;
-		this.onFirstAssetLoadCbs = new Set();
-		this.onAssetChangeCbs = new Set();
-		this.currentlyLoadingAbortController = null;
-		this.currentlyLoadedMaterials = [];
-		this.currentArrowObjs = [];
-		this.currentArrowOffsets = [];
-		this.onArrowDestroyCallbacks = new Set();
 		this.arrowAssetLoader = new SingleAssetLoader({
 			useWorldWeather,
 			label: "Arrow",
@@ -4631,10 +4616,8 @@ class BowAssetLoader {
 			arrowCount: 0,
 			arrowPositions: "stacked",
 		};
-		this.arrowPointIdle = new Object3D();
 		this.arrowPointIdle.name = "Arrow point idle";
 		this.obj.add(this.arrowPointIdle);
-		this.arrowPointLoaded = new Object3D();
 		this.arrowPointLoaded.name = "Arrow point loaded";
 		this.obj.add(this.arrowPointLoaded);
 	}
@@ -4645,12 +4628,12 @@ class BowAssetLoader {
 			skinAssetName: null,
 		});
 	}
-	async setConfig(t) {
+	async setConfig(config: {arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number}) {
 		this.arrowAssetLoader.setConfig({
-			skinAssetName: t.arrowSkin,
+			skinAssetName: config.arrowSkin,
 			fallbackSkinAssetName: "baseSkins/arrow.glb",
-			teamColor: t.teamColor,
-			teamId: t.teamId,
+			teamColor: config.teamColor,
+			teamId: config.teamId,
 		});
 		if (this.currentlyLoadingAbortController) {
 			this.currentlyLoadingAbortController.abort();
@@ -4660,18 +4643,18 @@ class BowAssetLoader {
 		const i = getMain();
 		let s;
 		let morphOpts = {};
-		if (t.bowId) {
-			morphOpts = de[t.bowId] || {};
+		if (config.bowId) {
+			morphOpts = de[config.bowId] || {};
 		}
 		try {
 			s = await i.skins.getBowObject(
 				{
-					name: t.bowId,
-					teamId: t.teamId,
-					teamColor: t.teamColor,
+					name: config.bowId,
+					teamId: config.teamId,
+					teamColor: config.teamColor,
 					morphOpts,
-					skinAssets: t.skins,
-					separateObjectNames: t.separateObjectNames || [],
+					skinAssets: config.skins,
+					separateObjectNames: config.separateObjectNames || [],
 				},
 				this.currentlyLoadingAbortController.signal,
 			);
@@ -4711,8 +4694,8 @@ class BowAssetLoader {
 		this.arrowPointLoaded.quaternion.identity();
 		this.arrowPointLoaded.scale.set(1, 1, 1);
 		this.arrowPointLoaded.applyMatrix4(arrowPointLoadedMatrix);
-		const arrowCount = t.arrowCount ?? 1;
-		const arrowPositions = t.arrowPositions ?? "stacked";
+		const arrowCount = config.arrowCount ?? 1;
+		const arrowPositions = config.arrowPositions ?? "stacked";
 		if (
 			!(
 				this.arrowObjectsConfig.arrowCount == arrowCount &&
@@ -4756,10 +4739,10 @@ class BowAssetLoader {
 			this.internalUpdateFireAmount();
 		}
 	}
-	getClonedArrowObject(t) {
+	getClonedArrowObject(cb: () => void) {
 		const e = this.arrowAssetLoader.obj.children[0];
 		if (e) {
-			this.onArrowDestroyCallbacks.add(t);
+			this.onArrowDestroyCallbacks.add(cb);
 			return e.clone();
 		}
 		return null;
@@ -4772,7 +4755,7 @@ class BowAssetLoader {
 	}
 	destroyBowMeshes() {
 		if (this.currentBowAsset) {
-			for (const t of t_1(this.currentBowAsset)) {
+			for (const t of recurseChildren(this.currentBowAsset)) {
 				if (t instanceof Mesh) {
 					t.geometry.dispose();
 				}
@@ -4786,8 +4769,8 @@ class BowAssetLoader {
 		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(resolve));
 		await t;
 	}
-	onAssetChange(t) {
-		this.onAssetChangeCbs.add(t);
+	onAssetChange(cb: (bow: Mesh) => void) {
+		this.onAssetChangeCbs.add(cb);
 	}
 	get isLoadingAsset() {
 		return !this.currentBowAsset || Boolean(this.currentlyLoadingAbortController);
@@ -4798,32 +4781,32 @@ class BowAssetLoader {
 	getLoadedArrowPointScale() {
 		return this.arrowPointLoaded.scale;
 	}
-	updateFireAmount(t, e) {
-		this.lastFireAmount01 = t;
-		this.lastVisibleCount = e;
+	updateFireAmount(fireAmount01: number, visibleCount: number) {
+		this.lastFireAmount01 = fireAmount01;
+		this.lastVisibleCount = visibleCount;
 		this.internalUpdateFireAmount();
 	}
 	internalUpdateFireAmount() {
-		for (const [t, e] of this.currentArrowObjs.entries()) {
-			e.position.lerpVectors(
+		for (const [i, arrow] of this.currentArrowObjs.entries()) {
+			arrow.position.lerpVectors(
 				this.arrowPointIdle.position,
 				this.arrowPointLoaded.position,
 				this.lastFireAmount01,
 			);
-			const i = this.currentArrowOffsets[t];
-			e.position.x += i.x;
-			e.position.y += i.y;
-			e.scale.lerpVectors(
+			const offset = this.currentArrowOffsets[i]!;
+			arrow.position.x += offset.x;
+			arrow.position.y += offset.y;
+			arrow.scale.lerpVectors(
 				this.arrowPointIdle.scale,
 				this.arrowPointLoaded.scale,
 				this.lastFireAmount01,
 			);
-			e.quaternion.slerpQuaternions(
+			arrow.quaternion.slerpQuaternions(
 				this.arrowPointIdle.quaternion,
 				this.arrowPointLoaded.quaternion,
 				this.lastFireAmount01,
 			);
-			e.visible = this.lastVisibleCount > t;
+			arrow.visible = this.lastVisibleCount > i;
 		}
 		for (const t of this.currentlyLoadedMaterials) {
 			if (t instanceof ShaderMaterial) {
@@ -5650,12 +5633,12 @@ class ShopItemsGrid {
 			this.el.removeChild(this.el.lastChild);
 		}
 	}
-	loadShopItems(t, e) {
+	loadShopItems(configs: ShopItemConfig[], opt: Omit<ShopItemOptions, "configIndex">) {
 		this.destructShopItems();
-		for (const [configIndex, s] of t.entries()) {
+		for (const [configIndex, s] of configs.entries()) {
 			this.addShopItem(s, {
 				configIndex,
-				...e,
+				...opt,
 			});
 		}
 		this.sortShopItems();
@@ -5883,7 +5866,7 @@ class SkinDownloaderDialog extends Dialog {
 		}
 		this.createdDownloadBlobReferences = [];
 	}
-	getCurrentAvatarConfig(width, height) {
+	getCurrentAvatarConfig(width: number, height: number) {
 		const clipPathType = this.shapeInput.value ?? "none";
 		const cameraType = this.cameraInput.value ?? "face-close";
 		const value = this.teamColorInput.value;
@@ -7458,9 +7441,8 @@ class ClassSelectionImage {
 	backgroundEl;
 	imageEl;
 	seed;
-	classId;
 	updateReference;
-	constructor(t, { extraClasses = [] } = {}) {
+	constructor(public classId, { extraClasses = [] } = {}) {
 		this.el.classList.add(
 			"class-selection-image-container",
 			"wrinkledPaper",
@@ -7479,9 +7461,8 @@ class ClassSelectionImage {
 \t\t`;
 		this.el.style.cssText = i;
 		this.backgroundEl.style.cssText = i;
-		this.classId = t;
 		const s = getMain().classSelectionImageManager;
-		this.updateReference = s.createUpdateReference(t);
+		this.updateReference = s.createUpdateReference(classId);
 		this.updateReference.onBlobUrlChange((t) => {
 			this.imageEl.style.backgroundImage = `url("${t}")`;
 		});
@@ -7490,14 +7471,14 @@ class ClassSelectionImage {
 	destructor() {
 		this.updateReference.destructor();
 	}
-	set needsUpdates(t) {
-		this.updateReference.needsUpdates = t;
+	set needsUpdates(value: boolean) {
+		this.updateReference.needsUpdates = value;
 	}
-	setCssColor(t, e) {
+	setCssColor(color: string, borderColor: string) {
 		this.backgroundEl.style.cssText = `
 \t\t\t--wrinkled-paper-seed: ${this.seed};
-\t\t\t--wrinkled-paper-color: ${t};
-\t\t\t--wrinkled-paper-border-color: ${e};
+\t\t\t--wrinkled-paper-color: ${color};
+\t\t\t--wrinkled-paper-border-color: ${borderColor};
 \t\t`;
 	}
 }
@@ -7583,7 +7564,7 @@ class PresetSelectionItem {
 	}
 }
 class PresetsView {
-	skinManager;
+	skinManager: any;
 	onPresetOpenClickCbs = new Set();
 	onBackButtonClickCbs = new Set();
 	el = document.createElement("div");
@@ -9511,7 +9492,7 @@ class PlayerBody extends RigidBody {
 					}
 				}
 				if (i || !collider.isTriggerCollider()) {
-					for (const t of e) {
+					for (const t of e as any[]) {
 						const e = collider.getSphereManifold(t.center, t.radius);
 						if (e.penetration > 0) {
 							n.push({
@@ -12636,9 +12617,9 @@ class WeaponSelectionItem {
 	}
 }
 let fi = false;
-const wi = new Set();
-function bi(t) {
-	wi.add(t);
+const wi = new Set<(b: boolean) => void>();
+function bi(cb: (b: boolean) => void) {
+	wi.add(cb);
 }
 function yi() {
 	return fi;
@@ -16931,18 +16912,18 @@ class SkipText {
 	}
 }
 class PlayersListDialog extends Dialog {
-	playersList;
+	playersList: any;
 	skinManager;
 	teamWonTitle = document.createElement("h2");
-	teamsContainer;
-	currentAvatarBlobUrlReferences;
-	configuredColumnTypes;
-	teamEls;
-	skipText;
-	scoresFrozen;
-	playersListDirty;
-	boundOnResize;
-	constructor(t, e, i, customOnCurtainClickCb) {
+	teamsContainer: any;
+	currentAvatarBlobUrlReferences: any;
+	configuredColumnTypes: any;
+	teamEls: any;
+	skipText: any;
+	scoresFrozen: any;
+	playersListDirty: any;
+	boundOnResize: any;
+	constructor(t: any, e: any, i: any, customOnCurtainClickCb: any) {
 		super(t, {
 			customOnCurtainClickCb,
 			needsUnlockedPointer: false,
@@ -17008,7 +16989,7 @@ class PlayersListDialog extends Dialog {
 	override destructor() {
 		super.destructor();
 		observeResize(this.boundOnResize);
-		for (const t of this.currentAvatarBlobUrlReferences) {
+		for (const t of this.currentAvatarBlobUrlReferences as any[]) {
 			t.destructor();
 		}
 		this.currentAvatarBlobUrlReferences.clear();
@@ -17045,14 +17026,14 @@ class PlayersListDialog extends Dialog {
 			}
 		}
 	}
-	setActiveGamemode(t) {
+	setActiveGamemode(t: any) {
 		this.configuredColumnTypes = R(t);
 		this.updateTableHeaders();
 		this.updatePlayersList();
 	}
 	updateTableHeaders() {
 		for (const [t, { colGroupEl, headerRowEl }] of this.teamEls.entries()) {
-			const s = n_1[t];
+			const s = n_1[t]!;
 			let n = 1;
 			const o = [];
 			const a = [];
@@ -17132,11 +17113,11 @@ class PlayersListDialog extends Dialog {
 		}
 		const e = Array.from(this.currentAvatarBlobUrlReferences);
 		this.currentAvatarBlobUrlReferences.clear();
-		const i = Array.from(this.playersList.values()).sort((t, e) => e.scoreTotal - t.scoreTotal);
-		for (const e of i) {
+		const i = Array.from(this.playersList.values() as any[]).sort((t: any, e: any) => e.scoreTotal - t.scoreTotal) as any[];
+		for (const e of i as any[]) {
 			const i = document.createElement("tr");
 			i.classList.add("playersListItem", "tableItem");
-			this.teamEls[e.teamId].tbody.appendChild(i);
+			this.teamEls[(e as any).teamId].tbody.appendChild(i);
 			for (const s of this.configuredColumnTypes) {
 				if (!U(e.teamId) && s != "avatar" && s != "playerName") {
 					continue;
@@ -17202,7 +17183,7 @@ class PlayersListDialog extends Dialog {
 						const t = document.createElement("span");
 						t.textContent = i;
 						t.classList.add("players-list-label");
-						t.style.background = n_1[e.teamId].cssColor;
+						t.style.background = n_1[(e as any).teamId]!.cssColor;
 						n.appendChild(t);
 					}
 				}
@@ -17212,7 +17193,7 @@ class PlayersListDialog extends Dialog {
 		for (const t of this.teamEls) {
 			t.containerEl.style.display = t.tbody.childElementCount > 0 ? "" : "none";
 		}
-		for (const t of e) {
+		for (const t of e as any[]) {
 			t.destructor();
 		}
 	}
@@ -17220,12 +17201,12 @@ class PlayersListDialog extends Dialog {
 		this.updatePlayersList();
 		this.scoresFrozen = true;
 	}
-	setGameEndState(t) {
+	setGameEndState(t: any) {
 		this.allowCurtainClose = false;
 		if (t == null) {
 			return;
 		}
-		const e = n_1[t];
+		const e = n_1[t]!;
 		this.teamWonTitle.textContent = `Team ${e.id} won!`;
 		this.teamWonTitle.style.display = "";
 		this.teamWonTitle.style.color = e.cssColor;
@@ -21124,7 +21105,7 @@ class OnlineGame {
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
-	onGameIsVisible(t: boolean) {
+	onGameIsVisible(t: () => void) {
 		this.onGameIsVisibleCbs.add(t);
 	}
 	onUsedForCamShotsOnlyChange(t: any) {
@@ -21884,9 +21865,9 @@ if (navigator.userAgent.includes("AppleWebKit/605.1.15") && !getURLSearchParams(
 	Ps = false;
 }
 let xs = false;
-let Ms: { active?: boolean } | null = null;
+let Ms: ServiceWorkerRegistration | null = null;
 const As = new Set();
-let Is;
+let Is: any;
 let Ls = false;
 function Ts() {
 	Ls = true;
@@ -21925,14 +21906,14 @@ function Rs() {
 	}
 }
 class MainMenu {
-	el = document.getElementById("mainMenu");
-	loadingImageContainer;
+	el = document.getElementById("mainMenu")!;
+	loadingImageContainer: HTMLElement;
 	currentJoinState;
 	loadScreenHidden;
 	toggledVisibilityState;
 	toggleMenuButton;
 	visible;
-	onVisibilityChangeCbs;
+	onVisibilityChangeCbs = new Set<any>();
 	contentVisible;
 	userProfileDialog: ProfileDialog | null;
 	cornerProfile;
@@ -21953,14 +21934,15 @@ class MainMenu {
 	installPromptAccepted;
 	updateButton;
 	exitButton;
+	closeGameButton: MainMenuButton | null = null;
 	promoBanner: PromoBanner | null;
 	currentMusicSfx: SFXSound | null;
-	hideUi;
+	hideUi: any;
 	constructor(public gameWrapper: HTMLElement) {
 		if (!this.el) {
 			throw new Error("Main menu element not found");
 		}
-		this.loadingImageContainer = document.getElementById("loadingImageContainer");
+		this.loadingImageContainer = document.getElementById("loadingImageContainer")!;
 		if (!this.loadingImageContainer) {
 			throw new Error("Loading image container element not found");
 		}
@@ -21983,7 +21965,7 @@ class MainMenu {
 			},
 		});
 		this.toggleMenuButton.visible = false;
-		builtAt.appendChild(this.toggleMenuButton.el);
+		(builtAt as any).appendChild(this.toggleMenuButton.el);
 		this.visible = true;
 		this.onVisibilityChangeCbs = new Set();
 		this.contentVisible = false;
@@ -21992,7 +21974,7 @@ class MainMenu {
 		this.el.appendChild(e);
 		this.userProfileDialog = null;
 		this.cornerProfile = new CornerProfile();
-		this.cornerProfile.onClick((t) => {
+		this.cornerProfile.onClick((t: any) => {
 			this.openUserProfileDialog({
 				showExtraStats: t.altKey,
 			});
@@ -22018,7 +22000,7 @@ class MainMenu {
 			testLabel: "settings",
 			onClick: () => {
 				const e = getMain();
-				this.settingsDialog = new SettingsDialog(builtAt, e.settingsManager, e.dialogManager);
+				this.settingsDialog = new SettingsDialog(builtAt as any, e.settingsManager, e.dialogManager);
 				getMain().dialogManager.addDialog(this.settingsDialog);
 			},
 		});
@@ -22236,7 +22218,7 @@ class MainMenu {
 			this.updateFullScreenButtonVisibility();
 		});
 		this.updateFullScreenButtonVisibility();
-		t.input.onPointerLockChange((t, e) => {
+		t.input.onPointerLockChange((t: any, e: any) => {
 			if (!t && e) {
 				this.makeMainMenuVisibleFromUserGesture();
 			}
@@ -22331,7 +22313,7 @@ class MainMenu {
 				activeGame.updateUiVisible();
 			}
 		});
-		t.dialogManager.onCurtainVisibilityChange((t) => {
+		t.dialogManager.onCurtainVisibilityChange((t: any) => {
 			this.el.inert = t;
 		});
 		setTimeout(() => {
@@ -22372,7 +22354,7 @@ class MainMenu {
 			this.loadScreenHidden = true;
 		}
 	}
-	setJoinState(t) {
+	setJoinState(t: any) {
 		this.currentJoinState = t;
 		getMain().mainInfoTextManager.updateText();
 		this.updateVisibility();
@@ -22484,10 +22466,10 @@ class MainMenu {
 			(t.input.touch.touchSupported || !t.input.desiredPointerLockedState) &&
 			!(t.gameManager.activeGame && t.gameManager.activeGame.gameEnded);
 	}
-	onVisibilityChange(t) {
+	onVisibilityChange(t: any) {
 		this.onVisibilityChangeCbs.add(t);
 	}
-	removeOnVisibilityChange(t) {
+	removeOnVisibilityChange(t: any) {
 		this.onVisibilityChangeCbs.delete(t);
 	}
 	get shouldPlayMusic() {
@@ -22520,7 +22502,7 @@ class MainMenu {
 		}
 		return this.shopDialog;
 	}
-	openUserProfileDialog(t) {
+	openUserProfileDialog(t: any) {
 		if (!this.userProfileDialog) {
 			this.userProfileDialog = new ProfileDialog(this.gameWrapper, t);
 			getMain().dialogManager.addDialog(this.userProfileDialog);
@@ -22744,7 +22726,6 @@ class AlertDialog extends Dialog {
 	}
 }
 class DialogManager {
-	gameWrapper: HTMLElement;
 	curtainEl = document.createElement("div");
 	_curtainElVisible;
 	onCurtainVisibilityChangeCbs;
@@ -22915,7 +22896,7 @@ class DialogManager {
 	onCurtainZIndexChange(t) {
 		this.onCurtainZIndexChangeCbs.add(t);
 	}
-	onCurtainVisibilityChange(t) {
+	onCurtainVisibilityChange(t: any) {
 		this.onCurtainVisibilityChangeCbs.add(t);
 	}
 	removeOnCurtainVisibilityChange(t) {
@@ -24181,7 +24162,7 @@ const Zs = getURLSearchParams();
 const tn = Boolean(Zs.debugBa);
 let en = null;
 let sn = false;
-let nn = null;
+let nn: any = null;
 function on(t) {
 	if (sn) {
 		return;
@@ -24497,7 +24478,7 @@ class OfflineGame {
 	crosshair;
 	destructed = false;
 	receivedColliders = false;
-	scene = null;
+	scene: Object3D | null = null;
 	gameIsVisible = false;
 	onGameIsVisibleCbs = new Set();
 	onSdkGameplayStartedChangeCbs = new Set();
@@ -24628,7 +24609,7 @@ class OfflineGame {
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
-	onGameIsVisible(t: boolean) {
+	onGameIsVisible(t: () => void) {
 		this.onGameIsVisibleCbs.add(t);
 	}
 	updateUiVisible() {
@@ -24641,9 +24622,8 @@ class OfflineGame {
 }
 type Game = OfflineGame | OnlineGame;
 export class GameManager {
-	gameWrapper: HTMLElement;
 	activeGame: Game | null = null;
-	loadingBackgroundGame = null;
+	loadingBackgroundGame: any = null;
 	joinedOnce = false;
 	isInGamesLoop = false;
 	onIsInGamesLoopChangeCbs = new Set();
@@ -24651,13 +24631,13 @@ export class GameManager {
 	readyToJoin = false;
 	onReadyToJoinChangeCbs = new Set();
 	onGameEndCbs = new Set();
-	windSfx = null;
-	waterSfx = null;
-	birdsSfx = null;
-	jungleSfx = null;
-	rainSfx = null;
-	insectsSfx = null;
-	constructor(public gameWrapper) {}
+	windSfx: any = null;
+	waterSfx: any = null;
+	birdsSfx: any = null;
+	jungleSfx: any = null;
+	rainSfx: any = null;
+	insectsSfx: any = null;
+	constructor(public gameWrapper: any) {}
 	async init() {
 		this.loadWindSfx();
 		this.loadWaterSfx();
@@ -24687,7 +24667,7 @@ export class GameManager {
 	async loadInsectsSfx() {
 		this.insectsSfx = await getMain().sfx.playSound("ambient/insects");
 	}
-	setAmbientVolumes(t, e, i, s, n, o) {
+	setAmbientVolumes(t: any, e: any, i: any, s: any, n: any, o: any) {
 		if (this.waterSfx) {
 			this.waterSfx.setVolume(e);
 		}
@@ -24715,20 +24695,20 @@ export class GameManager {
 	}
 	fireCurrentGameChangeCbs() {
 		if (this.activeGame) {
-			this.activeGame.onGameIsVisible(() => {
+			this.activeGame.onGameIsVisible((_visible: any) => {
 				this.updateSdkGameplayStarted();
 			});
 		}
 		this.updateSdkGameplayStarted();
 		this.onActiveGameChangeCbs.forEach((t) => t(this.activeGame));
 	}
-	onIsInGamesLoopChange(t) {
+	onIsInGamesLoopChange(t: any) {
 		this.onIsInGamesLoopChangeCbs.add(t);
 	}
-	setIsInGamesLoop(t) {
+	setIsInGamesLoop(t: any) {
 		if (this.isInGamesLoop != t) {
 			this.isInGamesLoop = t;
-			this.onIsInGamesLoopChangeCbs.forEach((e) => e(t));
+			this.onIsInGamesLoopChangeCbs.forEach((e: any) => e(t));
 		}
 	}
 	loop(now: number, dt: number) {
@@ -24754,7 +24734,7 @@ export class GameManager {
 			}
 		}
 	}
-	async prepareMatchMaking(t) {
+	async prepareMatchMaking(t: any) {
 		if (
 			(!t || getMain().network.matchMaking.isInUnreadyQueue) &&
 			getMain().network.shouldUseMatchMaking
@@ -24782,10 +24762,9 @@ export class GameManager {
 		this.activeGame = t;
 		this.fireCurrentGameChangeCbs();
 	}
-	joinedGameId(t) {
+	joinedGameId(t: any) {
 		if (this.activeGame instanceof OnlineGame && !this.activeGame.gameEnded) {
-			this.destroyCurrentGame();
-		}
+	}
 		const e = new OnlineGame(this.gameWrapper);
 		if (this.activeGame) {
 			if (this.loadingBackgroundGame) {
@@ -24975,13 +24954,13 @@ export class GameManager {
 			t.poki.gameplayStop();
 		}
 	}
-	onReadyToJoinChange(t) {
+	onReadyToJoinChange(t: any) {
 		this.onReadyToJoinChangeCbs.add(t);
 	}
-	removeOnReadyToJoinChange(t) {
+	removeOnReadyToJoinChange(t: any) {
 		this.onReadyToJoinChangeCbs.delete(t);
 	}
-	setReadyToJoin(t) {
+	setReadyToJoin(t: any) {
 		this.readyToJoin = t;
 		this.onReadyToJoinChangeCbs.forEach((e) => e(t));
 	}
@@ -25550,8 +25529,8 @@ class RenderView {
 	width;
 	height;
 	onNextFrameRenderCbs = new Set<() => void>();
-	scene = null;
-	cam = null;
+	scene: Scene | null = null;
+	cam: PerspectiveCamera | null = null;
 	constructor({ width = 100, height = 100 } = {}) {
 		this.ctx = this.canvas.getContext("2d");
 		this.width = width;
@@ -26771,12 +26750,12 @@ class SoundFX {
 		}
 		return null;
 	}
-	setMutedSettings(t) {
-		this.settingsMuted = t;
+	setMutedSettings(muted: boolean) {
+		this.settingsMuted = muted;
 		this.updateMuted();
 	}
-	setMutedAds(t) {
-		this.adsMuted = t;
+	setMutedAds(muted: boolean) {
+		this.adsMuted = muted;
 		this.updateMuted();
 	}
 	updateMuted() {
@@ -26785,20 +26764,19 @@ class SoundFX {
 			this.createdSfx[t].setMuted(this.muted, this.adsMuted);
 		}
 	}
-	sfxDestructed(t) {
-		const e = this.createdSfx.indexOf(t);
-		if (e >= 0) {
-			this.createdSfx.splice(e, 1);
+	sfxDestructed(sfx: SFXSound) {
+		const idx = this.createdSfx.indexOf(sfx);
+		if (idx >= 0) {
+			this.createdSfx.splice(idx, 1);
 		}
 	}
 }
 class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unknown[], const R> {
 	once: boolean;
-	promiseFn: F;
 	_queue: {
 		resolve(): void;
 		args: Args;
-	} = [];
+	}[] = [];
 	_isEmptyingQueue = false;
 	hasRun = false;
 	_onceReturnValue: R | undefined = undefined;
@@ -26857,14 +26835,14 @@ class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unkn
 		if (this.hasRun) {
 			return;
 		}
-		const promise = new Promise((resolve) => this._onFinishCbs.add(resolve));
+		const promise = new Promise<void>((resolve) => this._onFinishCbs.add(resolve));
 		await promise;
 	}
 	async waitForFinishIfRunning() {
 		if (!this._isEmptyingQueue) {
 			return;
 		}
-		const promise = new Promise((resolve) => this._onFinishCbs.add(resolve));
+		const promise = new Promise<void>((resolve) => this._onFinishCbs.add(resolve));
 		await promise;
 	}
 }
@@ -30841,6 +30819,21 @@ export interface UsernameData {
 	verified?: boolean;
 	[key: string]: unknown;
 }
+interface ProfileStateData {
+    username: string | null;
+    isGuest: boolean;
+    stats: Record<string, number>;
+    maxLinkedAccountsReached: boolean;
+    protected: boolean;
+    canUnlinkAllAccounts: boolean;
+    canBeDeleted: boolean;
+    linkedAccounts: LinkedAccount[];
+    dbId: string | null;
+    usernameData: UsernameData | null;
+    peliAccountEmail: null;
+    isPeliSession: boolean;
+    canUnlinkPeliAccount: boolean;
+}
 class ProfileState extends State {
 	override cachedStateIndexDbKey = "cachedProfileState";
 	override getStateUrl = "profile/getProfile";
@@ -30850,16 +30843,16 @@ class ProfileState extends State {
 	protected = false;
 	canUnlinkAllAccounts = true;
 	canBeDeleted = false;
-	dbId = null;
+	dbId: string | null = null;
 	usernameData: UsernameData | null = null;
-	peliAccountEmail = null;
+	peliAccountEmail: string | null = null;
 	isPeliSession = false;
 	canUnlinkPeliAccount = false;
 	linkedAccounts: LinkedAccount[] = [];
-	constructor(...t: unknown[]) {
-		super(...(t as any[]));
+	constructor(...t: [authManager: AuthManager, db: IndexedDB]) {
+		super(...t);
 	}
-	override getCurrentState() {
+	override getCurrentState(): ProfileStateData {
 		return {
 			username: this.usernameData ? this.usernameData.username : null,
 			isGuest: this.isGuest,
@@ -30876,7 +30869,7 @@ class ProfileState extends State {
 			canUnlinkPeliAccount: this.canUnlinkPeliAccount,
 		};
 	}
-	override loadStateData(t: { ownedCoins: number; purchasedItems: number[] } | null): void {
+	override loadStateData(t: ProfileStateData): void {
 		if (t) {
 			this.isGuest = t.isGuest;
 			this.stats = t.stats || {};
@@ -30967,13 +30960,13 @@ class ShopState extends State {
 	constructor(...t: unknown[]) {
 		super(...(t as any));
 	}
-	override getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
+	override getCurrentState(): any {
 		return {
 			ownedCoins: this.ownedCoins,
 			purchasedItems: Array.from(this.purchasedItems),
 		};
 	}
-	override loadStateData(t: { ownedCoins: number; purchasedItems: number[] } | null): void {
+	override loadStateData(t: any): void {
 		if (t) {
 			this.ownedCoins = t.ownedCoins;
 			this.purchasedItems = new Set(t.purchasedItems);
@@ -31466,23 +31459,23 @@ class QuantcastManager {
 	init(idk: boolean) {
 		if (idk && !getMain().poki.isPokiBuild && !isSteam()) {
 			try {
-				!(() => {
+				(() => {
 					const t = document.createElement("script");
-					const e = document.getElementsByTagName("script")[0];
+					const e = document.getElementsByTagName("script")[0]!;
 					const i = `https://cmp.inmobi.com/choice/A-YH9MP3vgq7x/narrow.one/choice.js?tag_version=V3`;
 					let s = 0;
 					t.async = true;
 					t.type = "text/javascript";
 					t.src = i;
-					e.parentNode.insertBefore(t, e);
+					e.parentNode!.insertBefore(t, e);
 					(() => {
 						const t = "__tcfapiLocator";
-						const e = [];
-						let i;
-						let s = window;
+						const e: any[] = [];
+						let i: any;
+						let s: any = window;
 						while (s) {
 							try {
-								if (s.frames.__tcfapiLocator) {
+								if ((s as any).frames.__tcfapiLocator) {
 									i = s;
 									break;
 								}
@@ -31490,12 +31483,12 @@ class QuantcastManager {
 							if (s === window.top) {
 								break;
 							}
-							s = s.parent;
+							s = (s as any).parent;
 						}
 						if (!i) {
 							(function e() {
 								const s_document = s.document;
-								const n = !!s.frames.__tcfapiLocator;
+								const n = !!(s as any).frames.__tcfapiLocator;
 								if (!n) {
 									if (s_document.body) {
 										const e = s_document.createElement("iframe");
@@ -31508,7 +31501,7 @@ class QuantcastManager {
 								}
 								return !n;
 							})();
-							s.__tcfapi = function () {
+							(s as any).__tcfapi = function () {
 								let gdprApplies;
 								const i = arguments;
 								if (!i.length) {
@@ -31539,21 +31532,21 @@ class QuantcastManager {
 									e.push(i);
 								}
 							};
-							s.addEventListener(
+							(s as any).addEventListener(
 								"message",
-								(t) => {
+								(t: any) => {
 									const e = typeof t.data === "string";
-									let i = {};
+									let i: any = {};
 									try {
 										i = e ? JSON.parse(t.data) : t.data;
 									} catch (t) {}
 									const i___tcfapiCall = i.__tcfapiCall;
 									if (i___tcfapiCall) {
-										window.__tcfapi(
+										(window as any).__tcfapi(
 											i___tcfapiCall.command,
 											i___tcfapiCall.version,
-											(returnValue, success) => {
-												let o = {
+											(returnValue: any, success: any) => {
+												let o: any = {
 													__tcfapiReturn: {
 														returnValue,
 														success,
@@ -31563,8 +31556,8 @@ class QuantcastManager {
 												if (e) {
 													o = JSON.stringify(o);
 												}
-												if (t && t.source && t.source.postMessage) {
-													t.source.postMessage(o, "*");
+												if ((t as any).source && ((t as any).source as any).postMessage) {
+													((t as any).source as any).postMessage(o, "*");
 												}
 											},
 											i___tcfapiCall.parameter,
@@ -31577,24 +31570,24 @@ class QuantcastManager {
 					})();
 					const n = function () {
 						const t = arguments;
-						if (typeof window.__uspapi !== n) {
+						if ((typeof (window as any).__uspapi as any) !== (n as any)) {
 							setTimeout(() => {
-								if (window.__uspapi !== undefined) {
-									window.__uspapi.apply(window.__uspapi, t);
+								if ((window as any).__uspapi !== undefined) {
+									(window as any).__uspapi.apply((window as any).__uspapi, t);
 								}
 							}, 500);
 						}
 					};
 					const o = () => {
 						s++;
-						if (window.__uspapi === n && s < 3) {
+						if ((window as any).__uspapi === n && s < 3) {
 							console.warn("USP is not accessible");
 						} else {
 							clearInterval(a);
 						}
 					};
-					if (window.__uspapi === undefined) {
-						window.__uspapi = n;
+					if ((window as any).__uspapi === undefined) {
+						(window as any).__uspapi = n;
 						var a = setInterval(o, 6000);
 					}
 				})();
@@ -31743,10 +31736,10 @@ class AvatarsManager {
 			clipPathType,
 			skeletonPoseLayers,
 		} = this.fillConfigDefaults(config);
-		const d = new PlayerSkeleton({
+		const skeleton = new PlayerSkeleton({
 			gender: skinObjectOpts.skin.gender || "male",
 		});
-		d.init();
+		skeleton.init();
 		const c = new SkinModel({
 			skinObjectOpts,
 			useWorldWeather: false,
@@ -31760,10 +31753,10 @@ class AvatarsManager {
 			await u.waitForLoad();
 		}
 		await c.waitForInit();
-		await d.waitForLoad();
+		await skeleton.waitForLoad();
 		const p = [];
 		for (const t of skeletonPoseLayers) {
-			const e = d.addPoseLayer(t);
+			const e = skeleton.addPoseLayer(t);
 			p.push(
 				(async () => {
 					await e.waitForObjectLinks();
@@ -31771,9 +31764,9 @@ class AvatarsManager {
 			);
 		}
 		await Promise.all(p);
-		d.applyLayers();
-		d.updateMatrices();
-		c.applySkeleton(d);
+		skeleton.applyLayers();
+		skeleton.updateMatrices();
+		c.applySkeleton(skeleton);
 		const g = new Scene();
 		g.name = "Avatar scene";
 		if (!c.obj) {
@@ -31781,10 +31774,10 @@ class AvatarsManager {
 		}
 		g.add(c.obj);
 		if (u) {
-			if (!d.baseSkeletonObject) {
+			if (!skeleton.baseSkeletonObject) {
 				throw new Error("Assertion failed, skeleton is not initialized");
 			}
-			const t = d.baseSkeletonObject.getObjectByName("bowHoldingPos");
+			const t = skeleton.baseSkeletonObject.getObjectByName("bowHoldingPos");
 			if (!t) {
 				throw new Error("Assertion failed, bowHoldingPos is not found");
 			}
@@ -31907,8 +31900,8 @@ class ClassImageReference {
 	classSelectionImageManager;
 	_needsUpdates = false;
 	lastBlobUrl = null;
-	blobUrlChangeCbs = new Set();
-	onNeedsUpdatesChangeCbs = new Set();
+	blobUrlChangeCbs = new Set<(url: string) => void>();
+	onNeedsUpdatesChangeCbs = new Set<() => void>();
 	constructor(t, e) {
 		this.classId = t;
 		this.classSelectionImageManager = e;
@@ -31926,15 +31919,15 @@ class ClassImageReference {
 	onNeedsUpdatesChange(t) {
 		this.onNeedsUpdatesChangeCbs.add(t);
 	}
-	onBlobUrlChange(t, e = true) {
-		this.blobUrlChangeCbs.add(t);
+	onBlobUrlChange(cb: (url: string) => void, e = true) {
+		this.blobUrlChangeCbs.add(cb);
 		if (e && this.lastBlobUrl) {
-			t(this.lastBlobUrl);
+			cb(this.lastBlobUrl);
 		}
 	}
-	fireUrlChangeCbs(t) {
-		this.lastBlobUrl = t;
-		this.blobUrlChangeCbs.forEach((e) => e(t));
+	fireUrlChangeCbs(blobUrl: string) {
+		this.lastBlobUrl = blobUrl;
+		this.blobUrlChangeCbs.forEach((cb) => cb(blobUrl));
 	}
 }
 class ClassSelectionImageManager {
@@ -32050,8 +32043,14 @@ class ClassSelectionImageManager {
 		this.getOrCreateBlobUrlData(t).updateReferences.delete(e);
 	}
 }
+interface InfoTextOptions {
+    startLoading?: boolean | undefined;
+    showPercentage?: boolean | undefined;
+    shouldBounce?: boolean | undefined;
+    showInMainMenu?: boolean | undefined;
+    priority?: number | undefined;
+}
 class InfoText {
-	text;
 	showPercentage;
 	shouldBounce;
 	showInMainMenu;
@@ -32060,16 +32059,15 @@ class InfoText {
 	isLoading;
 	onStateChangeCbs = new Set();
 	constructor(
-		t,
+		public text: string,
 		{
 			startLoading = false,
 			showPercentage = false,
 			shouldBounce = true,
 			showInMainMenu = true,
 			priority = 0,
-		} = {},
+		}: InfoTextOptions = {},
 	) {
-		this.text = t;
 		this.showPercentage = showPercentage;
 		this.shouldBounce = shouldBounce;
 		this.showInMainMenu = showInMainMenu;
@@ -32108,22 +32106,21 @@ class InfoText {
 }
 class MainInfoTextManager {
 	infoTextEl = document.getElementById("mainInfoText");
-	loadingTexts;
+	loadingTexts = new Set<InfoText>();
 	constructor() {
 		if (!this.infoTextEl) {
 			throw new Error("Main info text element not found");
 		}
-		this.loadingTexts = new Set();
 	}
 	init() {
 		getMain().mainMenu.onVisibilityChange(() => {
 			this.updateText();
 		});
-		bi((t) => {
+		bi(() => {
 			this.updateText();
 		});
 	}
-	requestInfoText(...params) {
+	requestInfoText(...params: [text: string, opts?: InfoTextOptions]) {
 		const info = new InfoText(...params);
 		this.loadingTexts.add(info);
 		info.onStateChange(() => {
@@ -32577,6 +32574,7 @@ export interface PeliSdk {
 	session: PeliSession;
 }
 export class Main {
+	thirdPartyEnabled = false;
 	peliSdkPromise: Promise<PeliSdk | null> = (async () => {
 		let t;
 		try {
@@ -32608,7 +32606,7 @@ export class Main {
 		return t;
 	})();
 	peliSdk: PeliSdk | null = null;
-	gameWrapper = document.getElementById("gameWrapper");
+	gameWrapper = document.getElementById("gameWrapper")!;
 	scene = new Scene();
 	indexedDb = new IndexedDB();
 	settingsManager = new SettingsManager(this.indexedDb);
@@ -32647,6 +32645,7 @@ export class Main {
 	prevNow = 0;
 	now = 0;
 	dt = 0;
+	dt16 = 0;
 	smoothDt = 0;
 	useFakeNow = false;
 	fakeNow = 0;
@@ -32695,7 +32694,7 @@ export class Main {
 				new URL("narrowCssWorklet-DYPaIRD6.js", import.meta.url).href,
 				import.meta.url,
 			);
-			CSS.paintWorklet.addModule(t.href);
+			(CSS as any).paintWorklet.addModule(t.href);
 		}
 		this.settingsManager.onValueChange("uiScale", (t) => {
 			document.body.style.zoom = String(t);
@@ -32734,7 +32733,7 @@ export class Main {
 			if (getMain().poki.isPokiBuild) {
 				return;
 			}
-			if (navigator.standalone) {
+			if ((navigator as any).standalone) {
 				return;
 			}
 			if (window.parent != window) {
@@ -32748,7 +32747,7 @@ export class Main {
 			}
 		})();
 		(() => {
-			if (navigator.standalone) {
+			if ((navigator as any).standalone) {
 				return;
 			}
 			if (window.parent != window) {
@@ -32771,7 +32770,7 @@ export class Main {
 					e = false;
 				}
 				const o = getMain().settingsManager.getValue("requireAddressBarHide");
-				const a = !n && !e && o;
+				const a: any = !n && !e && o;
 				if (a != fi) {
 					fi = a;
 					if (fi) {
@@ -32781,7 +32780,7 @@ export class Main {
 						}, 300);
 					}
 					document.body.classList.toggle("scrollable", a);
-					wi.forEach((t) => t(fi));
+					wi.forEach((t: any) => t(fi));
 				}
 			}
 			n();
@@ -32839,7 +32838,7 @@ export class Main {
 					});
 				}
 			});
-			if (Ms.waiting) {
+			if (Ms!.waiting) {
 				Ts();
 			}
 			navigator.serviceWorker.addEventListener("controllerchange", () => {
@@ -32929,11 +32928,11 @@ export class Main {
 		this.sfx.loop(now, dt);
 	}
 }
-globalThis.VERSION_TIMESTAMP = "000";
-globalThis.DEBUG = true;
-globalThis.ROLLUP_BUILD = false;
-globalThis.PUBLISHER_BUILD = "none";
-let main: Main = null;
+(globalThis as any).VERSION_TIMESTAMP = "000";
+(globalThis as any).DEBUG = true;
+(globalThis as any).ROLLUP_BUILD = false;
+(globalThis as any).PUBLISHER_BUILD = "none";
+let main: Main | null = null;
 function getMain() {
 	if (!main) {
 		throw new Error("Main instance is not initialized");
@@ -33071,3 +33070,5 @@ if (window.Intl && Intl.RelativeTimeFormat) {
 console.log(`loading v1790709288${builtAt}`);
 main = new Main();
 main.init();
+
+type TouchControlArea = TouchControl;

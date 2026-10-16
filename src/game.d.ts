@@ -108,11 +108,7 @@ declare class CurrencyContainer {
     });
     setAmount(amount: number): void;
     /**
-
-
      * @param text converted into a string via `String(text)`
-
-
      */
     _setAmountText(text: number): void;
     get amount(): number;
@@ -201,7 +197,7 @@ declare class Dialog {
     addOnInertChangeCb(cb: (inert: boolean) => void): void;
     addOnCloseCb(cb: () => void): void;
     buttonsContainer?: HTMLDivElement;
-    addButtonsContainer({ vertical, parent }?: {
+    addButtonsContainer({ vertical, parent, }?: {
         vertical?: boolean;
         parent?: HTMLElement;
     }): void;
@@ -266,7 +262,7 @@ declare class SettingsDialog extends Dialog {
     boundUpdateAccountButtons: () => void;
     constructor(gameWrapper: HTMLElement, settingsManager: SettingsManager, dialogManager: DialogManager);
     destructor(): void;
-    createLinkedAccountEl({ email, issuer, unlinkButtonOptions }: {
+    createLinkedAccountEl({ email, issuer, unlinkButtonOptions, }: {
         email: string;
         issuer: string;
         unlinkButtonOptions?: string | (() => Promise<boolean>) | null;
@@ -351,15 +347,15 @@ declare class AssetsManager {
     getPackageAsync(name: string): Promise<AssetPackage>;
     onWorkerMessage(k: unknown, cb: () => void, endOnly?: boolean): void;
     onWorkerError(t: unknown, cb: () => void): void;
-    static deserializeThreeObject(t: any): Object3D | null;
-    static deserializeThreeObjectRecursive(t: any, e: any): Object3D;
+    static deserializeThreeObject(t: any): Mesh | Object3D | null;
+    static deserializeThreeObjectRecursive(t: any, e: any): Mesh | Object3D;
     loadGlbViaWorker(t: unknown, { packageName, teamId, keepCustomProperties, merge, signal, }?: {
         keepCustomProperties?: never[] | undefined;
         merge?: boolean | undefined;
         packageName?: string | undefined;
         signal?: AbortSignal | null | undefined;
         teamId?: number | undefined;
-    }): Promise<Object3D | null>;
+    }): Promise<Mesh<BufferGeometry, Material[] | Material> | Object3D | null>;
 }
 export interface SkinColorMultiplier extends Array<number> {
     0: number;
@@ -491,12 +487,16 @@ declare class SkinsManager {
             joints: string[];
         }[];
     };
-    skinNetworkDataToBowAssetData(t: any, e: any): {
+    skinNetworkDataToBowAssetData(targetBowID: string, opts: {
+        equippedSkinIds?: string[];
+    }): {
         skins: unknown[];
-        arrowSkin: string | undefined;
+        arrowSkin: string;
     };
     skinNetworkDataToMeleeSkinConfig(skinData: SkinData): MeleeSkinConfig | null;
-    skinNetworkDataToArrowSkinConfig(t: any): string | undefined;
+    skinNetworkDataToArrowSkinConfig(config: {
+        equippedSkinIds?: string[];
+    }): string;
     getSkinFromShopItem(shopItem: ShopItemConfig, gender: PlayerGender): ShopSkinSide | null;
     getConfigForPreviewShopItemId(skinData: SkinData, { itemId, colorCategory, colorMultiplier }: PreviewShopItemConfig): {
         gender: PlayerGender | undefined;
@@ -697,76 +697,80 @@ declare class GameMaterials {
     }): ShaderMaterial;
 }
 declare class SkinModel {
-    skinObjectOpts: any;
+    skinObjectOpts: SkinObjectOpts;
     isInit: boolean;
     destructed: boolean;
-    obj: null;
-    materials: never[];
+    obj: Object3D | null;
+    materials: Material[];
     lastSetMatrices: null;
     onInitCbs: Set<unknown>;
     getSkinAbortController: AbortController;
     useWorldWeather: boolean;
     initCalled: boolean;
     constructor({ skinObjectOpts, init, useWorldWeather }: {
-        init?: boolean | undefined;
-        skinObjectOpts: any;
-        useWorldWeather?: boolean | undefined;
+        skinObjectOpts: SkinObjectOpts;
+        init?: boolean;
+        useWorldWeather?: boolean;
     });
     destructor(): void;
     init(): Promise<void>;
     waitForInit(): Promise<void>;
-    applySkeleton(t: any): void;
-    setHitFlashMaterialsTime(t: any): void;
-    setHitFlashMaterialsValue(t: any, e: any, i: any): void;
+    applySkeleton(skeleton: PlayerSkeleton): void;
+    setHitFlashMaterialsTime(time: number): void;
+    setHitFlashMaterialsValue(index: number, flashTime: number, flashPosition: Vector3): void;
     computeApproximateBoundingSphere(): Sphere;
 }
 declare class PurchaseConfirmDialog extends Dialog {
-    onPurchaseSuccessCbs: Set<unknown>;
+    onPurchaseSuccessCbs: Set<() => void>;
     shopItem: ShopItem;
     purchaseButton: CustomButton;
-    constructor(t: any, e: any, { renderOptions }: {
-        renderOptions: any;
+    constructor(gameWrapper: HTMLElement, config: ShopItemConfig, { renderOptions }: {
+        renderOptions: ShopItemRenderOptions;
     });
     destructor(): void;
-    setButtonEnabled(t: any): void;
+    setButtonEnabled(enabled: boolean): void;
     purchaseButtonClick(): Promise<void>;
-    onPurchaseSuccess(t: any): void;
+    onPurchaseSuccess(cb: () => void): void;
 }
 declare class SingleAssetLoader {
     obj: Object3D;
     label: string;
     useWorldWeather: boolean;
-    currentlyLoadingAbortController: any;
+    currentlyLoadingAbortController: AbortController | null;
     currentAssetName: string;
-    currentMeleeAsset: any;
-    onFirstAssetLoadCbs: Set<unknown>;
-    onNewAssetLoadedCbs: Set<unknown>;
-    currentlyLoadedMaterials: any[];
+    currentMeleeAsset: Object3D | null;
+    onFirstAssetLoadCbs: Set<() => void>;
+    onNewAssetLoadedCbs: Set<() => void>;
+    currentlyLoadedMaterials: never[];
     constructor({ useWorldWeather, label }?: {
         label?: string | undefined;
         useWorldWeather?: boolean | undefined;
     });
     destructor(): void;
-    setConfig(t: any): Promise<void>;
+    setConfig(config: {
+        skinAssetName?: string | null;
+        fallbackSkinAssetName?: string | null;
+        [k: string]: unknonw;
+    }): Promise<void>;
     destroyMaterials(): void;
     destroyBowMeshes(): void;
     waitForLoad(): Promise<void>;
     get isLoadingAsset(): boolean;
-    onNewAssetLoaded(t: any): void;
+    onNewAssetLoaded(cb: () => void): void;
 }
 declare class BowAssetLoader {
     obj: Object3D;
     useWorldWeather: boolean;
     lastFireAmount01: number;
     lastVisibleCount: number;
-    currentBowAsset: any;
-    onFirstAssetLoadCbs: Set<unknown>;
-    onAssetChangeCbs: Set<unknown>;
-    currentlyLoadingAbortController: any;
-    currentlyLoadedMaterials: any[];
-    currentArrowObjs: any[];
-    currentArrowOffsets: any[];
-    onArrowDestroyCallbacks: Set<unknown>;
+    currentBowAsset: Object3D | null;
+    onFirstAssetLoadCbs: Set<() => void>;
+    onAssetChangeCbs: Set<(bow: Mesh) => void>;
+    currentlyLoadingAbortController: AbortController | null;
+    currentlyLoadedMaterials: Material[];
+    currentArrowObjs: Object3D[];
+    currentArrowOffsets: Vector2[];
+    onArrowDestroyCallbacks: Set<() => void>;
     arrowAssetLoader: SingleAssetLoader;
     arrowObjectsConfig: {
         arrowCount: number;
@@ -778,17 +782,24 @@ declare class BowAssetLoader {
         useWorldWeather?: boolean | undefined;
     });
     destructor(): void;
-    setConfig(t: any): Promise<void>;
+    setConfig(config: {
+        arrowSkin?: string | null;
+        bowId?: string;
+        arrowCount?: number;
+        skins?: unknown[];
+        teamColor?: string;
+        teamId?: number;
+    }): Promise<void>;
     rebuildArrowObjects(): void;
-    getClonedArrowObject(t: any): Object3D | null;
+    getClonedArrowObject(cb: () => void): Object3D | null;
     destroyMaterials(): void;
     destroyBowMeshes(): void;
     waitForLoad(): Promise<void>;
-    onAssetChange(t: any): void;
+    onAssetChange(cb: (bow: Mesh) => void): void;
     get isLoadingAsset(): boolean;
     get assetLoaded(): boolean;
     getLoadedArrowPointScale(): Vector3;
-    updateFireAmount(t: any, e: any): void;
+    updateFireAmount(fireAmount01: number, visibleCount: number): void;
     internalUpdateFireAmount(): void;
 }
 export interface StatClassConfig {
@@ -863,7 +874,7 @@ declare class ShopItem {
     elementVisible: boolean;
     skinObjectDirty: boolean;
     intersectionObserver: IntersectionObserver;
-    constructor(gameWrapper: HTMLElement, config: ShopItemConfig, { configIndex, usage, renderOptions, dialog, scrollingContainer }: ShopItemOptions);
+    constructor(gameWrapper: HTMLElement, config: ShopItemConfig, { configIndex, usage, renderOptions, dialog, scrollingContainer, }: ShopItemOptions);
     get id(): string;
     get requiresPeliEntitlements(): boolean | undefined;
     destructor(): void;
@@ -900,7 +911,7 @@ declare class ShopItemsGrid {
     addShopItem(config: ShopItemConfig, options: ShopItemOptions): void;
     closeCreatedConfirmPurchaseDialogs(): void;
     destructShopItems(): void;
-    loadShopItems(t: any, e: any): void;
+    loadShopItems(configs: ShopItemConfig[], opt: Omit<ShopItemOptions, "configIndex">): void;
     setRenderOptions(t: any): void;
     setSelectedItems(t: any): void;
     setSelectedItemState(t: any, e: any): void;
@@ -1055,18 +1066,18 @@ declare class ShopCustomizationView {
     destroyShopItemsGrid(scrollingContainer: HTMLElement): void;
 }
 declare class ClassSelectionImage {
+    classId: any;
     el: HTMLDivElement;
     backgroundEl: HTMLDivElement;
     imageEl: HTMLDivElement;
     seed: number;
-    classId: any;
     updateReference: ClassImageReference;
-    constructor(t: any, { extraClasses }?: {
+    constructor(classId: any, { extraClasses }?: {
         extraClasses?: never[] | undefined;
     });
     destructor(): void;
-    set needsUpdates(t: any);
-    setCssColor(t: any, e: any): void;
+    set needsUpdates(value: boolean);
+    setCssColor(color: string, borderColor: string): void;
 }
 declare class ClassSelectionItem {
     el: HTMLDivElement;
@@ -1340,7 +1351,7 @@ declare class HoldingHandler {
     firstPersonObjContainer: Object3D;
     linkedThirdPersonObject: Object3D | null;
     firstPersonConfig: FirstPersonConfig;
-    constructor(player: Player, { holdingObject, thirdPersonParentName, secondaryThirdPersonParentName, firstPersonConfig }: HoldingHandlerOptions);
+    constructor(player: Player, { holdingObject, thirdPersonParentName, secondaryThirdPersonParentName, firstPersonConfig, }: HoldingHandlerOptions);
     destructor(): void;
     updateRenderOverlayEnabled(): void;
     setUsePrimaryParent(usePrimary: boolean): void;
@@ -1523,9 +1534,9 @@ declare class HoldingHandlerManager {
     prevUsePrimaryPosition: boolean;
     usePrimaryPosition: boolean;
     holdingHandlerDown: boolean;
-    constructor(holdingHandler: HoldingHandler, { upConfig, downConfig, offscreenConfig, minDownVelocity }: WeaponHolderOptions["holdingHandlerManagerOptions"]);
+    constructor(holdingHandler: HoldingHandler, { upConfig, downConfig, offscreenConfig, minDownVelocity, }: WeaponHolderOptions["holdingHandlerManagerOptions"]);
     setUsePrimaryPosition(usePrimary: boolean): void;
-    loop(isUp: boolean, player: Player, { forceDown, forceConfig }?: {
+    loop(isUp: boolean, player: Player, { forceDown, forceConfig, }?: {
         forceDown?: boolean;
         forceConfig?: Partial<FirstPersonConfig> | null;
     }): void;
@@ -1879,7 +1890,7 @@ export declare class Player {
     equippingWeaponLayer: PoseLayer | null;
     deadForwardLayer: PoseLayer | null;
     deadBackwardLayer: PoseLayer | null;
-    constructor(game: OnlineGame | OfflineGame, inputManager: InputManager, sfxManager: SoundFX, physicsManager: PhysicsManager, settingsManager: SettingsManager, hudIconsManager: HudIcons, id: number, { teamId, needsPlayerModel, needsSkeleton, isDummyPlayer }?: Partial<PlayerParams>);
+    constructor(game: OnlineGame | OfflineGame, inputManager: InputManager, sfxManager: SoundFX, physicsManager: PhysicsManager, settingsManager: SettingsManager, hudIconsManager: HudIcons, id: number, { teamId, needsPlayerModel, needsSkeleton, isDummyPlayer, }?: Partial<PlayerParams>);
     init(): void;
     set health(t: number);
     get health(): number;
@@ -1933,7 +1944,7 @@ export declare class Player {
     setNamePlayerVerified(): void;
     setTeamId(teamId: number): void;
     setIsSameSquadPlayer(isSameSquad: boolean, squadPlayerId: number, isLeader: boolean): void;
-    setScores({ scores, elo }: {
+    setScores({ scores, elo, }: {
         scores: {
             flags: number;
             kills: number;
@@ -2347,20 +2358,14 @@ declare class PlayersListDialog extends Dialog {
     playersList: any;
     skinManager: any;
     teamWonTitle: HTMLHeadingElement;
-    teamsContainer: HTMLDivElement;
-    currentAvatarBlobUrlReferences: Set<unknown>;
-    configuredColumnTypes: any[];
-    teamEls: {
-        containerEl: HTMLDivElement;
-        tbody: HTMLTableSectionElement;
-        name: string;
-        colGroupEl: HTMLTableColElement;
-        headerRowEl: HTMLTableRowElement;
-    }[];
-    skipText: SkipText;
-    scoresFrozen: boolean;
-    playersListDirty: boolean;
-    boundOnResize: () => void;
+    teamsContainer: any;
+    currentAvatarBlobUrlReferences: any;
+    configuredColumnTypes: any;
+    teamEls: any;
+    skipText: any;
+    scoresFrozen: any;
+    playersListDirty: any;
+    boundOnResize: any;
     constructor(t: any, e: any, i: any, customOnCurtainClickCb: any);
     destructor(): void;
     onVisibilityChange(): void;
@@ -3112,7 +3117,7 @@ declare class OnlineGame {
     becameForegroundGame(): void;
     updateSceneVisibility(): void;
     updateGameIsVisible(): void;
-    onGameIsVisible(t: boolean): void;
+    onGameIsVisible(t: () => void): void;
     onUsedForCamShotsOnlyChange(t: any): void;
     updateUiVisible(): void;
     setUiVisible(t: boolean): void;
@@ -3186,14 +3191,14 @@ declare class MapsDialog extends Dialog {
 }
 declare class MainMenu {
     gameWrapper: HTMLElement;
-    el: HTMLElement | null;
+    el: HTMLElement;
     loadingImageContainer: HTMLElement;
     currentJoinState: string;
     loadScreenHidden: boolean;
     toggledVisibilityState: boolean;
     toggleMenuButton: CustomButton;
     visible: boolean;
-    onVisibilityChangeCbs: Set<unknown>;
+    onVisibilityChangeCbs: Set<any>;
     contentVisible: boolean;
     userProfileDialog: ProfileDialog | null;
     cornerProfile: CornerProfile;
@@ -3214,9 +3219,10 @@ declare class MainMenu {
     installPromptAccepted: boolean;
     updateButton: MainMenuButton;
     exitButton: MainMenuButton;
+    closeGameButton: MainMenuButton | null;
     promoBanner: PromoBanner | null;
     currentMusicSfx: SFXSound | null;
-    hideUi: boolean;
+    hideUi: any;
     constructor(gameWrapper: HTMLElement);
     init(): void;
     loop(now: number, dt: number): void;
@@ -3273,7 +3279,6 @@ declare class AlertDialog extends Dialog {
     waitForButton(): Promise<unknown>;
 }
 declare class DialogManager {
-    gameWrapper: HTMLElement;
     gameWrapper: HTMLElement;
     curtainEl: HTMLDivElement;
     _curtainElVisible: boolean;
@@ -3537,7 +3542,7 @@ declare class OfflineGame {
     crosshair: Crosshair;
     destructed: boolean;
     receivedColliders: boolean;
-    scene: null;
+    scene: Object3D | null;
     gameIsVisible: boolean;
     onGameIsVisibleCbs: Set<unknown>;
     onSdkGameplayStartedChangeCbs: Set<unknown>;
@@ -3559,16 +3564,15 @@ declare class OfflineGame {
     getSpawnPosition(): SpawnPosition;
     getArrowAssetName(): string;
     updateGameIsVisible(): void;
-    onGameIsVisible(t: boolean): void;
+    onGameIsVisible(t: () => void): void;
     updateUiVisible(): void;
     setUiVisible(t: boolean): void;
 }
 type Game = OfflineGame | OnlineGame;
 export declare class GameManager {
-    gameWrapper: HTMLElement;
-    gameWrapper: HTMLElement;
+    gameWrapper: any;
     activeGame: Game | null;
-    loadingBackgroundGame: null;
+    loadingBackgroundGame: any;
     joinedOnce: boolean;
     isInGamesLoop: boolean;
     onIsInGamesLoopChangeCbs: Set<unknown>;
@@ -3576,13 +3580,13 @@ export declare class GameManager {
     readyToJoin: boolean;
     onReadyToJoinChangeCbs: Set<unknown>;
     onGameEndCbs: Set<unknown>;
-    windSfx: null;
-    waterSfx: null;
-    birdsSfx: null;
-    jungleSfx: null;
-    rainSfx: null;
-    insectsSfx: null;
-    constructor(gameWrapper: HTMLElement);
+    windSfx: any;
+    waterSfx: any;
+    birdsSfx: any;
+    jungleSfx: any;
+    rainSfx: any;
+    insectsSfx: any;
+    constructor(gameWrapper: any);
     init(): Promise<void>;
     loadWindSfx(): Promise<void>;
     loadWaterSfx(): Promise<void>;
@@ -3602,7 +3606,7 @@ export declare class GameManager {
     joinedGameId(t: any): void;
     onGameEnd(t: any): void;
     setJoinedOnce(): void;
-    getOnlineGame(): OnlineGame | null;
+    getOnlineGame(): any;
     connectionClosed(): void;
     destroyCurrentGame(): void;
     joinIfNotJoined(t?: boolean): {
@@ -3762,8 +3766,8 @@ declare class RenderView {
     width: number;
     height: number;
     onNextFrameRenderCbs: Set<() => void>;
-    scene: null;
-    cam: null;
+    scene: Scene | null;
+    cam: PerspectiveCamera | null;
     constructor({ width, height }?: {
         height?: number | undefined;
         width?: number | undefined;
@@ -3972,19 +3976,18 @@ declare class SoundFX {
     removeUserEventListeners(): void;
     userEvent(): Promise<void>;
     playSound(name: string, params?: object): Promise<SFXSound | null | undefined>;
-    setMutedSettings(t: any): void;
-    setMutedAds(t: any): void;
+    setMutedSettings(muted: boolean): void;
+    setMutedAds(muted: boolean): void;
     updateMuted(): void;
-    sfxDestructed(t: any): void;
+    sfxDestructed(sfx: SFXSound): void;
 }
 declare class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unknown[], const R> {
     promiseFn: F;
     once: boolean;
-    promiseFn: F;
     _queue: {
         resolve(): void;
         args: Args;
-    };
+    }[];
     _isEmptyingQueue: boolean;
     hasRun: boolean;
     _onceReturnValue: R | undefined;
@@ -4025,7 +4028,7 @@ declare class MatchMaking {
     closeMatchMakingConnection(): void;
     markNextCloseAsIntentional(): void;
     fireOnCloseCbs(): void;
-    updateQueueState({ isReadyToJoin, maxWaitTimeMs }?: {
+    updateQueueState({ isReadyToJoin, maxWaitTimeMs, }?: {
         isReadyToJoin?: boolean;
         maxWaitTimeMs?: number;
     }): Promise<void>;
@@ -4300,7 +4303,7 @@ declare class NetworkManager {
     mapWorldPosToNetworkPos(game: OnlineGame, x: number, y: number, z: number): [number, number, number];
     mapNetworkPosToWorldPos(game: OnlineGame, x: number, y: number, z: number): [number, number, number];
     mapNetworkVelocityToWorldVelocity(x: number, y: number, z: number): [number, number, number];
-    sendCreateArrow(game: OnlineGame, playerId: number, { arrowId, pos, dir, fireAmount01 }: {
+    sendCreateArrow(game: OnlineGame, playerId: number, { arrowId, pos, dir, fireAmount01, }: {
         arrowId: number;
         pos: Vector3;
         dir: Vector3;
@@ -4474,7 +4477,7 @@ declare class State {
     indexedDb: IndexedDB;
     onStateChangedCbs: Set<unknown>;
     cachedStateIndexDbKey: string;
-    abstract getStateUrl: string;
+    getStateUrl: string;
     fetchCurrentDataInstance: Waiter<() => Promise<any>, unknown[], unknown>;
     stateIsStale: boolean;
     constructor(authManager: AuthManager, indexedDb: IndexedDB);
@@ -4510,6 +4513,21 @@ export interface UsernameData {
     verified?: boolean;
     [key: string]: unknown;
 }
+interface ProfileStateData {
+    username: string | null;
+    isGuest: boolean;
+    stats: Record<string, number>;
+    maxLinkedAccountsReached: boolean;
+    protected: boolean;
+    canUnlinkAllAccounts: boolean;
+    canBeDeleted: boolean;
+    linkedAccounts: LinkedAccount[];
+    dbId: string | null;
+    usernameData: UsernameData | null;
+    peliAccountEmail: null;
+    isPeliSession: boolean;
+    canUnlinkPeliAccount: boolean;
+}
 declare class ProfileState extends State {
     cachedStateIndexDbKey: string;
     getStateUrl: string;
@@ -4519,32 +4537,15 @@ declare class ProfileState extends State {
     protected: boolean;
     canUnlinkAllAccounts: boolean;
     canBeDeleted: boolean;
-    dbId: null;
+    dbId: string | null;
     usernameData: UsernameData | null;
-    peliAccountEmail: null;
+    peliAccountEmail: string | null;
     isPeliSession: boolean;
     canUnlinkPeliAccount: boolean;
     linkedAccounts: LinkedAccount[];
-    constructor(...t: unknown[]);
-    getCurrentState(): {
-        username: string | null;
-        isGuest: boolean;
-        stats: Record<string, number>;
-        maxLinkedAccountsReached: boolean;
-        protected: boolean;
-        canUnlinkAllAccounts: boolean;
-        canBeDeleted: boolean;
-        linkedAccounts: LinkedAccount[];
-        dbId: null;
-        usernameData: UsernameData | null;
-        peliAccountEmail: null;
-        isPeliSession: boolean;
-        canUnlinkPeliAccount: boolean;
-    };
-    loadStateData(t: {
-        ownedCoins: number;
-        purchasedItems: number[];
-    } | null): void;
+    constructor(...t: [authManager: AuthManager, db: IndexedDB]);
+    getCurrentState(): ProfileStateData;
+    loadStateData(t: ProfileStateData): void;
     clearCurrentDataImpl(): void;
     getUsername(): string;
     setUsername(t: any): Promise<boolean>;
@@ -4558,14 +4559,8 @@ declare class ShopState extends State {
     purchasedItems: Set<number>;
     purchasingItemTasks: Map<number, Promise<unknown>>;
     constructor(...t: unknown[]);
-    getCurrentState(): {
-        ownedCoins: number;
-        purchasedItems: number[];
-    };
-    loadStateData(t: {
-        ownedCoins: number;
-        purchasedItems: number[];
-    } | null): void;
+    getCurrentState(): any;
+    loadStateData(t: any): void;
     clearCurrentDataImpl(): void;
     sendPurchaseItemRequest(t: any): Promise<unknown>;
     purchasePaidItem(t: any, e: any): Promise<boolean>;
@@ -4706,15 +4701,15 @@ declare class ClassImageReference {
     classSelectionImageManager: any;
     _needsUpdates: boolean;
     lastBlobUrl: null;
-    blobUrlChangeCbs: Set<unknown>;
-    onNeedsUpdatesChangeCbs: Set<unknown>;
+    blobUrlChangeCbs: Set<(url: string) => void>;
+    onNeedsUpdatesChangeCbs: Set<() => void>;
     constructor(t: any, e: any);
     destructor(): void;
     get needsUpdates(): boolean;
     set needsUpdates(t: boolean);
     onNeedsUpdatesChange(t: any): void;
-    onBlobUrlChange(t: any, e?: boolean): void;
-    fireUrlChangeCbs(t: any): void;
+    onBlobUrlChange(cb: (url: string) => void, e?: boolean): void;
+    fireUrlChangeCbs(blobUrl: string): void;
 }
 declare class ClassSelectionImageManager {
     cachedBlobUrlDatas: Map<any, any>;
@@ -4729,8 +4724,15 @@ declare class ClassSelectionImageManager {
     createUpdateReference(t: any): ClassImageReference;
     removeUpdateReference(t: any, e: any): void;
 }
+interface InfoTextOptions {
+    startLoading?: boolean | undefined;
+    showPercentage?: boolean | undefined;
+    shouldBounce?: boolean | undefined;
+    showInMainMenu?: boolean | undefined;
+    priority?: number | undefined;
+}
 declare class InfoText {
-    text: any;
+    text: string;
     showPercentage: boolean;
     shouldBounce: boolean;
     showInMainMenu: boolean;
@@ -4738,26 +4740,20 @@ declare class InfoText {
     percentage: number;
     isLoading: boolean;
     onStateChangeCbs: Set<unknown>;
-    constructor(t: any, { startLoading, showPercentage, shouldBounce, showInMainMenu, priority, }?: {
-        priority?: number | undefined;
-        shouldBounce?: boolean | undefined;
-        showInMainMenu?: boolean | undefined;
-        showPercentage?: boolean | undefined;
-        startLoading?: boolean | undefined;
-    });
+    constructor(text: string, { startLoading, showPercentage, shouldBounce, showInMainMenu, priority, }?: InfoTextOptions);
     setIsLoading(t: any): void;
     onStateChange(t: any): void;
     fireStateChange(): void;
     setShowPercentage(t: any): void;
     setPercentage(t: any): void;
-    getText(): any;
+    getText(): string;
 }
 declare class MainInfoTextManager {
     infoTextEl: HTMLElement | null;
-    loadingTexts: Set<unknown>;
+    loadingTexts: Set<InfoText>;
     constructor();
     init(): void;
-    requestInfoText(...params: any[]): InfoText;
+    requestInfoText(...params: [text: string, opts?: InfoTextOptions]): InfoText;
     removeInfoText(t: any): void;
     updateText(): void;
 }
@@ -4831,9 +4827,10 @@ export interface PeliSdk {
     session: PeliSession;
 }
 export declare class Main {
+    thirdPartyEnabled: boolean;
     peliSdkPromise: Promise<PeliSdk | null>;
     peliSdk: PeliSdk | null;
-    gameWrapper: HTMLElement | null;
+    gameWrapper: HTMLElement;
     scene: Scene;
     indexedDb: IndexedDB;
     settingsManager: SettingsManager;
@@ -4872,6 +4869,7 @@ export declare class Main {
     prevNow: number;
     now: number;
     dt: number;
+    dt16: number;
     smoothDt: number;
     useFakeNow: boolean;
     fakeNow: number;
@@ -4891,4 +4889,5 @@ export declare class Main {
     vsyncLoop(): void;
     loop(): void;
 }
+type TouchControlArea = TouchControl;
 export {};

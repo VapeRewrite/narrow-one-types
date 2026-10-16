@@ -1,3 +1,4 @@
+import type { Object3D } from "three";
 declare const e = 0;
 declare const n = 2;
 declare function posMod(value: number, divisor: number): number;
@@ -81,9 +82,9 @@ declare class AssetWorkerMessenger {
 export declare const characterPartNames: string[];
 declare const partNamesNeedsFlip: string[];
 declare const partNames: string[];
-declare function Hl(e: Object3D, { skipObjsFn }?: {
+declare function recurseChildren(it: Object3D, { skipObjsFn }?: {
     skipObjsFn?: ((obj: Object3D) => boolean) | null;
-}): any;
+}): Generator<Object3D>;
 declare const zl = 0;
 export declare const a7 = 2;
 export declare const a1 = 3;
@@ -134,6 +135,6 @@ declare function uc(e: number, t: number): boolean;
 declare function dc(e: number, t: number, n: number): boolean;
 declare function pc(e: number): boolean;
 declare function mc(e: number, t: number, n: number): number[];
-declare function fc(e: number | undefined, t: number | undefined, n: number | undefined): number[];
+declare function fc(e: number, t: number, n: number): number[];
 export declare function ab(e: number, t: number, n: number, i?: number): number;
-export { ic as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip as ar, clamp, lerp, posMod, hc as n, wrap, partNames, Po as q, noAttackTeam as noAttackTeam, uc as s, Hl as t, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
+export { ic as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip, clamp, lerp, posMod, hc as n, wrap, partNames, Po as q, noAttackTeam, uc as s, recurseChildren, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
