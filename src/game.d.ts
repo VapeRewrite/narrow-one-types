@@ -878,8 +878,8 @@ declare class ShopItem {
     get id(): string;
     get requiresPeliEntitlements(): boolean | undefined;
     destructor(): void;
-    setRenderOptions(t: any): void;
-    setDefaultRotY(t: any): void;
+    setRenderOptions(renderOptions: ShopItemRenderOptions): void;
+    setDefaultRotY(defaultRotY: number): void;
     reloadSkinObjectNow(): Promise<void>;
     onSelectedChangeRequest(t: any): void;
     setOwned(t: any): void;
@@ -927,7 +927,7 @@ declare class SkinPreview {
     currentlyLoadedSkinData: SkinData | null;
     currentTeamId: number;
     tooltipCategory: string;
-    statsTooltip: any;
+    statsTooltip: StatClassTooltip | null;
     renderView: RenderView;
     downloadButton: HTMLDivElement;
     cam: PerspectiveCamera;
@@ -940,37 +940,37 @@ declare class SkinPreview {
     meleeParentObj: Object3D;
     smoothCamPosOffset: Vector3;
     smoothCamTargetRot: number;
-    activeCamFollowingTarget: any;
-    activeSlotPositionId: any;
+    activeCamFollowingTarget: Object3D | null;
+    activeSlotPositionId: string | null;
     camPositions: Map<any, any>;
     boundOnMouseMove: (event: MouseEvent) => void;
     lastMouseX: number;
     lastMouseY: number;
     skeleton: PlayerSkeleton;
-    activeExtraPoseLayer: any;
+    activeExtraPoseLayer: PoseLayer | null;
     bowAssetLoader: BowAssetLoader;
     hoveringBowAssetLoader: BowAssetLoader;
-    bowSkeletonObj: any;
+    bowSkeletonObj: Object3D | null;
     currentVisibleBowId: string | null;
     currentEquippedSkinIds: string[];
     hoveringBowVisible: boolean;
     meleeAssetLoader: SingleAssetLoader;
     hoveringMeleeAssetLoader: SingleAssetLoader;
-    meleeSkeletonObj: any;
+    meleeSkeletonObj: Object3D | null;
     currentVisibleMeleeSkinAssetName: string | null;
     hoveringMeleeVisible: boolean;
-    activeModel: any;
-    loadingModel: any;
-    hoveringModel: any;
+    activeModel: SkinModel | null;
+    loadingModel: SkinModel | null;
+    hoveringModel: SkinModel | null;
     hoveringModelVisible: boolean;
     lastHoveringModelCacheKey: string;
     constructor(gameWrapper: HTMLElement);
     destructor(): void;
     initSkeleton(): Promise<void>;
-    addModel(t: any): Promise<void>;
-    removeModel(t: any): void;
+    addModel(t: SkinModel | null): Promise<void>;
+    removeModel(t: SkinModel | null): void;
     loop(t: any, i: any): void;
-    setHoveringModel(skinObjectOpts: any): void;
+    setHoveringModel(skinObjectOpts: SkinObjectOpts | null): void;
     setHoveringShopItemId(itemId: string): void;
     setTemporaryColorCategory(colorCategory: string, colorMultiplier: ColorArray): void;
     resetHoveringModel(): void;
@@ -981,13 +981,13 @@ declare class SkinPreview {
     updateBackgroundColor(): void;
     replaceLoadingModel(): Promise<void>;
     onMouseMove(event: MouseEvent): void;
-    getVisibleModel(): any;
+    getVisibleModel(): SkinModel | null;
     updateVisibleModel(): void;
     updateVisibleBow(): void;
     updateVisibleMelee(): void;
     updateSkeletonGender(): Promise<void>;
     updateModelRotation(): void;
-    setActiveSlotPosition(t: any, e?: boolean): void;
+    setActiveSlotPosition(t: string, e?: boolean): void;
     setSkeletonPose(poseName: string | null): Promise<void>;
     setBow(bowId: string | null): void;
     updateBowConfig(): void;
@@ -2218,11 +2218,14 @@ declare class AccuracyOffset {
 declare class Crosshair {
     gameWrapper: HTMLElement;
     el: HTMLDivElement;
-    lines: any[];
+    lines: Array<{
+        el: HTMLElement;
+        rotation: number;
+    }>;
     flagReturnProgressSvg: SVGSVGElement;
     flagReturnProgressPath1: SVGPathElement;
     flagReturnProgressPath2: SVGPathElement;
-    accuracyOffsets: Set<unknown>;
+    accuracyOffsets: Set<AccuracyOffset>;
     currentAccuracy: number;
     smoothAccuracy: number;
     gameUiVisibility: boolean;
@@ -2237,22 +2240,22 @@ declare class Crosshair {
     destructor(): void;
     rebuildLines(): void;
     setLineColors(): void;
-    loop(t: any, i: any): void;
+    loop(t: number, i: number): void;
     createAccuracyOffset(): AccuracyOffset;
-    deleteAccuracyOffset(t: any): void;
+    deleteAccuracyOffset(t: AccuracyOffset): void;
     updateAccuracyOffset(): void;
-    setFlagReturnProgress(e: any): void;
-    setFlagReturnProgressVisibility(t: any): void;
-    setGameUiVisibility(t: any): void;
-    setDeadVisibility(t: any): void;
-    setMainInfoTextVisibility(t: any): void;
+    setFlagReturnProgress(e: number): void;
+    setFlagReturnProgressVisibility(t: boolean): void;
+    setGameUiVisibility(t: boolean): void;
+    setDeadVisibility(t: boolean): void;
+    setMainInfoTextVisibility(t: boolean): void;
     updateThirdPersonVisibility(): void;
     updateVisibility(): void;
 }
 declare class ScoreDot {
     el: SVGSVGElement;
-    returnTimerRectId: any;
-    removePointPolygonId: any;
+    returnTimerRectId: string;
+    removePointPolygonId: string;
     points: Vector2[];
     lastBorderTimerPercent: number;
     returnTimerRect: any;
@@ -3246,16 +3249,25 @@ declare class MainMenu {
     openSquadDialog(): void;
     openMapsDialog(): MapsDialog;
 }
+declare class GameAdBanner {
+    pokiSize: any;
+    el: HTMLDivElement;
+    visible: boolean;
+    adEl: HTMLDivElement;
+    constructor(t: any, e: any);
+    setVisibility(t: any): void;
+    getIsVisible(): boolean;
+}
 declare class AdBanners {
     gameWrapper: HTMLElement;
     visiblePages: Set<unknown>;
-    desktopBanner: null;
-    mobileBanner: null;
+    desktopBanner: GameAdBanner | null;
+    mobileBanner: GameAdBanner | null;
     hasRemoveAdsEntitlement: boolean;
     constructor(gameWrapper: HTMLElement);
     init(): Promise<void>;
-    getBanners(): Generator<never, void, unknown>;
-    setPageVisibility(t: any, e: any): void;
+    getBanners(): Generator<GameAdBanner, void, unknown>;
+    setPageVisibility(t: string, e: boolean): void;
     updateVisibilities(): void;
 }
 declare class AlertDialog extends Dialog {
@@ -4582,19 +4594,19 @@ declare class Poki {
     pokiInit: boolean;
     pokiErrored: boolean;
     pokiInitErrored: boolean;
-    onPokiInitCbs: never[];
+    onPokiInitCbs: Array<() => void>;
     _usePokiSdk: boolean;
     gameplayStarted: boolean;
     loadStartCalled: boolean;
     loadFinishCalled: boolean;
     isShowingCommercialBreak: boolean;
     isShowingRewardedBreak: boolean;
-    onRewardedBreakFinishCbs: Set<unknown>;
+    onRewardedBreakFinishCbs: Set<() => void>;
     _prevIsShowingBreak: boolean;
-    onIsShowingBreakChangeCbs: Set<unknown>;
-    prevVisiblePokiBanners: Set<unknown>;
+    onIsShowingBreakChangeCbs: Set<() => void>;
+    prevVisiblePokiBanners: Set<any>;
     isPokiBuild: boolean;
-    constructor(t: any);
+    constructor(t: boolean);
     get usePokiSdk(): boolean;
     get supported(): boolean;
     get isShowingBreak(): boolean;
@@ -4603,14 +4615,10 @@ declare class Poki {
     gameplayStart(): Promise<void>;
     gameplayStop(): Promise<void>;
     gameLoadingStart(): Promise<void>;
-    gameLoadingProgress(percentageDone: any): Promise<void>;
+    gameLoadingProgress(percentageDone: number): Promise<void>;
     gameLoadingFinished(): Promise<void>;
     peliAdsDisabled(): boolean;
-    rewardedBreak({ category, details, placement }: {
-        category: any;
-        details: any;
-        placement: any;
-    }): Promise<{
+    rewardedBreak({ category, details, placement }: any): Promise<{
         success: boolean;
         error: string;
     } | {
@@ -4621,7 +4629,7 @@ declare class Poki {
     waitForRewardedBreakFinish(): Promise<void>;
     commercialBreak(): Promise<void>;
     updateIsShowingBreak(): void;
-    onIsShowingBreakChange(t: any): void;
+    onIsShowingBreakChange(t: () => void): void;
     updateBannerVisibility(): void;
     happyTime(t?: number): Promise<void>;
     get isHappyDay(): boolean;

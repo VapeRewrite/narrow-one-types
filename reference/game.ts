@@ -5179,15 +5179,15 @@ class ShopItem {
 			this.scrollingContainer.removeEventListener("scroll", this.boundRemoveStatsTooltip);
 		}
 	}
-	setRenderOptions(t) {
-		this.renderOptions = t;
+	setRenderOptions(renderOptions: ShopItemRenderOptions) {
+		this.renderOptions = renderOptions;
 		this.skinObjectDirty = true;
 		if (this.elementVisible) {
 			this.reloadSkinObjectNow();
 		}
 	}
-	setDefaultRotY(t) {
-		this.defaultRotY = t;
+	setDefaultRotY(defaultRotY: number) {
+		this.defaultRotY = defaultRotY;
 		this.camTarget.rotation.set(-0.1 * Math.PI, this.defaultRotY, 0, "YZX");
 	}
 	async reloadSkinObjectNow() {
@@ -5407,8 +5407,8 @@ class ShopItem {
 		this.renderView.markDirty();
 		this.skinObjectDirty = false;
 	}
-	onSelectedChangeRequest(t) {
-		this.onSelectedChangeRequestCbs.add(t);
+	onSelectedChangeRequest(cb: (selected: boolean) => void) {
+		this.onSelectedChangeRequestCbs.add(cb);
 	}
 	setOwned(t) {
 		this.owned = t;
@@ -5583,10 +5583,10 @@ class ShopItem {
 class ShopItemsGrid {
 	el = document.createElement("div");
 	shopItems = new Map<string, ShopItem>();
-	activeConfirmPurchaseDialogs = new Set();
+	activeConfirmPurchaseDialogs = new Set<PurchaseConfirmDialog>();
 	currentHoveringItem: ShopItem | null = null;
-	onHoveringItemChangeCbs = new Set();
-	onSelectedItemChangeRequestCbs = new Set();
+	onHoveringItemChangeCbs = new Set<(hoveringItem: ShopItem | null) => void>();
+	onSelectedItemChangeRequestCbs = new Set<(id: string, selected: boolean) => void>();
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("shop-items-grid-view");
 	}
@@ -5609,14 +5609,14 @@ class ShopItemsGrid {
 				}
 			}
 		});
-		i.onConfirmPurchaseDialogOpen((t) => {
-			this.activeConfirmPurchaseDialogs.add(t);
-			t.addOnCloseCb(() => {
-				this.activeConfirmPurchaseDialogs.delete(t);
+		i.onConfirmPurchaseDialogOpen((confirmDialog) => {
+			this.activeConfirmPurchaseDialogs.add(confirmDialog);
+			confirmDialog.addOnCloseCb(() => {
+				this.activeConfirmPurchaseDialogs.delete(confirmDialog);
 			});
 		});
-		i.onSelectedChangeRequest((t) => {
-			this.onSelectedItemChangeRequestCbs.forEach((e) => e(i.id, t));
+		i.onSelectedChangeRequest((selected) => {
+			this.onSelectedItemChangeRequestCbs.forEach((e) => e(i.id, selected));
 		});
 		this.shopItems.set(i.id, i);
 	}
@@ -5643,26 +5643,26 @@ class ShopItemsGrid {
 		}
 		this.sortShopItems();
 	}
-	setRenderOptions(t) {
+	setRenderOptions(renderOptions: ShopItemRenderOptions) {
 		for (const e of this.shopItems.values()) {
-			e.setRenderOptions(t);
+			e.setRenderOptions(renderOptions);
 		}
 	}
-	setSelectedItems(t) {
+	setSelectedItems(selectedItems: Set<string>) {
 		for (const e of this.shopItems.values()) {
-			e.setSelectedState(t.has(e.id));
+			e.setSelectedState(selectedItems.has(e.id));
 		}
 	}
-	setSelectedItemState(t, e) {
-		const i = this.shopItems.get(t);
+	setSelectedItemState(shopID: string, e) {
+		const i = this.shopItems.get(shopID);
 		if (i) {
 			i.setSelectedState(e);
 		}
 	}
-	onSelectedItemChangeRequest(t) {
-		this.onSelectedItemChangeRequestCbs.add(t);
+	onSelectedItemChangeRequest(cb: (id: string, selected: boolean) => void) {
+		this.onSelectedItemChangeRequestCbs.add(cb);
 	}
-	setPurchasedItems(t) {
+	setPurchasedItems(purchasedItems: Set<string>) {
 		const e = getMain().getPeliSdk();
 		if (e) {
 			for (const i of this.shopItems.values()) {
@@ -5677,22 +5677,22 @@ class ShopItemsGrid {
 					}
 				} else {
 					s = i.config.hasRewardedAd
-						? e.entitlements.has("removeAds") || t.has(i.id)
-						: !(i.config.price && i.config.price > 0) || t.has(i.id);
+						? e.entitlements.has("removeAds") || purchasedItems.has(i.id)
+						: !(i.config.price && i.config.price > 0) || purchasedItems.has(i.id);
 				}
 				i.setOwned(s);
 			}
 		} else {
 			for (const e of this.shopItems.values()) {
 				if ((e.config.price && e.config.price > 0) || e.config.hasRewardedAd) {
-					e.setOwned(t.has(e.id));
+					e.setOwned(purchasedItems.has(e.id));
 				}
 			}
 		}
 		this.sortShopItems();
 	}
-	onHoveringItemChange(t) {
-		this.onHoveringItemChangeCbs.add(t);
+	onHoveringItemChange(cb: (hoveringItem: ShopItem | null) => void) {
+		this.onHoveringItemChangeCbs.add(cb);
 	}
 	sortShopItems() {
 		const t = Array.from(this.shopItems.values());
@@ -5954,7 +5954,7 @@ class SkinPreview {
 	currentlyLoadedSkinData: SkinData | null;
 	currentTeamId: number;
 	tooltipCategory: string;
-	statsTooltip;
+	statsTooltip: StatClassTooltip | null = null;
 	renderView;
 	downloadButton;
 	cam;
@@ -5967,28 +5967,28 @@ class SkinPreview {
 	meleeParentObj;
 	smoothCamPosOffset;
 	smoothCamTargetRot;
-	activeCamFollowingTarget;
-	activeSlotPositionId;
+	activeCamFollowingTarget: Object3D | null = null;
+	activeSlotPositionId: string | null = null;
 	camPositions;
 	boundOnMouseMove;
 	lastMouseX;
 	lastMouseY;
 	skeleton;
-	activeExtraPoseLayer;
+	activeExtraPoseLayer: PoseLayer | null = null;
 	bowAssetLoader;
 	hoveringBowAssetLoader;
-	bowSkeletonObj;
+	bowSkeletonObj: Object3D | null = null;
 	currentVisibleBowId: string | null;
 	currentEquippedSkinIds: string[];
 	hoveringBowVisible;
 	meleeAssetLoader;
 	hoveringMeleeAssetLoader;
-	meleeSkeletonObj;
+	meleeSkeletonObj: Object3D | null = null;
 	currentVisibleMeleeSkinAssetName: string | null;
 	hoveringMeleeVisible;
-	activeModel;
-	loadingModel;
-	hoveringModel;
+	activeModel: SkinModel | null = null;
+	loadingModel: SkinModel | null = null;
+	hoveringModel: SkinModel | null = null;
 	hoveringModelVisible;
 	lastHoveringModelCacheKey;
 	constructor(gameWrapper: HTMLElement) {
@@ -6020,7 +6020,7 @@ class SkinPreview {
 				this.currentlyLoadedSkinData.equippedSkinIds || [],
 				this.currentVisibleBowId,
 			);
-			const statClasses = {};
+			const statClasses: Record<string, any> = {};
 			for (const [t, s] of statClassValues) {
 				statClasses[t] = s;
 			}
@@ -6272,7 +6272,7 @@ class SkinPreview {
 		}
 		this.meleeSkeletonObj = i;
 	}
-	async addModel(t) {
+	async addModel(t: SkinModel | null) {
 		if (t) {
 			await t.waitForInit();
 			if (t.obj) {
@@ -6280,7 +6280,7 @@ class SkinPreview {
 			}
 		}
 	}
-	removeModel(t) {
+	removeModel(t: SkinModel | null) {
 		if (t) {
 			if (t.obj) {
 				this.modelRotationContainer.remove(t.obj);
@@ -6288,7 +6288,7 @@ class SkinPreview {
 			t.destructor();
 		}
 	}
-	loop(t, i) {
+	loop(t: any, i: any) {
 		let s = false;
 		if (this.cam.position.distanceTo(this.smoothCamPosOffset) > 0.01) {
 			s = true;
@@ -6310,7 +6310,7 @@ class SkinPreview {
 			this.renderView.markDirty();
 		}
 	}
-	setHoveringModel(skinObjectOpts) {
+	setHoveringModel(skinObjectOpts: SkinObjectOpts | null) {
 		this.hoveringModelVisible = false;
 		if (skinObjectOpts) {
 			this.hoveringModelVisible = true;
@@ -6428,7 +6428,7 @@ class SkinPreview {
 	}
 	updateBackgroundColor() {
 		const t = (this.currentTeamId + 1) % n_1.length;
-		const e = n_1[t];
+		const e = n_1[t]!;
 		this.el.style.background = e.cssColor;
 	}
 	async replaceLoadingModel() {
@@ -6514,7 +6514,7 @@ class SkinPreview {
 			}
 		}
 	}
-	setActiveSlotPosition(t, e = false) {
+	setActiveSlotPosition(t: string, e = false) {
 		this.activeSlotPositionId = t;
 		this.activeCamFollowingTarget = null;
 		const i = this.camPositions.get(t);
@@ -8450,17 +8450,15 @@ class MatchmakeConnectionError extends Error {
 	}
 }
 class SquadSettingsDialog extends Dialog {
-	squadManager;
-	settings = new Map();
+	settings = new Map<string, Setting<SettingValue, SettingOptions>>();
 	privateSquadOnlySettings = new Set();
 	privateSquadSetting = new Setting({
 		text: "Private squad",
 		type: "toggle",
 	});
 	leaderOnlyMessage;
-	constructor(t, e) {
-		super(t);
-		this.squadManager = e;
+	constructor(gameWrapper: HTMLElement, public squadManager: SquadManager) {
+		super(gameWrapper);
 		this.settings.set("privateSquad", this.privateSquadSetting);
 		this.privateSquadSetting.onValueChange(() => {
 			this.updateDisabledState();
@@ -8476,16 +8474,16 @@ class SquadSettingsDialog extends Dialog {
 		this.leaderOnlyMessage.textContent = "Only the squad leader can change these settings.";
 		this.el.appendChild(this.leaderOnlyMessage);
 		for (const [t, i] of this.settings) {
-			if (e.currentSquadSettings) {
-				i.setValue(e.currentSquadSettings[t]);
+			if (squadManager.currentSquadSettings) {
+				i.setValue(squadManager.currentSquadSettings[t]);
 			}
 			this.el.appendChild(i.el);
 			i.onValueChange((i) => {
-				e.setSquadSetting(t, i);
+				squadManager.setSquadSetting(t, i);
 			});
 		}
-		e.onSquadSettingChange(this.onSquadSettingChange);
-		e.onMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
+		squadManager.onSquadSettingChange(this.onSquadSettingChange);
+		squadManager.onMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
 		this.updateDisabledState();
 		this.updateLeaderMessageVisibility();
 	}
@@ -16180,11 +16178,11 @@ class AccuracyOffset {
 }
 class Crosshair {
 	el = document.createElement("div");
-	lines;
+	lines: Array<{ el: HTMLElement; rotation: number }>;
 	flagReturnProgressSvg;
 	flagReturnProgressPath1;
 	flagReturnProgressPath2;
-	accuracyOffsets;
+	accuracyOffsets = new Set<AccuracyOffset>();
 	currentAccuracy;
 	smoothAccuracy;
 	gameUiVisibility;
@@ -16279,14 +16277,14 @@ class Crosshair {
 	setLineColors() {
 		const settingsManager = getMain().settingsManager;
 		const e = settingsManager.getValue("crosshairColor");
-		this.el.style.setProperty("--line-color", e);
+		this.el.style.setProperty("--line-color", e as string);
 		const i = settingsManager.getValue("crosshairOutlineColor");
-		this.el.style.setProperty("--outline-color", i);
+		this.el.style.setProperty("--outline-color", i as string);
 	}
-	loop(t, i) {
+	loop(t: number, i: number) {
 		this.smoothAccuracy = lerp(this.smoothAccuracy, this.currentAccuracy, 0.5);
 		const s =
-			7 + this.smoothAccuracy * getMain().settingsManager.getValue("crosshairAccuracyOffset");
+			7 + this.smoothAccuracy * (getMain().settingsManager.getValue("crosshairAccuracyOffset") as number);
 		for (const t of this.lines) {
 			t.el.style.transform = `translateY(-3px) rotate(${t.rotation}deg) translateX(${s}px)`;
 		}
@@ -16296,7 +16294,7 @@ class Crosshair {
 		this.accuracyOffsets.add(t);
 		return t;
 	}
-	deleteAccuracyOffset(t) {
+	deleteAccuracyOffset(t: AccuracyOffset) {
 		this.accuracyOffsets.delete(t);
 		this.updateAccuracyOffset();
 	}
@@ -16307,26 +16305,26 @@ class Crosshair {
 		}
 		this.currentAccuracy = t;
 	}
-	setFlagReturnProgress(e) {
+	setFlagReturnProgress(e: number) {
 		const i = 15;
 		const s = 2 * (e = clamp(e, 0.0001, 0.9999)) * Math.PI;
 		const n = `M25,10 A15,15 ${(180 * s) / Math.PI} ${e > 0.5 ? 1 : 0},1 ${i + Math.sin(s) * i + 10},${i - Math.cos(s) * i + 10}`;
 		this.flagReturnProgressPath1.setAttribute("d", n);
 		this.flagReturnProgressPath2.setAttribute("d", n);
 	}
-	setFlagReturnProgressVisibility(t) {
+	setFlagReturnProgressVisibility(t: boolean) {
 		this.flagReturnProgressSvg.classList.toggle("hidden", !t);
 		this.flagReturnAccuracyOffset.offset = t ? 20 : 0;
 	}
-	setGameUiVisibility(t) {
+	setGameUiVisibility(t: boolean) {
 		this.gameUiVisibility = t;
 		this.updateVisibility();
 	}
-	setDeadVisibility(t) {
+	setDeadVisibility(t: boolean) {
 		this.deadVisibility = t;
 		this.updateVisibility();
 	}
-	setMainInfoTextVisibility(t) {
+	setMainInfoTextVisibility(t: boolean) {
 		this.mainInfoTextVisibility = t;
 		this.updateVisibility();
 	}
@@ -16344,7 +16342,7 @@ class Crosshair {
 	}
 }
 let Ri = 0;
-function Ui(t) {
+function Ui(t: string): string {
 	Ri++;
 	return t + Ri;
 }
@@ -22589,16 +22587,16 @@ class GameAdBanner {
 }
 class AdBanners {
 	visiblePages = new Set();
-	desktopBanner = null;
-	mobileBanner = null;
+	desktopBanner: GameAdBanner | null = null;
+	mobileBanner: GameAdBanner | null = null;
 	hasRemoveAdsEntitlement = false;
 	constructor(public gameWrapper: HTMLElement) {}
 	async init() {
 		this.desktopBanner = new GameAdBanner("desktop", "728x90");
-		this.gameWrapper.append(this.desktopBanner.el);
+		this.gameWrapper.append(this.desktopBanner!.el);
 		this.mobileBanner = new GameAdBanner("mobile", "320x50");
-		this.gameWrapper.append(this.mobileBanner.el);
-		getMain().mainMenu.onVisibilityChange((t) => {
+		this.gameWrapper.append(this.mobileBanner!.el);
+		getMain().mainMenu.onVisibilityChange((t: any) => {
 			this.setPageVisibility("mainMenu", t && getMain().gameManager.joinedOnce);
 		});
 		{
@@ -22621,7 +22619,7 @@ class AdBanners {
 			yield this.mobileBanner;
 		}
 	}
-	setPageVisibility(t, e) {
+	setPageVisibility(t: string, e: boolean) {
 		if (e) {
 			this.visiblePages.add(t);
 		} else {
@@ -23511,7 +23509,7 @@ class TouchControls {
 			this.touchListener.style.display = t ? "none" : "";
 			this.updateUiVisibility();
 		});
-		getMain().mainMenu.onVisibilityChange((t) => {
+		getMain().mainMenu.onVisibilityChange((t: any) => {
 			this.updateUiVisibility();
 		});
 	}
@@ -31156,19 +31154,19 @@ class Poki {
 	pokiInit = false;
 	pokiErrored = false;
 	pokiInitErrored = false;
-	onPokiInitCbs = [];
+	onPokiInitCbs: Array<() => void> = [];
 	_usePokiSdk = false;
 	gameplayStarted = false;
 	loadStartCalled = false;
 	loadFinishCalled = false;
 	isShowingCommercialBreak = false;
 	isShowingRewardedBreak = false;
-	onRewardedBreakFinishCbs = new Set();
+	onRewardedBreakFinishCbs = new Set<() => void>();
 	_prevIsShowingBreak = false;
-	onIsShowingBreakChangeCbs = new Set();
-	prevVisiblePokiBanners = new Set();
+	onIsShowingBreakChangeCbs = new Set<() => void>();
+	prevVisiblePokiBanners = new Set<any>();
 	isPokiBuild;
-	constructor(t) {
+	constructor(t: boolean) {
 		if (t && !isSteam()) {
 			this._usePokiSdk = true;
 		}
@@ -31237,7 +31235,7 @@ class Poki {
 			}
 			this.onPokiInitCbs = [];
 			this.updateBannerVisibility();
-			getMain().mainMenu.onVisibilityChange((t) => {
+			getMain().mainMenu.onVisibilityChange((t: any) => {
 				this.updateBannerVisibility();
 			});
 		}
@@ -31282,7 +31280,7 @@ class Poki {
 			}
 		}
 	}
-	async gameLoadingProgress(percentageDone) {
+	async gameLoadingProgress(percentageDone: number) {
 		if (this.supported && !this.loadFinishCalled) {
 			await this.waitForInit();
 			try {
@@ -31307,7 +31305,7 @@ class Poki {
 		const t = getMain().getPeliSdk();
 		return !(!t || !t.entitlements.has("removeAds"));
 	}
-	async rewardedBreak({ category, details, placement }) {
+	async rewardedBreak({ category, details, placement }: any) {
 		if (this.peliAdsDisabled()) {
 			return {
 				success: false,
@@ -31345,7 +31343,7 @@ class Poki {
 			error: this.pokiInitErrored ? "adblocker" : "unknown",
 		};
 	}
-	async rewardedBreakWithErrorDialog(t) {
+	async rewardedBreakWithErrorDialog(t: any) {
 		const e = await this.rewardedBreak(t);
 		if (!e.success) {
 			if (!this.isPokiBuild) {
@@ -31366,7 +31364,7 @@ class Poki {
 		if (!this.isShowingRewardedBreak) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onRewardedBreakFinishCbs.add(resolve));
+		const t = new Promise<void>((resolve) => this.onRewardedBreakFinishCbs.add(resolve));
 		await t;
 	}
 	async commercialBreak() {
@@ -31390,7 +31388,7 @@ class Poki {
 			this.onIsShowingBreakChangeCbs.forEach((t) => t());
 		}
 	}
-	onIsShowingBreakChange(t) {
+	onIsShowingBreakChange(t: () => void) {
 		this.onIsShowingBreakChangeCbs.add(t);
 	}
 	updateBannerVisibility() {
@@ -31446,7 +31444,7 @@ class Poki {
 		const t = new Date();
 		return t.getUTCDate() > new Date(t.getUTCFullYear(), t.getUTCMonth() + 1, 0).getDate() / 2;
 	}
-	openExternalLink(t) {
+	openExternalLink(t: any) {
 		try {
 			PokiSDK.openExternalLink(t);
 		} catch (error) {
