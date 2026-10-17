@@ -2099,7 +2099,7 @@ declare class FlagBody extends RigidBody {
         mapCollider: ColliderBase;
     }[];
 }
-declare class Flag {
+export declare class Flag {
     #private;
     id: number;
     teamId: number;

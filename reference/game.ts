@@ -15344,7 +15344,7 @@ class FlagBody extends RigidBody {
 		return t;
 	}
 }
-class Flag {
+export class Flag {
 	#m = 0;
 	defaultPosition;
 	defaultRotation;
