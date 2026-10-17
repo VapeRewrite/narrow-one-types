@@ -3,6 +3,9 @@
 	"version": "0.0.0",
 	"module": "index.ts",
 	"files": ["src", "README.md", "LICENSE.md"],
+	"publishConfig": {
+		"access": "public"
+	},
 	"devDependencies": {
 		"oxfmt": "^0.72.0",
 		"oxlint": "^1.87.0"
