@@ -184,7 +184,7 @@ class IndexedDB {
 	}
 }
 type SettingValue = string | number | boolean;
-class SettingsManager {
+export class SettingsManager {
 	defaultValues = {
 		sfxVolume: 100,
 		musicVolume: 100,
@@ -28134,7 +28134,7 @@ export interface CreatedArrow {
 	fireAmount01: number;
 	networkOffsetPos: Vector3;
 }
-class NetworkManager {
+export class NetworkManager {
 	ws: WebSocket | null = null;
 	joiningLoadingText: InfoText | null = null;
 	lastReceiveMessageTime = 0;

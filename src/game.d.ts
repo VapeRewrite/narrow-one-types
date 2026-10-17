@@ -17,7 +17,7 @@ declare class IndexedDB {
     delete(key: string, storeName?: string | undefined): Promise<void>;
 }
 type SettingValue = string | number | boolean;
-declare class SettingsManager {
+export declare class SettingsManager {
     indexedDb: IndexedDB;
     defaultValues: {
         sfxVolume: number;
@@ -2003,11 +2003,11 @@ export declare class Player {
     setTeamId(teamId: number): void;
     setIsSameSquadPlayer(isSameSquad: boolean, squadPlayerId: number, isLeader: boolean): void;
     setScores({ scores, elo, }: PlayerScoreData): void;
-    setHasEvents(t: boolean): void;
+    setHasEvents(hasKeyEvents: boolean): void;
     setHasSmoothCam(value: SettingValue): void;
     updateSmoothCam(): void;
     resetSmoothLookRot(): void;
-    setHasMovementAccuracyOffset(t: boolean): void;
+    setHasMovementAccuracyOffset(hasMovementAccuracyOffset: boolean): void;
     getStatClassValue(statName: string): number;
     reloadPlayerModel(): void;
     updateSkinStats(): void;
@@ -4421,7 +4421,7 @@ export interface CreatedArrow {
     fireAmount01: number;
     networkOffsetPos: Vector3;
 }
-declare class NetworkManager {
+export declare class NetworkManager {
     ws: WebSocket | null;
     joiningLoadingText: InfoText | null;
     lastReceiveMessageTime: number;
