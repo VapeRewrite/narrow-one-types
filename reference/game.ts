@@ -10,6 +10,9 @@ declare const PokiSDK: {
 	displayAd(el: HTMLElement, size: { width: number; height: number }): void;
 	destroyAd(el: HTMLElement): void;
 	commercialBreak(): Promise<void>;
+	gameplayStart(): void;
+	gameplayStop(): void;
+	happyTime(): void;
 	isPokiBuild: boolean;
 	pokiErrored: boolean;
 	pokiInit: boolean;
@@ -334,7 +337,7 @@ function randomChoice<const T>(arr: T[]): T | undefined {
 }
 interface MapProbabilityData {
 	probability: number;
-	item: number;
+	item: string | number;
 }
 function selectWeighted(data: MapProbabilityData[], rand: number) {
 	let i = 0;
@@ -351,14 +354,15 @@ function selectWeighted(data: MapProbabilityData[], rand: number) {
 	}
 	return null;
 }
-function getVariablesIndex(mpData: MapProbabilityData[], variablesIndexSeed: number) {
-	return selectWeighted(
+function getVariablesIndex(mpData: MapProbabilityData[], variablesIndexSeed: number): number {
+	const result = selectWeighted(
 		mpData,
 		((variablesIndexSeed_1) => {
 			const e = 10000 * Math.sin(variablesIndexSeed_1);
 			return e - Math.floor(e);
 		})(variablesIndexSeed),
 	);
+	return (result as number) ?? -1;
 }
 function Ct(el: Element) {
 	window.getComputedStyle(el).getPropertyValue("top");
@@ -1726,7 +1730,7 @@ class AssetPackage {
 	loaded = false;
 	arrayBuffer: ArrayBuffer | null = null;
 	fileLocations: { path: string; start: number; length: number }[] = [];
-	onLoadCbs: ((value?: unknown) => void)[] = [];
+	onLoadCbs: (() => void)[] = [];
 	onProgressCbs: ((percentage01: number) => void)[] = [];
 	lastProgressValue = 0;
 	textureCache: Record<string, unknown> = {};
@@ -2969,7 +2973,7 @@ class SkinsManager {
 		};
 	}
 	skinNetworkDataToBowAssetData(targetBowID: string, opts: {equippedSkinIds?: string[];}) {
-		const i = new Set();
+		const i = new Set<string>();
 		if (opts.equippedSkinIds) {
 			for (const s of opts.equippedSkinIds) {
 				const e = this.purchasableItems.get(s);
@@ -3275,7 +3279,7 @@ export interface SkeletonLoadCb {
 class PoseLayer {
 	skeletonObject: Object3D | null = null;
 	onSkeletonLoadCbs = new Set<SkeletonLoadCb>();
-	onObjectLinksBuilt = new Set<(value?: unknown) => void>();
+	onObjectLinksBuilt = new Set<() => void>();
 	weight = 1;
 	currentlyLoadingPoseAbortController: AbortController | null = null;
 	objectLinksBuilt = false;
@@ -3360,7 +3364,7 @@ class PoseLayer {
 		if (this.objectLinksBuilt) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onObjectLinksBuilt.add(resolve));
+		const t = new Promise<void>((resolve) => this.onObjectLinksBuilt.add(resolve));
 		await t;
 	}
 	apply() {
@@ -4640,7 +4644,14 @@ const de = {
 	},
 };
 interface BowAssetConfig {
-	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number; separateObjectNames?: string[]; arrowPositions?: string[]
+	arrowSkin?: string | null;
+	bowId?: string;
+	arrowCount?: number;
+	skins?: unknown[];
+	teamColor?: string;
+	teamId?: number;
+	separateObjectNames?: string[];
+	arrowPositions?: string[]
 }
 class BowAssetLoader {
 	obj = new Object3D();
@@ -6118,7 +6129,10 @@ class SkinPreview {
 						teamId: this.currentTeamId,
 						skin: this.currentlyLoadedSkinData,
 					},
-					this.currentlyLoadedSkinData,
+					{
+						teamId: this.currentTeamId,
+						skin: this.currentlyLoadedSkinData,
+					},
 				);
 				getMain().dialogManager.addDialog(e);
 			}
@@ -7231,13 +7245,13 @@ class ShopCustomizationView {
 							skins.setPresetSkinItemColor(
 								this.customizationId.presetId,
 								colorButtonsCategory,
-								skinColor,
+								skinColor as ColorArray,
 							);
 						} else if (this.customizationId.type == "class") {
 							skins.setClassSkinItemColor(
 								this.customizationId.classId,
 								colorButtonsCategory,
-								skinColor,
+								skinColor as ColorArray,
 							);
 						}
 						this.updateSkinPreviewConfig();
@@ -7247,7 +7261,7 @@ class ShopCustomizationView {
 						}
 					});
 					colorButton.addEventListener("mouseenter", () => {
-						this.skinPreview.setTemporaryColorCategory(colorButtonsCategory, skinColor);
+						this.skinPreview.setTemporaryColorCategory(colorButtonsCategory, skinColor as ColorArray);
 					});
 					colorButton.addEventListener("mouseleave", () => {
 						this.skinPreview.resetHoveringModel();
@@ -8148,7 +8162,7 @@ class CornerProfile {
 			})(username),
 		);
 	}
-	onClick(cb: (event: PointerEvent) => void) {
+	onClick(cb: (event: MouseEvent) => void) {
 		this.clickCbs.add(cb);
 	}
 	setMainMenuVisibility(visible: boolean) {
@@ -8158,7 +8172,7 @@ class CornerProfile {
 			getMain().playerAvatarManager.removeOnAvatarUrlChange(this.boundAvatarUrlChanged);
 		}
 	}
-	avatarUrlChanged(url?: string) {
+	avatarUrlChanged(url?: string | null) {
 		if (url) {
 			this.avatarEl.style.backgroundImage = `url("${url}")`;
 		}
@@ -8523,7 +8537,7 @@ class MatchmakeConnectionError extends Error {
 }
 class SquadSettingsDialog extends Dialog {
 	settings = new Map<string, Setting<SettingValue, SettingOptions>>();
-	privateSquadOnlySettings = new Set();
+	privateSquadOnlySettings = new Set<Setting<SettingValue, SettingOptions>>();
 	privateSquadSetting = new Setting({
 		text: "Private squad",
 		type: "toggle",
@@ -8547,7 +8561,7 @@ class SquadSettingsDialog extends Dialog {
 		this.el.appendChild(this.leaderOnlyMessage);
 		for (const [t, i] of this.settings) {
 			if (squadManager.currentSquadSettings) {
-				i.setValue(squadManager.currentSquadSettings[t]);
+				i.setValue(squadManager.currentSquadSettings[t] as SettingValue);
 			}
 			this.el.appendChild(i.el);
 			i.onValueChange((i) => {
@@ -9117,8 +9131,7 @@ class Collider {
 		return {
 			dist: m.distanceTo(from),
 			pos: m,
-			collider: this,
-		};
+			collider: this as unknown as Collider & ColliderBase,		};
 	}
 }
 export interface SphereManifold {
@@ -9253,8 +9266,8 @@ class BoxCollider extends ColliderBase {
 		(s.z <= -1 || s.z >= 1) && n++;
 		const isAtEdge = n >= 2;
 		const a = this.getUpFaces();
-		const isAtUpFace = this.getIsOnFace(s, a[0]);
-		const isAtSecondUpFace = this.getIsOnFace(s, a[1]);
+		const isAtUpFace = this.getIsOnFace(s, a[0]!);
+		const isAtSecondUpFace = this.getIsOnFace(s, a[1]!);
 		s.applyMatrix4(this.worldMatrix);
 		const h = e - t.distanceTo(s);
 		return {
@@ -9366,8 +9379,7 @@ class BoxCollider extends ColliderBase {
 			return {
 				dist: s.distanceTo(i),
 				pos: s,
-				collider: this,
-			};
+				collider: this as unknown as Collider & ColliderBase,			};
 		}
 		return null;
 	}
@@ -9874,7 +9886,7 @@ class PlayerBody extends RigidBody {
 		const i = new Vector3(0, 1, 0);
 		const s = t.normal.dot(i);
 		if (s > -0.0001 && s < 0.0001) {
-			if (e.getUpFaces()[0].normal.dot(i) > 0.9999) {
+			if (e.getUpFaces()[0]!.normal.dot(i) > 0.9999) {
 				return true;
 			}
 		}
@@ -9922,11 +9934,11 @@ class Activity {
 	weight = 0;
 	speed;
 	active = false;
-	onActiveChangeCbs = new Set();
+	onActiveChangeCbs = new Set<(active: boolean) => void>();
 	constructor({ speed = 0.01 } = {}) {
 		this.speed = speed;
 	}
-	loop(t, e) {
+	loop(t: boolean, e: number) {
 		if (t) {
 			this.weight += e * this.speed;
 		} else {
@@ -9938,7 +9950,7 @@ class Activity {
 		}
 		this.weight = clampTo01(this.weight);
 	}
-	onActiveChange(t) {
+	onActiveChange(t: (active: boolean) => void) {
 		this.onActiveChangeCbs.add(t);
 	}
 }
@@ -10152,7 +10164,7 @@ class HoldingHandlerManager {
 	}
 }
 export interface WeaponActionOptions {
-	fromTouchButton: boolean;
+	fromTouchButton?: boolean;
 }
 export interface WeaponHolderOptions {
 	thirdPersonParentName: string;
@@ -10453,14 +10465,14 @@ class SmallCrossbow extends BowWeapon {
 		};
 	}
 	override onActionDown(t: { fromTouchButton?: boolean }): void {
-		this.lastActionWasTouch = t.fromTouchButton;
+		this.lastActionWasTouch = t.fromTouchButton ?? false;
 		this.lastActionDownStart = performance.now();
 		if (!t.fromTouchButton) {
 			this.handleShootOrLoadAction();
 		}
 	}
 	override onActionUp(t: { fromTouchButton?: boolean }): void {
-		this.lastActionWasTouch = t.fromTouchButton;
+		this.lastActionWasTouch = t.fromTouchButton ?? false;
 		if (t.fromTouchButton) {
 			this.handleShootOrLoadAction();
 		}
@@ -10545,7 +10557,7 @@ class SmallCrossbow extends BowWeapon {
 			},
 		];
 	}
-	override getThirdPersonSkeletonMultipliers(t: string): unknown {
+	override getThirdPersonSkeletonMultipliers(t: PlayerGender): Record<string, number> {
 		const e = this.shootingActivity.weight * (1 - this.loadingActivity.weight);
 		if (t == "female") {
 			return ei(e, 0.4, 0);
@@ -10598,7 +10610,7 @@ class MeleeWeapon extends WeaponBase {
 	override equipSfxName;
 	hitSfxName;
 	swingSfxName;
-	hitSfxOptions;
+	hitSfxOptions: SfxOpts | null = null;
 	meleeAssetLoader;
 	constructor(player: Player, options: WeaponHolderOptions) {
 		const i = new SingleAssetLoader({
@@ -10739,10 +10751,10 @@ class MeleeWeapon extends WeaponBase {
 		});
 	}
 }
-class RandomConfigPicker {
-	configs;
-	currentConfig;
-	constructor(t) {
+class RandomConfigPicker<T> {
+	configs: T[];
+	currentConfig: T | null = null;
+	constructor(t: T[]) {
 		if (t.length == 0) {
 			throw new Error("zero configs provided");
 		}
@@ -10751,7 +10763,7 @@ class RandomConfigPicker {
 		this.randomize();
 	}
 	randomize() {
-		this.currentConfig = randomChoice(this.configs);
+		this.currentConfig = randomChoice(this.configs) ?? null;
 	}
 	getCurrentConfig() {
 		if (!this.currentConfig) {
@@ -10761,7 +10773,7 @@ class RandomConfigPicker {
 	}
 }
 export class ChargedAttack {
-	weapon: unknown;
+	weapon: MeleeWeapon;
 	prepareDurationMsLowAttackSpeed: number;
 	prepareDurationMsHighAttackSpeed: number;
 	cooldownDurationMsLowAttackSpeed: number;
@@ -10777,7 +10789,7 @@ export class ChargedAttack {
 		cooldownDurationMsLowAttackSpeed,
 		cooldownDurationMsHighAttackSpeed,
 	}: {
-		weapon: unknown;
+		weapon: MeleeWeapon;
 		prepareDurationMsLowAttackSpeed: number;
 		prepareDurationMsHighAttackSpeed: number;
 		cooldownDurationMsLowAttackSpeed: number;
@@ -11577,7 +11589,7 @@ const bowWeapons = {
 				arrowSkin,
 				separateObjectNames: ["handleRotation", "arrowBoxRotation"],
 				arrowCount: 10,
-				arrowPositions: "stacked",
+				arrowPositions: ["stacked"],
 			});
 		}
 	},
@@ -12717,18 +12729,18 @@ function yi() {
 	return fi;
 }
 let Si = 1;
-const vi = new Set();
-function Ci(t) {
+const vi = new Set<(si: number) => void>();
+function Ci(t: (si: number) => void) {
 	vi.add(t);
 }
-function ki(t) {
+function ki(t: (si: number) => void) {
 	vi.delete(t);
 }
 function Pi() {
 	vi.forEach((t) => t(Si));
 }
 let xi = false;
-function Mi(t) {
+function Mi(t: unknown) {
 	let e = Number(t);
 	if (isNaN(e)) {
 		e = 1;
@@ -12795,8 +12807,8 @@ class WeaponSelectionDialog extends Dialog {
 				return;
 			}
 			xi = true;
-			let t = await getMain().indexedDb.get("selectedWeaponId");
-			t = Mi(t);
+			let t = await getMain().indexedDb.get("selectedWeaponId") as number | string | null;
+			t = Mi(t as number | string);
 			if (!(isNaN(t) || t == Si)) {
 				Si = t;
 				Pi();
@@ -12885,7 +12897,7 @@ class WeaponSelectionDialog extends Dialog {
 		} else {
 			t = false;
 		}
-		this.visible = t;
+		this.visible = Boolean(t);
 	}
 }
 new Uint32Array([-1])[0]; // bro what
@@ -14114,10 +14126,10 @@ export class Player {
 		const s = this.inputManager.getKey("fire");
 		const n = this.inputManager.getKey("toggleWeapon");
 		if (t) {
-			i.onPressedDown(this.boundOnJumpPress as (i: { fromTouchButton?: boolean }) => boolean);
-			s.onPressedDown(this.boundOnFireDown as (i: { fromTouchButton?: boolean }) => boolean);
-			s.onPressedUp(this.boundOnFireUp as (i: { fromTouchButton?: boolean }) => boolean);
-			n.onPressedDown(this.boundToggleActiveWeapon as (i: { fromTouchButton?: boolean }) => boolean);
+			i.onPressedDown(this.boundOnJumpPress as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.onPressedDown(this.boundOnFireDown as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.onPressedUp(this.boundOnFireUp as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+			n.onPressedDown(this.boundToggleActiveWeapon as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 			e.dialogManager.onNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
 			e.cam.onThirdPersonChange(this.boundOnThirdPersonChange);
 			e.input.touch.onTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
@@ -14129,9 +14141,9 @@ export class Player {
 			this.smoothCamSetting = Boolean(e.settingsManager.getValue("smoothCam"));
 			this.updateSmoothCam();
 		} else {
-			i.removeCb(this.boundOnJumpPress as (i: { fromTouchButton?: boolean }) => boolean);
-			s.removeCb(this.boundOnFireDown as (i: { fromTouchButton?: boolean }) => boolean);
-			s.removeCb(this.boundOnFireUp as (i: { fromTouchButton?: boolean }) => boolean);
+			i.removeCb(this.boundOnJumpPress as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.removeCb(this.boundOnFireDown as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.removeCb(this.boundOnFireUp as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 			e.dialogManager.removeOnNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
 			e.cam.removeOnThirdPersonChange(this.boundOnThirdPersonChange);
 			e.input.touch.removeOnTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
@@ -14684,8 +14696,8 @@ export class Player {
 	addOwnedPlayerForkDamage(t: number) {
 		this.#c += t;
 	}
-	hitByArrowFromServer(t: unknown) {}
-	verifiedKillByServer(t: unknown) {
+	hitByArrowFromServer(attacker: Player) {}
+	verifiedKillByServer(attacker: Player) {
 		const e = this.getStatClassValue("bloodlust");
 		if (e > 0) {
 			this.health += 0.1 * e;
@@ -14833,7 +14845,7 @@ export class Player {
 	getShootDirection() {
 		const t = getMain();
 		if (t.cam.thirdPersonMode == "back") {
-			const e = t.cam.getRayCastCache(t.cam.position, 100);
+			const e = t.cam.getRayCastCache(t.cam.cam.position, 100);
 			if (e) {
 				const t = this.physicsManager.rayCastMapColliders(e, () => true);
 				if (t) {
@@ -16122,7 +16134,7 @@ class DebugDraw {
 				const e = new BufferGeometry();
 				const i = new Float32Array([...t.from.toArray(), ...t.to.toArray()]);
 				e.setAttribute("position", new BufferAttribute(i, 3));
-				let s = this.material;
+				let s = this.material!;
 				if (t.color) {
 					s = new LineBasicMaterial({
 						color: t.color,
@@ -16173,16 +16185,16 @@ class ArrowManager {
 			let n = 1;
 			let o = 0;
 			let r = 0;
-			const l = teamData[team]!.colorTransform;
+			const l = (teamData[team] as { colorTransform?: (e: { h: number; s: number; v: number }) => void }).colorTransform;
 			if (l) {
 				const [h_1, s_2, v] = N(n, o, r);
 				const s = {
-					h: h_1,
-					s: s_2,
-					v,
+					h: h_1!,
+					s: s_2!,
+					v: v!,
 				};
 				l(s);
-				[n, o, r] = K(s.h, s.s, s.v);
+				[n, o, r] = K(s.h, s.s, s.v) as [number, number, number];
 			}
 			const h = [n, o, r];
 			for (let t = 0; t < s.byteLength; t += 3) {
@@ -16256,7 +16268,7 @@ class ArrowManager {
 		const i = this.arrows.get(playerId);
 		return (i && i.get(arrowId)) || null;
 	}
-	receivedHitValidationData(t) {}
+	receivedHitValidationData(t: unknown) {}
 }
 class AccuracyOffset {
 	crosshair: Crosshair;
@@ -16448,8 +16460,8 @@ class ScoreDot {
 	removePointPolygonId;
 	points;
 	lastBorderTimerPercent;
-	returnTimerRect: HTMLElement;
-	removePointPolygon: HTMLElement;
+	returnTimerRect: HTMLElement | null = null;
+	removePointPolygon: HTMLElement | null = null;
 	removeAnimationTimeout;
 	constructor(teamColor: string) {
 		this.el.classList.add("score-ui-dot");
@@ -16510,13 +16522,13 @@ class ScoreDot {
 	}
 	getReturnTimerRect() {
 		if (!this.returnTimerRect) {
-			this.returnTimerRect = this.el.getElementById(this.returnTimerRectId);
+			this.returnTimerRect = this.el.getElementById(this.returnTimerRectId) as HTMLElement | null;
 		}
 		return this.returnTimerRect;
 	}
 	getRemovePointPolygon() {
 		if (!this.removePointPolygon) {
-			this.removePointPolygon = this.el.getElementById(this.removePointPolygonId);
+			this.removePointPolygon = this.el.getElementById(this.removePointPolygonId) as HTMLElement | null;
 		}
 		return this.removePointPolygon;
 	}
@@ -16922,9 +16934,9 @@ class SkipText {
 	el = document.createElement("div");
 	text = "Press space to skip...";
 	currentTimerValue = 0;
-	currentInterval = null;
-	onTimerEndCbs = new Set();
-	onSkipActionCbs = new Set();
+	currentInterval: number | null = null;
+	onTimerEndCbs = new Set<(value?: unknown) => void>();
+	onSkipActionCbs = new Set<(value?: unknown) => void>();
 	creationCooldownEnd = 0;
 	allowSpaceSkip = true;
 	keyDownCb = (e: KeyboardEvent) => {
@@ -16938,8 +16950,8 @@ class SkipText {
 		this.text = "Press space to skip...";
 		this.currentTimerValue = 0;
 		this.currentInterval = null;
-		this.onTimerEndCbs = new Set();
-		this.onSkipActionCbs = new Set();
+		this.onTimerEndCbs = new Set<(value?: unknown) => void>();
+		this.onSkipActionCbs = new Set<(value?: unknown) => void>();
 		this.creationCooldownEnd = 0;
 		this.allowSpaceSkip = true;
 		window.addEventListener("keydown", this.keyDownCb);
@@ -17017,7 +17029,7 @@ class PlayersListDialog extends Dialog {
 	teamsContainer;
 	currentAvatarBlobUrlReferences;
 	configuredColumnTypes: string[] = [];
-	teamEls;
+	teamEls: { containerEl: HTMLElement; tbody: HTMLElement; name: string; colGroupEl: HTMLElement; headerRowEl: HTMLElement }[];
 	skipText;
 	scoresFrozen;
 	playersListDirty;
@@ -17085,7 +17097,7 @@ class PlayersListDialog extends Dialog {
 	override destructor() {
 		super.destructor();
 		observeResize(this.boundOnResize);
-		for (const t of this.currentAvatarBlobUrlReferences as any[]) {
+		for (const t of this.currentAvatarBlobUrlReferences) {
 			t.destructor();
 		}
 		this.currentAvatarBlobUrlReferences.clear();
@@ -17213,7 +17225,7 @@ class PlayersListDialog extends Dialog {
 		for (const e of i) {
 			const i = document.createElement("tr");
 			i.classList.add("playersListItem", "tableItem");
-			this.teamEls[e.teamId].tbody.appendChild(i);
+			this.teamEls[e.teamId]!.tbody.appendChild(i);
 			for (const s of this.configuredColumnTypes) {
 				if (!U(e.teamId) && s != "avatar" && s != "playerName") {
 					continue;
@@ -17321,7 +17333,7 @@ class NotificationsUi {
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	showIcon(url: string) {
+	showIcon(url: string | null) {
 		if (this.currentIconEl) {
 			this.el.removeChild(this.currentIconEl);
 		}
@@ -17734,7 +17746,7 @@ class CornerStat {
 		this.valueEl.textContent = "-";
 		this.el.appendChild(this.valueEl);
 	}
-	setValue(value: number) {
+	setValue(value: number | string) {
 		if (this.cornerStatsUi.visible) {
 			this.valueEl.textContent = String(value);
 			if (this.redThreshold && typeof value === "number") {
@@ -17750,7 +17762,7 @@ class CornerStatsUi {
 	pingStat;
 	networkStabilityStat;
 	visible;
-	_onVisiblityChangeCbs: (() => void)[];
+	_onVisiblityChangeCbs: Set<() => void>;
 	constructor(
 		gameWrapper: HTMLElement,
 		public game: Game,
@@ -17799,7 +17811,7 @@ class CornerStatsUi {
 				}
 			}
 			if (t != this.visible) {
-				this.visible = t;
+				this.visible = Boolean(t);
 				this.container.classList.toggle("hidden", !t);
 				this._onVisiblityChangeCbs.forEach((t) => t());
 			}
@@ -17848,7 +17860,7 @@ interface ChatMessage {
 	contentsEl: HTMLDivElement;
 	messageEl: HTMLDivElement;
 	playerId: number;
-	avatarBlobReference: BlobURLReference;
+	avatarBlobReference: BlobURLReference | null;
 	lastMessageTime: number;
 }
 interface RawChatMessage {
@@ -17906,7 +17918,7 @@ class Chat {
 				this.updateVisibility();
 			}
 		};
-		this.chatKey.onPressedDown(this.boundChatKeyCb);
+		this.chatKey.onPressedDown(this.boundChatKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 		this.chatVisibilityKey = i.input.getKey("toggleChatVisibility");
 		this.boundChatVisibilityKeyCb = () => {
 			if (this.visible) {
@@ -17918,7 +17930,7 @@ class Chat {
 				this.textBoxEl.focus();
 			}
 		};
-		this.chatVisibilityKey.onPressedDown(this.boundChatVisibilityKeyCb);
+		this.chatVisibilityKey.onPressedDown(this.boundChatVisibilityKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 		this.boundUpdateVisibilities = () => {
 			this.updateVisibility();
 			this.updateTouchButtonVisibility();
@@ -17949,8 +17961,8 @@ class Chat {
 	}
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
-		this.chatKey.removeCb(this.boundChatKeyCb);
-		this.chatVisibilityKey.removeCb(this.boundChatVisibilityKeyCb);
+		this.chatKey.removeCb(this.boundChatKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+		this.chatVisibilityKey.removeCb(this.boundChatVisibilityKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 		const t = getMain();
 		t.network.squadManager.removeOnUserVisibleSquadIdChange(this.boundUpdateVisibilities);
 		t.input.touch.removeOnTouchSupportedChange(this.boundOnTouchSupported);
@@ -18091,7 +18103,7 @@ class Chat {
 		const t = getMain();
 		const touch = t.input.touch;
 		if (touch.chatButton) {
-			const i = t.network.squadManager.isInSquad && t.settingsManager.getValue("chatEnabled");
+			const i = t.network.squadManager.isInSquad && Boolean(t.settingsManager.getValue("chatEnabled"));
 			touch.chatButton.setVisibility(i);
 		}
 	}
@@ -18102,7 +18114,7 @@ class Chat {
 class MapCollider extends ColliderBase {
 	radius;
 	pos = new Vector3();
-	constructor(worldMatrix: Matrix4, opts) {
+	constructor(worldMatrix: Matrix4, opts: ColliderOptions) {
 		super(worldMatrix, opts);
 		this.radius = this.worldMatrix.getMaxScaleOnAxis();
 		this.pos.setFromMatrixPosition(this.worldMatrix);
@@ -18120,8 +18132,7 @@ class MapCollider extends ColliderBase {
 			return {
 				dist: 0,
 				pos: from.clone(),
-				collider: this,
-			};
+				collider: this as unknown as Collider & ColliderBase,			};
 		}
 		const n = i.clone().projectOnVector(dir);
 		if (n.dot(dir) < 0) {
@@ -18138,8 +18149,7 @@ class MapCollider extends ColliderBase {
 		return {
 			pos: from.clone().add(l),
 			dist,
-			collider: this,
-		};
+			collider: this as unknown as Collider & ColliderBase,		};
 	}
 }
 class OctreeNode {
@@ -18240,7 +18250,7 @@ export interface RayCastCache {
 }
 export type RayCastFilter = (hit: RayCastHit) => boolean;
 class PhysicsManager {
-	rigidBodies = new Set<PlayerBody>();
+	rigidBodies = new Set<RigidBody>();
 	mapColliders: ColliderBase[] = [];
 	rootOctreeNode: OctreeNode | null = null;
 	octreeMaxDepth = 5;
@@ -18311,10 +18321,9 @@ class PhysicsManager {
 	addMapCollider(t: {
 		matrix: number[];
 		colliderType?: string;
-		[key: string]: unknown;
 	}): ColliderBase {
 		const e = new Matrix4().fromArray(t.matrix);
-		const i = t.colliderType == "sphere" ? new MapCollider(e, t) : new BoxCollider(e, t);
+		const i = t.colliderType == "sphere" ? new MapCollider(e, t as unknown as ColliderOptions) : new BoxCollider(e, t as unknown as ColliderOptions);
 		this.mapColliders.push(i);
 		return i;
 	}
@@ -18646,7 +18655,7 @@ class MapVariablesManager {
 				probability: Math.max(0, e.probability || 1),
 				item,
 			}));
-			this.currentVariablesIndex = getVariablesIndex(vars, this.variablesIndexSeed) ?? -1;
+			this.currentVariablesIndex = getVariablesIndex(vars, this.variablesIndexSeed);
 		}
 	}
 	setSeed(seed: number) {
@@ -18734,7 +18743,7 @@ class MapLoader {
 	async init() {
 		getMain();
 		this.mapsConfig.onConfigChange(
-			async (t: { maps?: { assetName: string; isNasset?: boolean; hash: string }[] }) => {
+			async (t: MapsConfigData) => {
 				this.cachedMapHashes.clear();
 				const e = await this.openCache();
 				if (e) {
@@ -19018,7 +19027,7 @@ class MapLoader {
 		});
 		const n = await getMain().assets.getMessenger();
 		try {
-			const o = await n.send.loadMap(params, requestID);
+			const o = await n.send.loadMap(params, requestID) as { scene: unknown; hingeObjects: { object: unknown; behavior: unknown }[]; appearingObjects?: { objects: { object: unknown; startOffset: number[] }[]; triggers: { pos: number[]; radius: number }[]; behavior: unknown }[]; lobbyCamPositions?: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] }[]; mapConfig?: { globalMapVariables?: unknown; randomMapVariableSets?: unknown[] } };
 			this.loadMapResponseCbReceived(o, cb);
 		} finally {
 			getMain().mainInfoTextManager.removeInfoText(loadingText);
@@ -19083,7 +19092,7 @@ class MapLoader {
 			gameplayData,
 		});
 	}
-	loadMapResponseCbReceived(t, e: (info: MapLoadingInfo) => void): void {
+	loadMapResponseCbReceived(t: { scene: unknown; hingeObjects: { object: unknown; behavior: unknown }[]; appearingObjects?: { objects: { object: unknown; startOffset: number[] }[]; triggers: { pos: number[]; radius: number }[]; behavior: unknown }[]; lobbyCamPositions?: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] }[]; mapConfig?: { globalMapVariables?: unknown; randomMapVariableSets?: unknown[] } }, e: (info: MapLoadingInfo) => void): void {
 		const scene = AssetsManager.deserializeThreeObject(t.scene);
 		scene!.traverse((t: Object3D) => {
 			t.frustumCulled = false;
@@ -19097,7 +19106,7 @@ class MapLoader {
 			});
 		}
 		const appearingObjects = [];
-		for (const { objects, triggers, behavior } of t.appearingObjects) {
+		for (const { objects, triggers, behavior } of t.appearingObjects ?? []) {
 			const t = [];
 			for (const i of objects) {
 				const object_1 = AssetsManager.deserializeThreeObject(i.object);
@@ -19136,12 +19145,12 @@ class MapLoader {
 					rotB: new Quaternion().fromArray(t.rotB),
 				}),
 			);
-			getMain().cam.setLobbyCamPositions(e);
+			getMain().cam.setLobbyCamPositions(e as unknown as { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] }[]);
 		}
 		if (t.mapConfig) {
 			this.mapVariablesManager.setVariables(
 				t.mapConfig.globalMapVariables || null,
-				t.mapConfig.randomMapVariableSets || [],
+				(t.mapConfig.randomMapVariableSets as MapVariables[]) || [],
 			);
 		} else {
 			this.mapVariablesManager.setVariables(null, []);
@@ -19328,7 +19337,7 @@ class PreferredMapManager {
 			e)
 		);
 	}
-	voteMap(t) {}
+	voteMap(t: unknown) {}
 	markRecentMap(hash: string) {
 		const e = this.mapsConfigLoader.getListedMapConfigByHash(hash);
 		if (!e) {
@@ -19337,7 +19346,7 @@ class PreferredMapManager {
 		for (const t of this.votedScores.values()) {
 			t.lastPlayedCounter++;
 		}
-		this.getOrCreateMapVoteData(e.assetName).lastPlayedCounter = 0;
+		this.getOrCreateMapVoteData(e.assetName ?? "").lastPlayedCounter = 0;
 	}
 	forceSoloMap(hash: string | null) {
 		this._forcingSoloMap = hash;
@@ -19685,7 +19694,7 @@ class EliminationTeamScore {
 			this.el.append(t.el);
 		}
 		for (let t = 0; t < s; t++) {
-			const t = this.playerDots[this.playerDots.length - 1];
+			const t = this.playerDots[this.playerDots.length - 1]!;
 			this.playerDots.splice(this.playerDots.length - 1, 1);
 			this.el.removeChild(t.el);
 		}
@@ -20688,16 +20697,16 @@ class OnlineGame {
 	}
 	playerHitByMelee(t: number, e: number) {
 		const i = this.players.get(t);
-		const s = this.players.get(e);
-		if (i && s) {
-			i.hitByMeleeFromServer(s);
+		const attacker = this.players.get(e);
+		if (i && attacker) {
+			i.hitByMeleeFromServer(attacker);
 		}
 	}
-	playerHitByArrow(t: number, e: number) {
-		const i = this.players.get(t);
-		const s = this.players.get(e);
-		if (i && s) {
-			i.hitByArrowFromServer(s);
+	playerHitByArrow(victimID: number, attackerID: number) {
+		const victim = this.players.get(victimID);
+		const attacker = this.players.get(attackerID);
+		if (victim && attacker) {
+			victim.hitByArrowFromServer(attacker);
 		}
 	}
 	verifiedKillByServer(t: number, e: number) {
@@ -21016,7 +21025,7 @@ class OnlineGame {
 			this.currentGameEndWaitingMusic = (await t.sfx.playSound("music/waiting")) ?? null;
 		}
 		r.clear();
-		this.playersListDialog.setGameEndState(o);
+		this.playersListDialog.setGameEndState(o ?? 0);
 		this.playersListDialog.visible = true;
 		this.playersListDialog.skipText.setVisibility(true);
 		const autoSkipStatsScreen = t.settingsManager.getValue("autoSkipStatsScreen");
@@ -21312,14 +21321,14 @@ class SquadDialog extends Dialog {
 	startButton: CustomButton;
 	squadSettingsDialog: SquadSettingsDialog | null;
 	currentAvatarBlobUrlReferences: Set<BlobURLReference>;
-	boundUpdateSquadId: () => void;
-	boundOnSquadIdChange: () => void;
-	boundOnSquadMembersChange: () => void;
-	boundOnLeaderStateChange: () => void;
-	boundOnSquadSettingChange: (setting: string, value: unknown) => void;
-	boundUpdateStartButtonEnabled: () => void;
-	boundUpdateStartButtonEnabledFromStartClicked: () => void;
-	boundOnInGameChange: () => void;
+	boundUpdateSquadId;
+	boundOnSquadIdChange;
+	boundOnSquadMembersChange;
+	boundOnLeaderStateChange;
+	boundOnSquadSettingChange;
+	boundUpdateStartButtonEnabled;
+	boundUpdateStartButtonEnabledFromStartClicked;
+	boundOnInGameChange;
 	constructor(
 		gameWrapper: HTMLElement,
 		networkManager: NetworkManager,
@@ -21750,9 +21759,9 @@ class SquadDialog extends Dialog {
 		const t = this.joinSquadIdInput.value.trim().length > 0;
 		this.joinSquadIdButton.el.style.display = t ? "" : "none";
 	}
-	updateStartButtonEnabled(t = false) {
+	updateStartButtonEnabled(close = false) {
 		this.startButton.enabled = this.squadManager.startButtonEnabled;
-		if (this.squadManager.startClicked && t) {
+		if (this.squadManager.startClicked && close) {
 			this.close();
 		}
 	}
@@ -21989,14 +21998,14 @@ if (navigator.userAgent.includes("AppleWebKit/605.1.15") && !getURLSearchParams(
 }
 let xs = false;
 let Ms: ServiceWorkerRegistration | null = null;
-const As = new Set();
+const As = new Set<() => void>();
 let Is: any;
 let Ls = false;
 function Ts() {
 	Ls = true;
 	As.forEach((t) => t());
 }
-function Es(t) {
+function Es(t: () => void) {
 	As.add(t);
 }
 function Ds() {
@@ -22020,7 +22029,7 @@ window.addEventListener("beforeinstallprompt", (t) => {
 	t.preventDefault();
 });
 let Fs = false;
-const Bs = new Set();
+const Bs = new Set<() => void>();
 let Vs = false;
 function Rs() {
 	if (!Vs) {
@@ -22351,7 +22360,7 @@ class MainMenu {
 			this.updateFullScreenButtonVisibility();
 		});
 		this.updateFullScreenButtonVisibility();
-		t.input.onPointerLockChange((t: any, e: any) => {
+		t.input.onPointerLockChange((t: boolean, e: boolean) => {
 			if (!t && e) {
 				this.makeMainMenuVisibleFromUserGesture();
 			}
@@ -22579,7 +22588,7 @@ class MainMenu {
 			t = false;
 		}
 		if (t != this.visible) {
-			this.visible = t;
+			this.visible = Boolean(t);
 			this.el.style.display = t ? "" : "none";
 			const e = getMain();
 			e.gameManager.updateSdkGameplayStarted();
@@ -22794,8 +22803,8 @@ class AlertDialog extends Dialog {
 				},
 			],
 			closeOnButtonClick = true,
-			extraArgs,
-		} = {},
+			extraArgs = {},
+		}: AlertOpts = {},
 	) {
 		super(gameWrapper, {
 			testLabel: "alert",
@@ -22864,7 +22873,7 @@ class AlertDialog extends Dialog {
 interface AlertOpts {
 		title?: string;
 		text?: string;
-		buttons?: { text: string; testLabel: string; onClick: (() => void) | undefined }[];
+		buttons?: AlertButton[];
 		closeOnButtonClick?: boolean;
 		extraArgs?: Record<string, unknown>;
 }
@@ -23145,7 +23154,7 @@ class InputKey {
 	onPressedUp(t: (i: { fromTouchButton?: boolean }) => boolean) {
 		this.onPressedUpCbs.add(t);
 	}
-	removeCb(t: (e: boolean) => boolean | ((i: { fromTouchButton?: boolean }) => boolean)) {
+	removeCb(t: ((e: boolean) => boolean) | ((i: { fromTouchButton?: boolean }) => boolean)) {
 		const e = t;
 		this.onPressedChangeCbs.delete(e as (e: boolean) => boolean);
 		this.onPressedDownCbs.delete(e as (i: { fromTouchButton?: boolean }) => boolean);
@@ -23195,7 +23204,7 @@ class TouchControl {
 	}
 	onEndTouch() {}
 	setVisibility(t: boolean) {
-		this.visible = t;
+		this.visible = Boolean(t);
 		this.el.style.display = t ? "" : "none";
 	}
 }
@@ -24215,7 +24224,7 @@ class InputManager {
 		this.updateDesiredPointerLockedState();
 		this.forceUnlockedPointer = false;
 	}
-	onPointerLockChange(t: (locked: boolean) => void) {
+	onPointerLockChange(t: (locked: boolean, userInitiated: boolean) => void) {
 		this.onPointerLockChangeCbs.add(t);
 	}
 	onDesiredPointerLockChange(t: (locked: boolean) => void) {
@@ -25110,11 +25119,16 @@ export class GameManager {
 		this.onReadyToJoinChangeCbs.forEach((cb) => cb(readyToJoin));
 	}
 }
+interface RecentGameData {
+	lastConnectedTimestamp: number;
+	socketAddress: string;
+	reconnectToken: string;
+}
 class RecentGameTracker {
 	isLoadingStats = true;
-	recentGameData = null;
-	loadStatsPromise;
-	ignoreCurrentRecentGameData;
+	recentGameData: RecentGameData | null = null;
+	loadStatsPromise: Promise<void>;
+	ignoreCurrentRecentGameData: boolean;
 	constructor(public indexedDb: IndexedDB) {
 		this.loadStatsPromise = this.loadStats();
 		indexedDb.delete("lastGameStats");
@@ -25894,7 +25908,7 @@ class GameRenderer {
 	removeRenderView(view: RenderView) {
 		this.renderViews.delete(view);
 	}
-	createRenderOverlay(opts: RenderOverlayOptions): RenderOverlay {
+	createRenderOverlay(opts: RenderOverlayOptions = {}): RenderOverlay {
 		const e = new RenderOverlay(opts);
 		this.renderOverlays.add(e);
 		return e;
@@ -26117,12 +26131,10 @@ export interface SfxOpts {
 	[key: string]: unknown;
 }
 class Sound {
-	opts: SfxOpts;
-	ctx: AudioContext;
 	loaded = false;
 	loading = false;
 	buffer: AudioBuffer | null = null;
-	onLoadCbs: ((value?: unknown) => void)[] = [];
+	onLoadCbs: (() => void)[] = [];
 	constructor(
 		public opts: SfxOpts,
 		public ctx: AudioContext,
@@ -26153,7 +26165,7 @@ class Sound {
 		if (this.loaded) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onLoadCbs.push(resolve));
+		const t = new Promise<void>((resolve) => this.onLoadCbs.push(resolve));
 		return await t;
 	}
 	async getBuffer() {
@@ -26936,7 +26948,7 @@ class SoundFX {
 class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unknown[], const R> {
 	once: boolean;
 	_queue: {
-		resolve(): void;
+		resolve(value: R): void;
 		args: Args;
 	}[] = [];
 	_isEmptyingQueue = false;
@@ -26953,7 +26965,7 @@ class Waiter<const F extends (...a: Args) => Promise<R>, const Args extends unkn
 		if (this.hasRun && this.once) {
 			return this._onceReturnValue;
 		}
-		const e = new Promise((resolve) =>
+		const e = new Promise<R>((resolve) =>
 			this._queue.push({
 				resolve,
 				args,
@@ -27298,7 +27310,7 @@ class MatchMaking {
 	onSquadMessage(cb: (message: SquadMessage) => void): void {
 		this.onSquadMessageCbs.add(cb);
 	}
-	sendSquadSettingChange(setting: string, value: unknown): void {
+	sendSquadSettingChange(setting: string, value: SettingValue): void {
 		this.send({
 			op: "changeSquadSetting",
 			setting,
@@ -27719,7 +27731,7 @@ class SquadManager {
 		}
 		return t;
 	}
-	setSquadSetting(t: string, e: unknown) {
+	setSquadSetting(t: string, e: SettingValue) {
 		if (this.currentSquadSettings && typeof e === "boolean") {
 			this.currentSquadSettings[t] = e;
 		}
@@ -29054,15 +29066,15 @@ class NetworkManager {
 		const i = Wn(t, e);
 		this.send(i);
 	}
-	sendJsonMessage(t: number, e: unknown) {
-		const i = JSON.stringify(e);
-		this.sendStringMessage(t, i);
+	sendJsonMessage(id: number, data: unknown) {
+		const i = JSON.stringify(data);
+		this.sendStringMessage(id, i);
 	}
 	sendCurrentVersion() {
 		this.sendStringMessage(0, "1790709288");
 	}
-	sendMySkinData(t: unknown) {
-		const e = JSON.stringify(t);
+	sendMySkinData(data: SkinData) {
+		const e = JSON.stringify(data);
 		if (e != this.lastSentSkinData) {
 			this.lastSentSkinData = e;
 			this.sendStringMessage(14, e);
@@ -29358,14 +29370,14 @@ class NetworkManager {
 		this.send([15, t, i]);
 	}
 	async sendCurrentSession() {
-		const t = await getMain().auth.getSessionDataForGameServer();
-		const e = JSON.stringify(t);
-		if (this.lastSentSessionData != e) {
-			this.lastSentSessionData = e;
-			this.sendSession(t);
+		const session = await getMain().auth.getSessionDataForGameServer();
+		const sessionString = JSON.stringify(session);
+		if (this.lastSentSessionData != sessionString) {
+			this.lastSentSessionData = sessionString;
+			this.sendSession(session);
 		}
 	}
-	sendSession(t: unknown) {
+	sendSession(t: GameServerSessionData) {
 		const e = JSON.stringify(t);
 		this.sendStringMessage(16, e);
 	}
@@ -29708,9 +29720,20 @@ class AccountExistsDialog extends Dialog {
 		this.#B.setText(canBeDeleted ? "Nevermind" : "Ok");
 	};
 }
+type GameServerSessionData = {
+	type: string;
+	token: string;
+	secureId: string;
+	guestData?: undefined;
+} | {
+	type: string;
+	guestData: unknown;
+	token?: undefined;
+	secureId?: undefined;
+};
 class AuthManager {
 	oAuthProviderConfigs = new Map();
-	prevSessionNonce: unknown;
+	prevSessionNonce: string | null = null;
 	sessionNonce: string | null = null;
 	currentSessionData: { expires: number; secureId: string; token: string } | null = null;
 	currentGuestSessionData: { expires: number; secureId: string; token: string } | null = null;
@@ -29763,7 +29786,6 @@ class AuthManager {
 			issuer: "https://appleid.apple.com",
 			invertableIcon: true,
 		});
-		this.prevSessionNonce = null;
 		this.sessionNonce = null;
 		this.currentSessionData = null;
 		this.currentGuestSessionData = null;
@@ -30730,7 +30752,7 @@ class AuthManager {
 			await this.deleteGuestAccountDataFromRestService();
 		}
 	}
-	async getSessionDataForGameServer() {
+	async getSessionDataForGameServer(): Promise<GameServerSessionData> {
 		await this.waitForInit();
 		if (
 			this.isLoggedIn &&
@@ -30981,7 +31003,7 @@ class State {
 		}
 	}
 	loadStateData(t) {}
-	getCurrentState(): { ownedCoins: number; purchasedItems: number[] } {
+	getCurrentState(): { ownedCoins: number; purchasedItems: string[] } {
 		throw new Error("Base class");
 	}
 	clearCurrentDataImpl(): void {}
@@ -31134,8 +31156,11 @@ class ShopState extends State {
 	override cachedStateIndexDbKey = "cachedShopState";
 	override getStateUrl = "shop/getShopState";
 	ownedCoins = 0;
-	purchasedItems = new Set<number>();
-	purchasingItemTasks = new Map<number, Promise<unknown>>();
+	purchasedItems = new Set<string>();
+	purchasingItemTasks = new Map<string, Promise<{
+		success: boolean;
+		errorCode: string;
+	}>>();
 	constructor(...t: [auth: AuthManager, db: IndexedDB]) {
 		super(...t);
 	}
@@ -31156,7 +31181,7 @@ class ShopState extends State {
 		this.ownedCoins = 0;
 		this.purchasedItems.clear();
 	}
-	async sendPurchaseItemRequest(t: any): Promise<unknown> {
+	async sendPurchaseItemRequest(t: any) {
 		const e = t.id;
 		let i = this.purchasingItemTasks.get(e);
 		if (!i) {
@@ -31208,8 +31233,8 @@ class ShopState extends State {
 		this.purchasingItemTasks.delete(e);
 		return s;
 	}
-	async purchasePaidItem(t: any, e: any): Promise<boolean> {
-		const { success, errorCode } = (await this.sendPurchaseItemRequest(t)) as {
+	async purchasePaidItem(purchasable: ShopItemConfig, dialogManager: DialogManager): Promise<boolean> {
+		const { success, errorCode } = (await this.sendPurchaseItemRequest(purchasable)) as {
 			success: boolean;
 			errorCode: string;
 		};
@@ -31218,7 +31243,7 @@ class ShopState extends State {
 			return true;
 		}
 		if (errorCode === "not-enough-coins") {
-			e.showAlert({
+			dialogManager.showAlert({
 				title: "Not enough coins",
 				text: "You don't have enough coins to purchase this item.",
 			});
@@ -31226,46 +31251,46 @@ class ShopState extends State {
 			if (errorCode) {
 				console.error(`Purchase failed: ${errorCode}`);
 			}
-			e.showAlert({
+			dialogManager.showAlert({
 				title: "Purchase Failed",
 				text: "An error occurred while trying to purchase this item. Please try again later.",
 			});
 		}
 		return false;
 	}
-	async purchaseRewardedItem(t: any, e: any, i: any, placement: any): Promise<boolean> {
-		if (this.purchasedItems.has(t.id)) {
-			i.showAlert({
+	async purchaseRewardedItem(purchasable: ShopItemConfig, pokiManager: Poki, dialogManager: DialogManager, placement: any): Promise<boolean> {
+		if (this.purchasedItems.has(purchasable.id)) {
+			dialogManager.showAlert({
 				title: "Purchase Failed",
 				text: "You already own this item.",
 			});
 			return false;
 		}
 		return (
-			!!(await e.rewardedBreakWithErrorDialog({
+			!!(await pokiManager.rewardedBreakWithErrorDialog({
 				category: "cosmetic",
-				details: `shopItem ${t.id}`,
+				details: `shopItem ${purchasable.id}`,
 				placement,
-			})) && (await this.purchasePaidItem(t, i))
+			})) && (await this.purchasePaidItem(purchasable, dialogManager))
 		);
 	}
-	async purchaseItem(t: any, e: any, i: any, s: any): Promise<boolean> {
+	async purchaseItem(purchasable: ShopItemConfig, pokiManager: Poki, dialogManager: DialogManager, location: "in-menu" | "shop"): Promise<boolean> {
 		let n = false;
-		if (this.getVisibleItemPrice(t)) {
-			n = await this.purchasePaidItem(t, i);
-		} else if (t.hasRewardedAd) {
-			n = await this.purchaseRewardedItem(t, e, i, s);
+		if (this.getVisibleItemPrice(purchasable)) {
+			n = await this.purchasePaidItem(purchasable, dialogManager);
+		} else if (purchasable.hasRewardedAd) {
+			n = await this.purchaseRewardedItem(purchasable, pokiManager, dialogManager, location);
 		}
 		return n;
 	}
-	getVisibleItemPrice(t: any): number {
+	getVisibleItemPrice(t: ShopItemConfig): number {
 		if (t.hasRewardedAd && !isSteam()) {
 			return 0;
 		}
 		return t.price || 0;
 	}
-	provideNewCoinCount(t: number): void {
-		this.ownedCoins = t;
+	provideNewCoinCount(newCoinCount: number): void {
+		this.ownedCoins = newCoinCount;
 		this.fireStateChanged();
 	}
 	async doubleLastGameCoins() {
@@ -31288,7 +31313,7 @@ class ShopState extends State {
 				},
 			});
 			if (i.ok) {
-				const { newCoinCount } = await i.json();
+				const { newCoinCount } = await i.json() as { newCoinCount: number };
 				this.provideNewCoinCount(newCoinCount);
 				this.authManager.syncGuestDataWithRestService();
 				return {
@@ -31310,17 +31335,17 @@ class ShopState extends State {
 			};
 		});
 	}
-	async requestCheatCoins(t: any): Promise<boolean> {
+	async requestCheatCoins(t: unknown): Promise<boolean> {
 		return false;
 	}
-	isPurchasingItem(t: any): boolean {
-		return this.purchasingItemTasks.has(t);
+	isPurchasingItem(id: string): boolean {
+		return this.purchasingItemTasks.has(id);
 	}
-	itemIsPurchased(t: any): boolean {
-		return this.purchasedItems.has(t);
+	itemIsPurchased(id: string): boolean {
+		return this.purchasedItems.has(id);
 	}
-	async waitForItemPurchase(t: any): Promise<void> {
-		const e = this.purchasingItemTasks.get(t);
+	async waitForItemPurchase(id: string): Promise<void> {
+		const e = this.purchasingItemTasks.get(id);
 		if (e) {
 			await e;
 		}
@@ -32187,7 +32212,7 @@ class ClassSelectionImageManager {
 			})
 			.getBlobUrlReference();
 	}
-	setTeamId(t: number) {
+	setTeamId(t: number | null) {
 		if (t == null) {
 			t = 1;
 		}
@@ -32373,10 +32398,11 @@ class MainInfoTextManager {
 class PlayerAvatarManager {
 	gameLoaded = false;
 	avatar: Avatar | null = null;
-	currentAvatarBlobreference = null;
+	avatarVisible = false;
+	currentAvatarBlobreference: BlobURLReference | null = null;
 	onAvatarUrlChangeCbs = new Set<(url: string | null) => void>();
 	currentBlobUrl: string | null = null;
-	updateAvatarInstance;
+	updateAvatarInstance: Waiter;
 	constructor() {
 		this.updateAvatarInstance = new Waiter(async () => {
 			if (this.onAvatarUrlChangeCbs.size == 0 || !this.avatarVisible || !this.avatar) {
