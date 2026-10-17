@@ -446,7 +446,7 @@ const ac = 1;
 const oc = 2;
 const lc = 3;
 const noAttackTeam = 4;
-const hc = [
+const teamData = [
 	{
 		id: "preJoin",
 		playersListText: "Players",
@@ -653,7 +653,7 @@ export {
 	clamp,
 	lerp,
 	posMod,
-	hc as n,
+	teamData,
 	wrap,
 	partNames,
 	Po as q,

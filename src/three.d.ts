@@ -112,29 +112,60 @@ declare const ac = 1;
 declare const oc = 2;
 declare const lc = 3;
 declare const noAttackTeam = 4;
-declare const hc: ({
-    id: string;
-    playersListText: string;
-    colorTransform: (e: {
+declare const teamData: readonly [{
+    readonly id: "preJoin";
+    readonly playersListText: "Players";
+    readonly colorTransform: (e: {
         h: number;
         s: number;
         v: number;
     }) => void;
-    cssColor: string;
-    cssColorLight: string;
-    cssColorDark: string;
-} | {
-    colorTransform?: undefined;
-    id: string;
-    playersListText: string;
-    cssColor: string;
-    cssColorLight: string;
-    cssColorDark: string;
-})[];
+    readonly cssColor: "#a3a3a3";
+    readonly cssColorLight: "#ececec";
+    readonly cssColorDark: "#717171";
+}, {
+    readonly id: "red";
+    readonly playersListText: "Team Red";
+    readonly cssColor: "#e5302c";
+    readonly cssColorLight: "#ffd9d1";
+    readonly cssColorDark: "#a32321";
+}, {
+    readonly id: "blue";
+    readonly playersListText: "Team Blue";
+    readonly colorTransform: (e: {
+        h: number;
+    }) => void;
+    readonly cssColor: "#24a3dd";
+    readonly cssColorLight: "#b0e6ff";
+    readonly cssColorDark: "#1d749e";
+}, {
+    readonly id: "green";
+    readonly playersListText: "Player";
+    readonly colorTransform: (e: {
+        h: number;
+        s: number;
+        v: number;
+    }) => void;
+    readonly cssColor: "#2d702f";
+    readonly cssColorLight: "#abecad";
+    readonly cssColorDark: "#225423";
+}, {
+    readonly id: "spectator";
+    readonly playersListText: "Spectators";
+    readonly colorTransform: (e: {
+        h: number;
+        s: number;
+        v: number;
+    }) => void;
+    readonly cssColor: "#bababa";
+    readonly cssColorLight: "#ececec";
+    readonly cssColorDark: "#858585";
+}];
 declare function uc(e: number, t: number): boolean;
 declare function dc(e: number, t: number, n: number): boolean;
 declare function pc(e: number): boolean;
 declare function mc(e: number, t: number, n: number): number[];
 declare function fc(e: number, t: number, n: number): number[];
 export declare function ab(e: number, t: number, n: number, i?: number): number;
-export { ic as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip, clamp, lerp, posMod, hc as n, wrap, partNames, Po as q, noAttackTeam, uc as s, recurseChildren, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
+export { ic as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip, clamp, lerp, posMod, teamData, wrap, partNames, Po as q, noAttackTeam, uc as s, recurseChildren, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
+//# sourceMappingURL=three.d.ts.map

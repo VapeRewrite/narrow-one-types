@@ -1,4 +1,26 @@
-declare const PokiSDK: any;
+declare const PokiSDK: {
+	init(options: { debug?: boolean }): Promise<void>;
+	enableEventTracking(level: number): void;
+	rewardedBreak(category: string, details: any, placement: string): Promise<string>;
+	gameLoadingProgress(opts: { percentageDone: number }): Promise<void>;
+	gameLoadingFinished(): Promise<void>;
+	gameLoadingStart(): void;
+	rewardedBreakWithErrorDialog(opts: { category?: string; details?: any; placement?: string }): Promise<string>;
+	openExternalLink(url: string): void;
+	displayAd(el: HTMLElement, size: { width: number; height: number }): void;
+	destroyAd(el: HTMLElement): void;
+	commercialBreak(): Promise<void>;
+	isPokiBuild: boolean;
+	pokiErrored: boolean;
+	pokiInit: boolean;
+	pokiInitErrored: boolean;
+};
+
+declare const steamworks: {
+	achievement: {
+		activate(name: string): void;
+	};
+};
 import {
 	clamp,
 	lerp,
@@ -10,7 +32,7 @@ import {
 	D as side,
 	F,
 	posMod,
-	n as n_1,
+	teamData,
 	wrap,
 	q,
 	noAttackTeam,
@@ -1848,10 +1870,15 @@ class AssetPackage {
 		return await new Response(blob).arrayBuffer();
 	}
 }
-let jt = null;
-let Gt = null;
+interface PlusOnlyVerificationData {
+	expires: number;
+	[key: string]: unknown;
+}
+
+let jt: PlusOnlyVerificationData | null = null;
+let Gt: Promise<PlusOnlyVerificationData | null> | null = null;
 const workerHandler = {
-	mapCached(t) {
+	mapCached(t: string) {
 		getMain().mapLoader.markMapAsCached(t);
 	},
 	reportMapLoadProgress(t: number, e: number): void {
@@ -1860,7 +1887,7 @@ const workerHandler = {
 	firstMapDownloaded() {
 		getMain().mapLoader.reportFirstMapDownloaded();
 	},
-	mapGameplayObjects(t, e) {
+	mapGameplayObjects(t: RawGameplayData, e: number) {
 		getMain().mapLoader.setGamplayObjects(t, e);
 	},
 	getPlusOnlyVerificationData: async function () {
@@ -5763,7 +5790,7 @@ class SkinDownloaderDialog extends Dialog {
 		n.appendChild(o);
 		this.teamColorInput = document.createElement("input");
 		this.teamColorInput.type = "color";
-		this.teamColorInput.value = n_1[1].cssColor;
+		this.teamColorInput.value = teamData[1].cssColor;
 		this.teamColorInput.addEventListener("change", () => this.reloadPreview());
 		o.appendChild(this.teamColorInput);
 		const a = document.createElement("div");
@@ -5771,7 +5798,7 @@ class SkinDownloaderDialog extends Dialog {
 		n.appendChild(a);
 		this.backgroundColorInput = document.createElement("input");
 		this.backgroundColorInput.type = "color";
-		this.backgroundColorInput.value = n_1[2].cssColor;
+		this.backgroundColorInput.value = teamData[2].cssColor;
 		this.backgroundColorInput.addEventListener("change", () => this.reloadPreview());
 		a.appendChild(this.backgroundColorInput);
 		const r = document.createElement("div");
@@ -6435,8 +6462,8 @@ class SkinPreview {
 		this.tooltipCategory = tooltipCategory;
 	}
 	updateBackgroundColor() {
-		const t = (this.currentTeamId + 1) % n_1.length;
-		const e = n_1[t]!;
+		const t = (this.currentTeamId + 1) % teamData.length;
+		const e = teamData[t]!;
 		this.el.style.background = e.cssColor;
 	}
 	async replaceLoadingModel() {
@@ -7556,7 +7583,7 @@ class PresetSelectionItem {
 			height: 300,
 			clipPathType: "none",
 			cameraType: "full-body",
-			backgroundColor: n_1[2].cssColor,
+			backgroundColor: teamData[2].cssColor,
 		});
 		this.avatarBlobUrlReference = a.getBlobUrlReference();
 		this.avatarBlobUrlReference.getBlobUrl().then(t => {
@@ -14869,7 +14896,7 @@ export class Player {
 	getSmallAvatar() {
 		const t = 40 * globalThis.devicePixelRatio;
 		return getMain().avatars.getAvatar({
-			backgroundColor: n_1[this.teamId]!.cssColor,
+			backgroundColor: teamData[this.teamId]!.cssColor,
 			width: t,
 			height: t,
 			skinObjectOpts: {
@@ -15295,7 +15322,7 @@ class Flag {
 		this.prevIsBeingHeld = false;
 		this.holdingHandler = null;
 		this.icon = getMain().hudIcons.createIcon({
-			url: `static/img/hudIcons/flags/${n_1[teamId]?.id}.svg`,
+			url: `static/img/hudIcons/flags/${teamData[teamId]?.id}.svg`,
 		});
 		this.initModel();
 		this.destructed = false;
@@ -16087,7 +16114,7 @@ class ArrowManager {
 			let n = 1;
 			let o = 0;
 			let r = 0;
-			const l = n_1[team]!.colorTransform;
+			const l = teamData[team]!.colorTransform;
 			if (l) {
 				const [h_1, s_2, v] = N(n, o, r);
 				const s = {
@@ -16504,7 +16531,7 @@ class FlagScoreItem {
 		this.iconEl.setAttributeNS(null, "viewBox", "0 0 241.205 241.205");
 		this.teamId = t;
 		this.el.appendChild(this.iconEl);
-		const e = n_1[t];
+		const e = teamData[t];
 		this.iconEl.innerHTML = `
 \t\t\t<path fill="${e.cssColor}" style="stroke-width: 20px; stroke: white;" d="M160.8,38.551c-20.152,0-40.3-13.435-40.3-13.435S100.348,38.551,80.2,38.551s-40.3-6.717-40.3-6.717V132.6a31.093,31.093,0,0,0,3.318,14.013,160.68,160.68,0,0,0,77.29,73.31,160.68,160.68,0,0,0,77.29-73.31,31.093,31.093,0,0,0,3.318-14.013V31.834S180.956,38.551,160.8,38.551Z"/>
 \t\t\t<g style="transform: scale(0.8); transform-origin: center;">
@@ -16948,7 +16975,7 @@ class PlayersListDialog extends Dialog {
 		this.currentAvatarBlobUrlReferences = new Set();
 		this.configuredColumnTypes = [];
 		this.teamEls = [];
-		for (const [t, e] of n_1.entries()) {
+		for (const [t, e] of teamData.entries()) {
 			const containerEl = document.createElement("div");
 			containerEl.classList.add("playersListTeam", "wrinkledPaper");
 			containerEl.style.cssText = `
@@ -17041,7 +17068,7 @@ class PlayersListDialog extends Dialog {
 	}
 	updateTableHeaders() {
 		for (const [t, { colGroupEl, headerRowEl }] of this.teamEls.entries()) {
-			const s = n_1[t]!;
+			const s = teamData[t]!;
 			let n = 1;
 			const o = [];
 			const a = [];
@@ -17191,7 +17218,7 @@ class PlayersListDialog extends Dialog {
 						const t = document.createElement("span");
 						t.textContent = i;
 						t.classList.add("players-list-label");
-						t.style.background = n_1[(e as any).teamId]!.cssColor;
+						t.style.background = teamData[(e as any).teamId]!.cssColor;
 						n.appendChild(t);
 					}
 				}
@@ -17214,7 +17241,7 @@ class PlayersListDialog extends Dialog {
 		if (t == null) {
 			return;
 		}
-		const e = n_1[t]!;
+		const e = teamData[t]!;
 		this.teamWonTitle.textContent = `Team ${e.id} won!`;
 		this.teamWonTitle.style.display = "";
 		this.teamWonTitle.style.color = e.cssColor;
@@ -17418,7 +17445,7 @@ class GameOverStatsDialog extends Dialog {
 		const r = document.createElement("h2");
 		r.classList.add("dialogTitle", "blueNight");
 		r.textContent = "Your Game Stats";
-		const l = n_1[myTeamId];
+		const l = teamData[myTeamId];
 		r.style.color = l.cssColor;
 		this.el.appendChild(r);
 		this.statsContainer = document.createElement("div");
@@ -19563,7 +19590,7 @@ class EliminationTeamScore {
 	alivePlayers;
 	constructor(t) {
 		this.teamId = t;
-		const e = n_1[t];
+		const e = teamData[t];
 		this.teamColor = e.cssColor;
 		this.playerDots = [];
 		this.alivePlayers = 0;
@@ -19675,7 +19702,7 @@ class KingOfTheHillUi {
 			const e = document.createElement("div");
 			e.classList.add("king-of-the-hill-progress", "container");
 			const i = intRandom(1, 99999);
-			const s = n_1[t];
+			const s = teamData[t];
 			const n = document.createElement("div");
 			n.classList.add("value");
 			e.append(n);
@@ -20211,15 +20238,15 @@ class OnlineGame {
 		this.fireSquadPlayersChange();
 		this.onMyPlayerChangeCbs.forEach((cb) => cb());
 	}
-	getMyTeamColor(): { colors: (typeof n_1)[number]; myTeamId: number } {
+	getMyTeamColor(): { colors: (typeof teamData)[number]; myTeamId: number } {
 		let myTeamId = 0;
 		const myPlayer = this.getMyPlayer();
 		if (myPlayer) {
 			myTeamId = myPlayer.teamId;
 		}
-		let colors = n_1[myTeamId];
+		let colors = teamData[myTeamId];
 		if (!colors) {
-			colors = n_1[0];
+			colors = teamData[0];
 			myTeamId = 0;
 		}
 		return {
@@ -20348,7 +20375,7 @@ class OnlineGame {
 			i = 1;
 		}
 		if (i) {
-			const s = `static/img/notificationIcons/flag/${n_1[i]!.id}/${t_type}.svg`;
+			const s = `static/img/notificationIcons/flag/${teamData[i]!.id}/${t_type}.svg`;
 			if (this.uiVisible) {
 				this.cornerNotificationsUi.showIcon(s);
 			}
@@ -21508,11 +21535,11 @@ class SquadDialog extends Dialog {
 		let secondBackgroundColor: string | null = null;
 		if (-1 == teamId) {
 			teamId = 1;
-			secondBackgroundColor = n_1[2]!.cssColor;
+			secondBackgroundColor = teamData[2]!.cssColor;
 		}
 		const blobRef = this.avatarsManager
 			.getAvatar({
-				backgroundColor: n_1[teamId]!.cssColor,
+				backgroundColor: teamData[teamId]!.cssColor,
 				secondBackgroundColor,
 				width: avatarSize,
 				height: avatarSize,
@@ -24947,7 +24974,7 @@ export class GameManager {
 			return this.activeGame.getMyTeamColor();
 		}
 		return {
-			colors: n_1[0]!,
+			colors: teamData[0]!,
 			myTeamId: 0,
 		};
 	}
