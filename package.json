@@ -1,17 +1,16 @@
 {
-  "name": "narrow-one-types",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest",
-    "oxfmt": "^0.72.0",
-    "oxlint": "^1.87.0"
-  },
-  "peerDependencies": {
-    "typescript": "^7"
-  },
-  "dependencies": {
-    "@types/three": "0.128.0"
-  }
+	"name": "@wq2/narrow-one-types",
+	"version": "0.0.0",
+	"module": "index.ts",
+	"files": ["src", "README.md", "LICENSE.md"],
+	"devDependencies": {
+		"oxfmt": "^0.72.0",
+		"oxlint": "^1.87.0"
+	},
+	"peerDependencies": {
+		"typescript": "^7"
+	},
+	"dependencies": {
+		"@types/three": "0.128.0"
+	}
 }
