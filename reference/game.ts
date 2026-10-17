@@ -15,6 +15,12 @@ declare const PokiSDK: {
 	pokiInit: boolean;
 	pokiInitErrored: boolean;
 };
+
+declare const steamworks: {
+	achievement: {
+		activate(name: string): void;
+	};
+};
 import {
 	clamp,
 	lerp,
@@ -1535,6 +1541,7 @@ class SettingsDialog extends Dialog {
 							},
 							{
 								text: "Unlink it!",
+								testLabel: "unlink",
 								onClick: async () => {
 									if (typeof unlinkButtonOptions !== "function") {
 										throw new Error(
@@ -1866,10 +1873,10 @@ class AssetPackage {
 		return await new Response(blob).arrayBuffer();
 	}
 }
-let jt = null;
-let Gt = null;
+let jt: { expires: number; [key: string]: unknown } | null = null;
+let Gt: Promise<{ expires: number; [key: string]: unknown } | null> | null = null;
 const workerHandler = {
-	mapCached(t) {
+	mapCached(t: string) {
 		getMain().mapLoader.markMapAsCached(t);
 	},
 	reportMapLoadProgress(t: number, e: number): void {
@@ -1878,7 +1885,7 @@ const workerHandler = {
 	firstMapDownloaded() {
 		getMain().mapLoader.reportFirstMapDownloaded();
 	},
-	mapGameplayObjects(t, e) {
+	mapGameplayObjects(t: RawGameplayData, e: number) {
 		getMain().mapLoader.setGamplayObjects(t, e);
 	},
 	getPlusOnlyVerificationData: async function () {
@@ -2172,7 +2179,7 @@ class AssetsManager {
 		return AssetsManager.deserializeThreeObject(d);
 	}
 }
-function _t(t) {
+function _t(t: ShopItemConfig) {
 	if (!t.slots || !Array.isArray(t.slots)) {
 		t.slots = [];
 		if (t.maleSkin) {
@@ -2234,7 +2241,7 @@ function Xt(t: unknown) {
 	}
 	return Qt(e);
 }
-function Qt(t = null) {
+function Qt(t: SkinData | null = null) {
 	if (typeof t !== "object" || Array.isArray(t) || t == null) {
 		return {
 			equippedSkinIds: [],
@@ -2263,23 +2270,23 @@ function Qt(t = null) {
 	}
 	return t as SkinData;
 }
-function Zt(t) {
-	if (!Array.isArray(t)) {
+function Zt(color: ColorArray): ColorArray {
+	if (!Array.isArray(color)) {
 		return [1, 1, 1];
 	}
-	if (t.length != 3) {
+	if (color.length != 3) {
 		return [1, 1, 1];
 	}
-	for (const e of t.keys()) {
-		if (typeof t[e] !== "number") {
-			t[e] = 1;
+	for (const e of color.keys()) {
+		if (typeof color[e] !== "number") {
+			color[e] = 1;
 		}
-		t[e] = clampTo01(t[e]);
-		if (isNaN(t[e])) {
-			t[e] = 1;
+		color[e] = clampTo01(color[e]);
+		if (isNaN(color[e])) {
+			color[e] = 1;
 		}
 	}
-	return t;
+	return color;
 }
 export interface SkinColorMultiplier extends Array<number> {
 	0: number;
@@ -2405,7 +2412,11 @@ class SkinsManager {
 		const buffers: Record<string, ArrayBuffer> = {};
 		for (const assetPath of assetPaths) {
 			const loadOne = async () => {
-				buffers[assetPath] = await getMain().assets.getPackage("main").getFileAsBuffer(assetPath);
+				const packageInstance = getMain().assets.getPackage("main");
+				const buffer = packageInstance ? await packageInstance.getFileAsBuffer(assetPath) : null;
+				if (buffer) {
+					buffers[assetPath] = buffer;
+				}
 			};
 			pending.push(loadOne());
 		}
@@ -3204,7 +3215,7 @@ class PagedView {
 		if (!this.rootStructure) {
 			throw new Error("Failed to jump to subpage, no root structure set");
 		}
-		const e = (function t(e, i) {
+		const e = (function t(e: PagedViewStructure, i: PagedViewStructure): PagedViewStructure[] | null {
 			if (e === i) {
 				return [i];
 			}
@@ -3235,6 +3246,7 @@ class PagedView {
 	updatePageVisibilities() {
 		for (let t = 0; t < this.createdPageEls.length; t++) {
 			const createdPageEl = this.createdPageEls[t];
+			if (!createdPageEl) continue;
 			const i = createdPageEl.visible;
 			const s = t >= this.createdPageEls.length - 1;
 			const n = createdPageEl.el;
@@ -3323,7 +3335,7 @@ class PoseLayer {
 		}
 		const t = new Promise((resolve, reject) =>
 			this.onSkeletonLoadCbs.add({
-				resolve,
+				resolve: () => resolve(undefined),
 				reject,
 			}),
 		);
@@ -3569,6 +3581,21 @@ class PlayerSkeleton {
 		this.assertInit();
 		return this.skeletonMatrixObjects.map((t: Object3D) => t.matrixWorld);
 	}
+}
+interface WeatherParams {
+	colorMultiplier: Color;
+	colorAdder: Color;
+	saturation: number;
+	skyLowColor: Color;
+	skyHighColor: Color;
+	skyMidColor: Color;
+	skyPower: number;
+	fogAmount: number;
+	fogHeightAmount: number;
+	fogHeightOffset: number;
+	fogHeightDistFalloff: number;
+	fogHeightAmountMin: number;
+	fogHeightAmountMax: number;
 }
 class GameMaterials {
 	materialsCache = new Map<string, Material>();
@@ -3861,30 +3888,31 @@ class GameMaterials {
 	removeExtraMaterial(material: Material) {
 		this.extraMaterials.delete(material);
 	}
-	applyWeatherParams(t: unknown) {
-		for (const material of this.allMaterials() as Iterable<ShaderMaterial>) {
-			_(material as any).uniforms.colorMultiplier.value.copy((t as any).colorMultiplier);
-			(material as any).uniforms.colorAdder.value.copy((t as any).colorAdder);
-			(material as any).uniforms.saturation.value = (t as any).saturation;
-			(material as any).uniforms.skyLowCol.value.copy((t as any).skyLowColor);
-			(material as any).uniforms.skyHighCol.value.copy((t as any).skyHighColor);
-			(material as any).uniforms.skyMidCol.value.copy((t as any).skyMidColor);
-			(material as any).uniforms.skyPower.value = (t as any).skyPower;
-			(material as any).uniforms.fogAmount.value = (t as any).fogAmount;
-			(material as any).uniforms.fogHeightAmount.value = (t as any).fogHeightAmount;
-			(material as any).uniforms.fogHeightOffset.value = (t as any).fogHeightOffset;
-			(material as any).uniforms.fogHeightDistFalloff.value = (t as any).fogHeightDistFalloff + 1;
-			(material as any).uniforms.fogHeightAmountMin.value = (t as any).fogHeightAmountMin;
-			(material as any).uniforms.fogHeightAmountMax.value = (t as any).fogHeightAmountMax;
+	applyWeatherParams(t: WeatherParams) {
+		for (const material of this.allMaterials()) {
+			const m = material as ShaderMaterial;
+			m.uniforms.colorMultiplier!.value.copy(t.colorMultiplier);
+			m.uniforms.colorAdder!.value.copy(t.colorAdder);
+			m.uniforms.saturation!.value = t.saturation;
+			m.uniforms.skyLowCol!.value.copy(t.skyLowColor);
+			m.uniforms.skyHighCol!.value.copy(t.skyHighColor);
+			m.uniforms.skyMidCol!.value.copy(t.skyMidColor);
+			m.uniforms.skyPower!.value = t.skyPower;
+			m.uniforms.fogAmount!.value = t.fogAmount;
+			m.uniforms.fogHeightAmount!.value = t.fogHeightAmount;
+			m.uniforms.fogHeightOffset!.value = t.fogHeightOffset;
+			m.uniforms.fogHeightDistFalloff!.value = t.fogHeightDistFalloff + 1;
+			m.uniforms.fogHeightAmountMin!.value = t.fogHeightAmountMin;
+			m.uniforms.fogHeightAmountMax!.value = t.fogHeightAmountMax;
 		}
 	}
 	static resetWeatherUniforms(t: ShaderMaterial) {
-		t.uniforms.colorMultiplier.value.set(new Color(1, 1, 1));
-		t.uniforms.colorAdder.value.set(new Color(0, 0, 0));
-		t.uniforms.saturation.value = 1;
-		t.uniforms.fogAmount.value = 0;
-		t.uniforms.fogHeightAmountMin.value = 0;
-		t.uniforms.fogHeightAmountMax.value = 0;
+		t.uniforms.colorMultiplier!.value.set(new Color(1, 1, 1));
+		t.uniforms.colorAdder!.value.set(new Color(0, 0, 0));
+		t.uniforms.saturation!.value = 1;
+		t.uniforms.fogAmount!.value = 0;
+		t.uniforms.fogHeightAmountMin!.value = 0;
+		t.uniforms.fogHeightAmountMax!.value = 0;
 	}
 	setLightningValue(t: number) {
 		if (this.basicUnlitMat) {
@@ -4228,7 +4256,7 @@ class GameMaterials {
 		return b;
 	}
 }
-function ae(obj: Object3D, { skinMatrices = null } = {}) {
+function ae(obj: Object3D, { skinMatrices = null as Matrix4[] | null } = {}) {
 	let i = null;
 	const expandPoint = new Vector3();
 	for (const child of recurseChildren(obj)) {
@@ -4238,7 +4266,7 @@ function ae(obj: Object3D, { skinMatrices = null } = {}) {
 			for (let n = 0; n < t.count; n++) {
 				expandPoint.fromBufferAttribute(t, n);
 				if (o && skinMatrices) {
-					const matrix: Matrix4 = skinMatrices[o.getX(n)];
+					const matrix: Matrix4 = skinMatrices[o.getX(n)]!;
 					expandPoint.applyMatrix4(matrix);
 				}
 				if (i) {
@@ -4261,7 +4289,7 @@ function ae(obj: Object3D, { skinMatrices = null } = {}) {
 			for (let i = 0; i < t.count; i++) {
 				expandPoint.fromBufferAttribute(t, i);
 				if (a && skinMatrices) {
-					const t = skinMatrices[a.getX(i)];
+					const t = skinMatrices[a.getX(i)]!;
 					expandPoint.applyMatrix4(t);
 				}
 				const r = n.distanceTo(expandPoint);
@@ -4276,7 +4304,7 @@ class SkinModel {
 	isInit = false;
 	destructed = false;
 	obj: Object3D | null = null;
-	materials: Material[] = [];
+	materials: ShaderMaterial[] = [];
 	lastSetMatrices: Matrix4[] | null = null;
 	onInitCbs = new Set<() => void>();
 	getSkinAbortController = new AbortController();
@@ -4310,7 +4338,7 @@ class SkinModel {
 			return await this.waitForInit();
 		}
 		this.initCalled = true;
-		let t = null;
+		let t: Object3D | null = null;
 		try {
 			t = await getMain().skins.getSkinObject(
 				this.skinObjectOpts,
@@ -4325,7 +4353,7 @@ class SkinModel {
 			t &&
 			((t! as Mesh).geometry.boundingSphere = new Sphere(new Vector3(0, 1, 0), 1)), !this.destructed
 		) {
-			this.obj = t;
+			this.obj = t!;
 			const e = new Map();
 			this.obj.traverse((object) => {
 				if (object instanceof Mesh) {
@@ -4381,7 +4409,10 @@ class SkinModel {
 	}
 	setHitFlashMaterialsTime(time: number) {
 		for (const e of this.materials) {
-			(e as ShaderMaterial).uniforms.time.value = time;
+			const em = e as ShaderMaterial;
+			if (em.uniforms.time) {
+				em.uniforms.time.value = time;
+			}
 		}
 	}
 	setHitFlashMaterialsValue(index: number, flashTime: number, flashPosition: Vector3) {
@@ -4495,7 +4526,7 @@ class SingleAssetLoader {
 		this.destroyMaterials();
 		this.destroyBowMeshes();
 	}
-	async setConfig(config: {skinAssetName?: string | null, fallbackSkinAssetName?: string | null; [k: string]: unknonw}) {
+	async setConfig(config: {skinAssetName?: string | null, fallbackSkinAssetName?: string | null; [k: string]: unknown}) {
 		if (this.currentlyLoadingAbortController) {
 			this.currentlyLoadingAbortController.abort();
 		}
@@ -4525,7 +4556,7 @@ class SingleAssetLoader {
 			s = o.asset;
 		}
 		if (this.currentMeleeAsset) {
-			this.obj.remove(this.currentMeleeAsset);
+			this.obj!.remove(this.currentMeleeAsset);
 		}
 		this.currentMeleeAsset = null;
 		this.destroyMaterials();
@@ -4541,7 +4572,7 @@ class SingleAssetLoader {
 	}
 	destroyMaterials() {
 		for (const t of this.currentlyLoadedMaterials) {
-			t.dispose();
+			(t as Material).dispose();
 		}
 		this.currentlyLoadedMaterials = [];
 	}
@@ -4609,7 +4640,7 @@ const de = {
 	},
 };
 interface BowAssetConfig {
-	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number; separateObjectNames?: string[]
+	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number; separateObjectNames?: string[]; arrowPositions?: string[]
 }
 class BowAssetLoader {
 	obj = new Object3D();
@@ -4625,7 +4656,7 @@ class BowAssetLoader {
 	currentArrowOffsets: Vector2[] = [];
 	onArrowDestroyCallbacks = new Set<() => void>();
 	arrowAssetLoader;
-	arrowObjectsConfig;
+	arrowObjectsConfig: { arrowCount: number; arrowPositions: string | string[] };
 	arrowPointIdle = new Object3D();
 	arrowPointLoaded = new Object3D();
 	constructor({ useWorldWeather = true } = {}) {
@@ -4672,7 +4703,7 @@ class BowAssetLoader {
 		let s;
 		let morphOpts = {};
 		if (config.bowId) {
-			morphOpts = de[config.bowId] || {};
+			morphOpts = (de as any)[config.bowId] || {};
 		}
 		try {
 			s = await i.skins.getBowObject(
@@ -4698,8 +4729,8 @@ class BowAssetLoader {
 		}
 		this.destroyMaterials();
 		this.destroyBowMeshes();
-		this.currentBowAsset = bow;
-		this.obj.add(bow);
+		this.currentBowAsset = bow!;
+		this.obj.add(bow as Object3D);
 		if (!(bow instanceof Mesh)) {
 			throw new Error("Assertion failed, bow is not a mesh");
 		}
@@ -4723,7 +4754,7 @@ class BowAssetLoader {
 		this.arrowPointLoaded.scale.set(1, 1, 1);
 		this.arrowPointLoaded.applyMatrix4(arrowPointLoadedMatrix);
 		const arrowCount = config.arrowCount ?? 1;
-		const arrowPositions = config.arrowPositions ?? "stacked";
+		const arrowPositions = config.arrowPositions ?? ["stacked"];
 		if (
 			!(
 				this.arrowObjectsConfig.arrowCount == arrowCount &&
@@ -4732,7 +4763,7 @@ class BowAssetLoader {
 		) {
 			this.arrowObjectsConfig = {
 				arrowCount,
-				arrowPositions,
+				arrowPositions: arrowPositions as string[],
 			};
 			this.rebuildArrowObjects();
 		}
@@ -4777,7 +4808,7 @@ class BowAssetLoader {
 	}
 	destroyMaterials() {
 		for (const t of this.currentlyLoadedMaterials) {
-			t.dispose();
+			(t as Material).dispose();
 		}
 		this.currentlyLoadedMaterials = [];
 	}
@@ -4794,7 +4825,7 @@ class BowAssetLoader {
 		if (!this.isLoadingAsset) {
 			return;
 		}
-		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(resolve));
+		const t = new Promise((resolve) => this.onFirstAssetLoadCbs.add(() => resolve(undefined)));
 		await t;
 	}
 	onAssetChange(cb: (bow: Mesh) => void) {
@@ -4838,7 +4869,7 @@ class BowAssetLoader {
 		}
 		for (const t of this.currentlyLoadedMaterials) {
 			if (t instanceof ShaderMaterial) {
-				t.uniforms.bowMorphAmount.value = this.lastFireAmount01;
+				t.uniforms.bowMorphAmount!.value = this.lastFireAmount01;
 			}
 		}
 	}
@@ -6083,7 +6114,10 @@ class SkinPreview {
 				const e = new SkinDownloaderDialog(
 					gameWrapper,
 					getMain().avatars,
-					getMain().skins,
+					{
+						teamId: this.currentTeamId,
+						skin: this.currentlyLoadedSkinData,
+					},
 					this.currentlyLoadedSkinData,
 				);
 				getMain().dialogManager.addDialog(e);
@@ -14367,8 +14401,8 @@ export class Player {
 			this.updateMySelectedWeapon();
 		}
 	}
-	setGungameWeaponIndex(t: number) {
-		this.gungameWeaponIndex = t;
+	setGungameWeaponIndex(weaponIndex: number) {
+		this.gungameWeaponIndex = weaponIndex;
 		this.updateAllowedWeaponsConfig();
 	}
 	toggleActiveWeapon() {
@@ -16982,7 +17016,7 @@ class PlayersListDialog extends Dialog {
 	teamWonTitle = document.createElement("h2");
 	teamsContainer;
 	currentAvatarBlobUrlReferences;
-	configuredColumnTypes;
+	configuredColumnTypes: string[] = [];
 	teamEls;
 	skipText;
 	scoresFrozen;
@@ -17000,8 +17034,7 @@ class PlayersListDialog extends Dialog {
 		this.teamsContainer = document.createElement("div");
 		this.teamsContainer.classList.add("playersListContainer");
 		this.el.appendChild(this.teamsContainer);
-		this.currentAvatarBlobUrlReferences = new Set();
-		this.configuredColumnTypes = [];
+		this.currentAvatarBlobUrlReferences = new Set<BlobURLReference>();
 		this.teamEls = [];
 		for (const [t, e] of teamData.entries()) {
 			const containerEl = document.createElement("div");
@@ -17089,8 +17122,8 @@ class PlayersListDialog extends Dialog {
 			}
 		}
 	}
-	setActiveGamemode(t) {
-		this.configuredColumnTypes = R(t);
+	setActiveGamemode(gamemode: number) {
+		this.configuredColumnTypes = R(gamemode);
 		this.updateTableHeaders();
 		this.updatePlayersList();
 	}
@@ -17277,27 +17310,26 @@ class PlayersListDialog extends Dialog {
 }
 class NotificationsUi {
 	el = document.createElement("div");
-	currentIconEl;
+	currentIconEl: HTMLDivElement | null = null;
 	constructor(
 		public gameWrapper: HTMLElement,
-		e = "topleft",
+		className = "topleft",
 	) {
-		this.el.classList.add("notificationIconsUiContainer", e);
+		this.el.classList.add("notificationIconsUiContainer", className);
 		gameWrapper.appendChild(this.el);
-		this.currentIconEl = null;
 	}
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	showIcon(t) {
+	showIcon(url: string) {
 		if (this.currentIconEl) {
 			this.el.removeChild(this.currentIconEl);
 		}
 		let e = null;
-		if (t) {
+		if (url) {
 			e = document.createElement("div");
 			e.classList.add("notificationIcon");
-			e.style.backgroundImage = `url(${t})`;
+			e.style.backgroundImage = `url(${url})`;
 			this.el.appendChild(e);
 		}
 		this.currentIconEl = e;
@@ -17306,91 +17338,101 @@ class NotificationsUi {
 		this.showIcon(null);
 	}
 }
-const Xi = new Map();
-Xi.set(1, {
+interface StatisticCategory {
+	text?: string;
+	overviewText: string;
+	visibilityDuration?: number;
+	hideInGame?: boolean;
+	includeInCollectorAchievement?: boolean;
+}
+const statisticCategories = new Map<number, StatisticCategory>();
+statisticCategories.set(1, {
 	text: "Kill",
 	overviewText: "Kills",
 	includeInCollectorAchievement: true,
 });
-Xi.set(2, {
+statisticCategories.set(2, {
 	text: "Assist",
 	overviewText: "Assists",
 	includeInCollectorAchievement: true,
 });
-Xi.set(3, {
+statisticCategories.set(3, {
 	text: "Carrier Kill",
 	overviewText: "Carrier Kills",
 	includeInCollectorAchievement: true,
 });
-Xi.set(4, {
+statisticCategories.set(4, {
 	text: "Grab",
 	overviewText: "Flag Grabs",
 	includeInCollectorAchievement: true,
 });
-Xi.set(5, {
+statisticCategories.set(5, {
 	text: "",
 	overviewText: "Flag Carry",
 	visibilityDuration: 0.5,
 	includeInCollectorAchievement: true,
 });
-Xi.set(7, {
+statisticCategories.set(7, {
 	text: "Carrier Assist",
 	overviewText: "Carrier Assist",
 	visibilityDuration: 0.5,
 	includeInCollectorAchievement: true,
 });
-Xi.set(6, {
+statisticCategories.set(6, {
 	text: "Capture",
 	overviewText: "Flag Captures",
 	includeInCollectorAchievement: true,
 });
-Xi.set(8, {
+statisticCategories.set(8, {
 	overviewText: "Win Bonus",
 	hideInGame: true,
 	includeInCollectorAchievement: true,
 });
-Xi.set(9, {
+statisticCategories.set(9, {
 	text: "Flag Return",
 	overviewText: "Flag Return",
 	includeInCollectorAchievement: true,
 });
-Xi.set(10, {
+statisticCategories.set(10, {
 	text: "Headshot",
 	overviewText: "Headshots",
 	includeInCollectorAchievement: true,
 });
-Xi.set(11, {
+statisticCategories.set(11, {
 	text: "Long Range",
 	overviewText: "Long Range Hits",
 	includeInCollectorAchievement: true,
 });
-Xi.set(12, {
+statisticCategories.set(12, {
 	text: "Capture Assist",
 	overviewText: "Capture Assists",
 	includeInCollectorAchievement: true,
 });
-Xi.set(13, {
+statisticCategories.set(13, {
 	text: "",
 	overviewText: "On the Hill",
 	visibilityDuration: 0.5,
 });
+interface ScoreOffsetNotification {
+	el: HTMLDivElement;
+	destroyTime: number;
+}
 class ScoreOffsetNotificationsUi {
 	el = document.createElement("div");
 	listEl;
-	createdNotifications;
+	createdNotifications: ScoreOffsetNotification[] = [];
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("score-offset-notifications-container", "fullScreen");
 		gameWrapper.appendChild(this.el);
 		this.listEl = document.createElement("div");
 		this.listEl.classList.add("score-offset-notifications-list", "blueNight", "whiteBigText");
 		this.el.appendChild(this.listEl);
-		this.createdNotifications = [];
 	}
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	showOffsetNotification(t, e) {
-		const i = Xi.get(e);
+	showOffsetNotification(t: number, e: number) {
+		const i = statisticCategories.get(e);
 		if (!i || i.hideInGame) {
 			return;
 		}
@@ -17430,7 +17472,7 @@ class ScoreOffsetNotificationsUi {
 		}
 		if (t >= 0) {
 			for (let e = t; e < this.createdNotifications.length; e++) {
-				const createdNotification = this.createdNotifications[e];
+				const createdNotification = this.createdNotifications[e]!;
 				if (createdNotification.el.parentNode) {
 					createdNotification.el.parentNode.removeChild(createdNotification.el);
 				}
@@ -17499,7 +17541,7 @@ class GameOverStatsDialog extends Dialog {
 		this.statsContainer.appendChild(h);
 		const d = document.createElement("tbody");
 		h.appendChild(d);
-		for (const [t, i] of Xi.entries()) {
+		for (const [t, i] of statisticCategories.entries()) {
 			const s = trackedMyPlayerScores.get(t);
 			if (!s) {
 				continue;
@@ -17632,17 +17674,14 @@ class GameOverStatsDialog extends Dialog {
 	}
 }
 class GameEndTimer {
-	timeSeconds;
-	name;
 	running = false;
 	startTime = 0;
-	onSuddenChangeCbs = new Set();
-	constructor(t = 0, e = "") {
-		this.timeSeconds = t;
-		this.name = e;
+	cleared?: boolean;
+	onSuddenChangeCbs = new Set<() => void>();
+	constructor(public timeSeconds = 0, public name = "") {
 	}
-	setTotalTime(t) {
-		this.timeSeconds = t;
+	setTotalTime(timeSeconds: number) {
+		this.timeSeconds = timeSeconds;
 	}
 	start() {
 		this.running = true;
@@ -17655,8 +17694,8 @@ class GameEndTimer {
 			this.onSuddenChangeCbs.forEach((t) => t());
 		}
 	}
-	onSuddenChange(t) {
-		this.onSuddenChangeCbs.add(t);
+	onSuddenChange(cb: () => void) {
+		this.onSuddenChangeCbs.add(cb);
 	}
 	get timeRemaining() {
 		if (this.cleared) {
@@ -17676,7 +17715,7 @@ class GameEndTimer {
 }
 interface CornerStatData {
 	name: string;
-	redThreshold: number;
+	redThreshold?: number;
 }
 class CornerStat {
 	redThreshold;
@@ -17695,30 +17734,30 @@ class CornerStat {
 		this.valueEl.textContent = "-";
 		this.el.appendChild(this.valueEl);
 	}
-	setValue(t) {
+	setValue(value: number) {
 		if (this.cornerStatsUi.visible) {
-			this.valueEl.textContent = String(t);
-			if (this.redThreshold && typeof t === "number") {
-				this.valueEl.classList.toggle("red", t > this.redThreshold);
+			this.valueEl.textContent = String(value);
+			if (this.redThreshold && typeof value === "number") {
+				this.valueEl.classList.toggle("red", value > this.redThreshold);
 			}
 		}
 	}
 }
 class CornerStatsUi {
 	container = document.createElement("div");
-	createdStats;
+	createdStats: CornerStat[] = [];
 	fpsStat;
 	pingStat;
 	networkStabilityStat;
 	visible;
 	_onVisiblityChangeCbs: (() => void)[];
 	constructor(
-		t,
+		gameWrapper: HTMLElement,
 		public game: Game,
 	) {
 		this.game = game;
 		this.container.classList.add("corner-stats-container", "hidden");
-		t.appendChild(this.container);
+		gameWrapper.appendChild(this.container);
 		this.createdStats = [];
 		this.fpsStat = this.createCornerStat({
 			name: "FPS",
@@ -18111,12 +18150,16 @@ class OctreeNode {
 		public aabb: Box3,
 		public depth = 0,
 	) {}
-	addItems(items) {
+	addItems(items: ColliderBase[]) {
 		for (const item of items) {
 			this.items.push(item);
 		}
 	}
-	subdivideRecursive({ boundsContainsCb, maxDepth, itemCountDivideLimit }) {
+	subdivideRecursive({ boundsContainsCb, maxDepth, itemCountDivideLimit }: {
+		boundsContainsCb: (collider: ColliderBase, aabb: Box3) => boolean;
+		maxDepth: number;
+		itemCountDivideLimit: number;
+	}) {
 		if (!(this.depth >= maxDepth || this.items.length <= itemCountDivideLimit)) {
 			this.subdivide();
 			for (const s of this.children) {
@@ -18170,11 +18213,11 @@ class OctreeNode {
 			this.allChildren[index] = node;
 		}
 	}
-	*traverseDown(t = () => true) {
-		if (t(this)) {
+	*traverseDown(childFilter: (child: OctreeNode) => boolean = () => true): Generator<OctreeNode> {
+		if (childFilter(this)) {
 			yield this;
 			for (const e of this.children) {
-				for (const i of e.traverseDown(t)) {
+				for (const i of e.traverseDown(childFilter)) {
 					yield i;
 				}
 			}
@@ -18667,7 +18710,7 @@ class MapLoader {
 	onOneMapAvailableCbs = new Set<() => void>();
 	firstMapDownloaded = false;
 	onFirstMapDownloadedCbs = new Set<() => void>();
-	onMapCachedCbs = new Set();
+	onMapCachedCbs = new Set<() => void>();
 	mapVariablesManager = new MapVariablesManager();
 	cloudsObj: Object3D | null = null;
 	currentLoadingMapContexts = new Map<
@@ -18850,7 +18893,7 @@ class MapLoader {
 		this.onMapCachedCbs.add(t);
 	}
 	fireOnMapCachedCbs() {
-		for (const cb of this.onMapCachedCbs as Set<() => void>) cb();
+		for (const cb of this.onMapCachedCbs) cb();
 	}
 	reloadMap() {
 		if (this.lastLoadMapRequest) {
@@ -18996,7 +19039,7 @@ class MapLoader {
 		if (!this.firstMapDownloaded) {
 			this.firstMapDownloaded = true;
 			for (const t of this.onFirstMapDownloadedCbs) {
-				(t as () => void)();
+				t();
 			}
 			this.onFirstMapDownloadedCbs.clear();
 		}
@@ -19040,7 +19083,7 @@ class MapLoader {
 			gameplayData,
 		});
 	}
-	loadMapResponseCbReceived(t: any, e: (info: MapLoadingInfo) => void): void {
+	loadMapResponseCbReceived(t, e: (info: MapLoadingInfo) => void): void {
 		const scene = AssetsManager.deserializeThreeObject(t.scene);
 		scene!.traverse((t: Object3D) => {
 			t.frustumCulled = false;
@@ -19167,8 +19210,13 @@ class MapLoader {
 		this.updateCloudHeight();
 	}
 }
+interface MapVoteData {
+	votedScore: number,
+	hasTemporaryBoost: boolean,
+	lastPlayedCounter: number;
+}
 class PreferredMapManager {
-	votedScores = new Map();
+	votedScores = new Map<string, MapVoteData>();
 	_forcingSoloMap: string | null = null;
 	onMatchMakeDataChangeCbs = new Set<() => void>();
 	constructor(
@@ -19200,11 +19248,11 @@ class PreferredMapManager {
 			if (forcingSoloMap && forcingSoloMap !== map.hash) {
 				continue;
 			}
-			if (!this.mapLoader.hasCachedMap(map.hash)) {
+			if (!this.mapLoader.hasCachedMap(map.hash!)) {
 				continue;
 			}
 			let preference = 0;
-			const a = this.votedScores.get(map.assetName);
+			const a = this.votedScores.get(map.assetName!);
 			if (a) {
 				preference = a.votedScore;
 				if (a.hasTemporaryBoost) {
@@ -19267,8 +19315,8 @@ class PreferredMapManager {
 		}
 		return null;
 	}
-	getOrCreateMapVoteData(t) {
-		let e = this.votedScores.get(t);
+	getOrCreateMapVoteData(name: string) {
+		let e = this.votedScores.get(name);
 		return (
 			e ||
 			((e = {
@@ -19276,13 +19324,13 @@ class PreferredMapManager {
 				hasTemporaryBoost: false,
 				lastPlayedCounter: 0,
 			}),
-			this.votedScores.set(t, e),
+			this.votedScores.set(name, e),
 			e)
 		);
 	}
 	voteMap(t) {}
-	markRecentMap(t) {
-		const e = this.mapsConfigLoader.getListedMapConfigByHash(t);
+	markRecentMap(hash: string) {
+		const e = this.mapsConfigLoader.getListedMapConfigByHash(hash);
 		if (!e) {
 			return;
 		}
@@ -19453,8 +19501,8 @@ export interface HingeObject {
 }
 class HingeManager {
 	hingeObjects: HingeObject[] = [];
-	activeHingeObjects = new Map();
-	onHingeMoveCbs = new Map();
+	activeHingeObjects = new Map<number, {physicsValue: SpringValue}>();
+	onHingeMoveCbs = new Map<number, Set<(obj: HingeObject) => void>>();
 	destructed = false;
 	constructor() {}
 	destructor() {
@@ -19516,26 +19564,26 @@ class HingeManager {
 		r.physicsValue.velocity += a * h.z;
 		return s;
 	}
-	onHingeMove(t, e) {
-		let i = this.onHingeMoveCbs.get(t);
+	onHingeMove(id: number, cb: (obj: HingeObject) => void) {
+		let i = this.onHingeMoveCbs.get(id);
 		if (!i) {
 			i = new Set();
-			this.onHingeMoveCbs.set(t, i);
+			this.onHingeMoveCbs.set(id, i);
 		}
-		i.add(e);
+		i.add(cb);
 	}
-	removeOnHingeMove(t, e) {
-		const i = this.onHingeMoveCbs.get(t);
-		if (i) {
-			i.delete(e);
-			if (i.size <= 0) {
-				this.onHingeMoveCbs.delete(t);
+	removeOnHingeMove(id: number, cb: (obj: HingeObject) => void) {
+		const cbs = this.onHingeMoveCbs.get(id);
+		if (cbs) {
+			cbs.delete(cb);
+			if (cbs.size <= 0) {
+				this.onHingeMoveCbs.delete(id);
 			}
 		}
 	}
 	loop(now: number, dt: number) {
 		for (const [i, s] of this.activeHingeObjects) {
-			const n = this.hingeObjects[i];
+			const n = this.hingeObjects[i]!;
 			const { object, defaultWorldMatrix } = n;
 			s.physicsValue.loop(now, dt);
 			object.matrix.makeRotationZ(s.physicsValue.value);
@@ -19609,8 +19657,8 @@ class GameTimerUi {
 			this.oneSecondEl.textContent = String(n);
 		}
 	}
-	setVisible(t) {
-		this.visible = t;
+	setVisible(visible: boolean) {
+		this.visible = visible;
 		this.updateVisibility();
 	}
 	updateVisibility() {
@@ -19620,18 +19668,15 @@ class GameTimerUi {
 }
 class EliminationTeamScore {
 	el = document.createElement("div");
-	teamId;
 	teamColor;
-	playerDots;
+	playerDots: ScoreDot[] = [];
 	alivePlayers;
-	constructor(t) {
-		this.teamId = t;
-		const e = teamData[t];
+	constructor(public teamId: number) {
+		const e = teamData[teamId]!;
 		this.teamColor = e.cssColor;
-		this.playerDots = [];
 		this.alivePlayers = 0;
 	}
-	setPlayerCount(t, e) {
+	setPlayerCount(t: number, e: number) {
 		const i = (t = Math.min(t, 10)) - this.playerDots.length;
 		const s = -i;
 		for (let t = 0; t < i; t++) {
@@ -19660,12 +19705,12 @@ class EliminationScoreUi {
 	scoreTeams;
 	constructor(
 		public gameWrapper: HTMLElement,
-		e,
+		teams: number,
 	) {
 		this.el.classList.add("elimination-score-container");
 		gameWrapper.appendChild(this.el);
 		this.scoreTeams = [];
-		for (let t = 0; t < e; t++) {
+		for (let t = 0; t < teams; t++) {
 			if (t == 0) {
 				continue;
 			}
@@ -19677,8 +19722,8 @@ class EliminationScoreUi {
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	setPlayerCount(t, e, i) {
-		const s = this.scoreTeams[t];
+	setPlayerCount(teamId: number, e: number, i: number) {
+		const s = this.scoreTeams[teamId];
 		if (s) {
 			s.setPlayerCount(e, i);
 		}
@@ -19700,7 +19745,7 @@ class GamemodeLabel {
 	gamemodeEl: HTMLSpanElement;
 	constructor(public gameWrapper: HTMLElement) {
 		this.el.classList.add("active-gamemode-container", "blueNight", "whiteBigText");
-		builtAt.appendChild(this.el);
+		this.el.appendChild(this.el);
 		this.el.append("Gamemode: ");
 		this.gamemodeEl = document.createElement("span");
 		this.gamemodeEl.textContent = "-";
@@ -19793,6 +19838,11 @@ class KingOfTheHillUi {
 	}
 }
 const bs = 1000;
+interface GameEndAccountStats {
+	receivedCoins: number,
+	newCoinCount: number,
+	alreadyDoubled: boolean,
+}
 class OnlineGame {
 	#S: number | null = null;
 	teamCount = 3;
@@ -19807,8 +19857,8 @@ class OnlineGame {
 	gameIsVisible = false;
 	receivedColliders = false;
 	scene: Object3D | null = null;
-	onGameIsVisibleCbs = new Set();
-	onUsedForCamShotsOnlyChangeCbs = new Set();
+	onGameIsVisibleCbs = new Set<() => void>();
+	onUsedForCamShotsOnlyChangeCbs = new Set<() => void>();
 	_usedForCameraShotsOnly = false;
 	uiVisible = false;
 	activeGamemodeUi: GamemodeLabel | null = null;
@@ -20323,9 +20373,9 @@ class OnlineGame {
 			i.setServerFlyEnabled(enabled);
 		}
 	}
-	setSameSquadPlayerData(t: any) {
+	setSameSquadPlayerData(data: {playerId: number; squadPlayerId: number; isLeader: boolean}[]) {
 		let e = false;
-		for (const { playerId, squadPlayerId, isLeader } of t) {
+		for (const { playerId, squadPlayerId, isLeader } of data) {
 			const t = this.players.get(playerId);
 			if (t) {
 				t.setIsSameSquadPlayer(true, squadPlayerId, isLeader);
@@ -20395,12 +20445,12 @@ class OnlineGame {
 			}
 		}
 	}
-	showFlagNotification(t: any) {
-		const t_type = t.type;
+	showFlagNotification(notification: FlagNotificationData) {
+		const t_type = notification.type;
 		let i;
-		if (t.teamId == 1) {
+		if (notification.teamId == 1) {
 			i = 2;
-		} else if (t.teamId == 2) {
+		} else if (notification.teamId == 2) {
 			i = 1;
 		}
 		if (i) {
@@ -20409,11 +20459,11 @@ class OnlineGame {
 				this.cornerNotificationsUi.showIcon(s);
 			}
 			let n = i == this.getMyTeamId();
-			if (!(t.type != "grab" && t.type != "capture")) {
+			if (!(notification.type != "grab" && notification.type != "capture")) {
 				n = !n;
 			}
 			let o = n ? "positive" : "negative";
-			if (t.type == "capture") {
+			if (notification.type == "capture") {
 				o += "Important";
 			}
 			getMain().sfx.playSound(`flag/${o}`);
@@ -20697,10 +20747,10 @@ class OnlineGame {
 			this.fireSquadPlayersChange();
 		}
 	}
-	setPlayerGungameWeaponIndex(t: number, e: any) {
+	setPlayerGungameWeaponIndex(t: number, weaponIndex: number) {
 		const i = this.players.get(t);
 		if (i) {
-			i.setGungameWeaponIndex(e);
+			i.setGungameWeaponIndex(weaponIndex);
 		}
 	}
 	updateFlagScoreboard(scores: number[]) {
@@ -20791,11 +20841,11 @@ class OnlineGame {
 			this.crosshairNotificationsUi.showIcon("static/img/notificationIcons/crosshair/killed.svg");
 		}
 	}
-	offsetPlayerScore(t: number, e: number, i: number) {
+	offsetPlayerScore(playerID: number, e: number, i: number) {
 		if (this.gameEnded) {
 			return;
 		}
-		const s = this.players.get(t);
+		const s = this.players.get(playerID);
 		if (s && s.hasOwnership) {
 			let t = 0;
 			const s = this.trackedMyPlayerScores.get(i);
@@ -20830,7 +20880,7 @@ class OnlineGame {
 			t.updateFly();
 		}
 	}
-	receivedGameEndAccountStats(t: any) {
+	receivedGameEndAccountStats(t: GameEndAccountStats) {
 		this.gameEndReceivedCoins = t.receivedCoins;
 		this.gameEndCoinsAlreadyDoubled = t.alreadyDoubled;
 		if (t.receivedCoins > 0) {
@@ -20991,7 +21041,7 @@ class OnlineGame {
 					i = e.teamId;
 				}
 				let s = true;
-				for (const [t, e] of Xi.entries()) {
+				for (const [t, e] of statisticCategories.entries()) {
 					if (!e.includeInCollectorAchievement) {
 						continue;
 					}
@@ -21078,8 +21128,8 @@ class OnlineGame {
 		}
 		return t;
 	}
-	createGameEndWaitTimer(t = 0, e = "") {
-		const i = new GameEndTimer(t, e);
+	createGameEndWaitTimer(timeSeconds = 0, name = "") {
+		const i = new GameEndTimer(timeSeconds, name);
 		i.onSuddenChange(() => {
 			this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
 		});
@@ -21087,25 +21137,25 @@ class OnlineGame {
 		this.fireEstimatedMaxGameEndWaitTimeSuddenChange();
 		return i;
 	}
-	onEstimatedMaxGameEndWaitTimeSuddenChange(t: any) {
-		this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.add(t);
+	onEstimatedMaxGameEndWaitTimeSuddenChange(cb: () => void) {
+		this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.add(cb);
 	}
 	fireEstimatedMaxGameEndWaitTimeSuddenChange() {
 		if (!this.gameEndTimerSuddenChangeDisabled) {
 			this.onEstimatedMaxGameEndWaitTimeSuddenChangeCbs.forEach((t) => t());
 		}
 	}
-	onMyPlayerChange(t: any) {
-		this.onMyPlayerChangeCbs.add(t);
+	onMyPlayerChange(cb: () => void) {
+		this.onMyPlayerChangeCbs.add(cb);
 	}
-	onGameEnd(t: any) {
-		this.onGameEndCbs.add(t);
+	onGameEnd(cb: () => void) {
+		this.onGameEndCbs.add(cb);
 	}
-	onGameEndFinish(t: any) {
-		this.onGameEndFinishCbs.add(t);
+	onGameEndFinish(cb: () => void) {
+		this.onGameEndFinishCbs.add(cb);
 	}
-	onGameEndStatsScreen(t: any) {
-		this.onGameEndStatsScreenCbs.add(t);
+	onGameEndStatsScreen(cb: () => void) {
+		this.onGameEndStatsScreenCbs.add(cb);
 	}
 	closeGameOverStatsDialog() {
 		if (this.gameOverStatsDialog) {
@@ -21151,7 +21201,7 @@ class OnlineGame {
 		const t = Boolean(this.isForegroundGame && this.gameEnded && !this.getMyPlayer());
 		if (t != this._usedForCameraShotsOnly) {
 			this._usedForCameraShotsOnly = t;
-			this.onUsedForCamShotsOnlyChangeCbs.forEach((t) => (t as () => void)());
+			this.onUsedForCamShotsOnlyChangeCbs.forEach((t) => t());
 		}
 	}
 	becameForegroundGame() {
@@ -21170,15 +21220,15 @@ class OnlineGame {
 		if (t != this.gameIsVisible) {
 			this.gameIsVisible = t;
 			this.updateSceneVisibility();
-			this.onGameIsVisibleCbs.forEach((t) => (t as () => void)());
+			this.onGameIsVisibleCbs.forEach((t) => t());
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
 	onGameIsVisible(t: () => void) {
 		this.onGameIsVisibleCbs.add(t);
 	}
-	onUsedForCamShotsOnlyChange(t: any) {
-		this.onUsedForCamShotsOnlyChangeCbs.add(t);
+	onUsedForCamShotsOnlyChange(cb: () => void) {
+		this.onUsedForCamShotsOnlyChangeCbs.add(cb);
 	}
 	#P = false;
 	#v = () => {
@@ -22010,7 +22060,7 @@ class MainMenu {
 	closeGameButton: MainMenuButton | null = null;
 	promoBanner: PromoBanner | null;
 	currentMusicSfx: SFXSound | null;
-	hideUi: any;
+	hideUi: boolean;
 	constructor(public gameWrapper: HTMLElement) {
 		if (!this.el) {
 			throw new Error("Main menu element not found");
@@ -22630,14 +22680,11 @@ class MainMenu {
 	}
 }
 class GameAdBanner {
-	pokiSize;
 	el = document.createElement("div");
-	visible;
+	visible = false;
 	adEl;
-	constructor(t, e) {
-		this.pokiSize = e;
-		this.el.classList.add("game-ad-wrapper", t, "hidden");
-		this.visible = false;
+	constructor(platform: string, public pokiSize: `${number}x${number}`) {
+		this.el.classList.add("game-ad-wrapper", platform, "hidden");
 		const i = document.createElement("button");
 		i.textContent = "Don't want to see ads?";
 		i.classList.add("remove-ads-button", "hidden");
@@ -22661,10 +22708,10 @@ class GameAdBanner {
 			this.el.style.zIndex = String(e);
 		});
 	}
-	setVisibility(t) {
-		this.el.classList.toggle("hidden", !t);
-		this.adEl.classList.toggle("hidden", !t);
-		this.visible = t;
+	setVisibility(visible: boolean) {
+		this.el.classList.toggle("hidden", !visible);
+		this.adEl.classList.toggle("hidden", !visible);
+		this.visible = visible;
 	}
 	getIsVisible() {
 		return window.getComputedStyle(this.el).display != "none";
@@ -22722,14 +22769,20 @@ class AdBanners {
 		getMain().poki.updateBannerVisibility();
 	}
 }
+interface AlertButton {
+    text: string;
+	testLabel?: string;
+    onClick?: (() => Promise<void>);
+    enabled?: boolean | undefined;
+}
 class AlertDialog extends Dialog {
 	override indexPriority = 3;
 	closeOnButtonClick;
 	override titleEl = document.createElement("h2");
 	textEl;
-	createdButtons;
+	createdButtons: CustomButton[] = [];
 	constructor(
-		t,
+		gameWrapper: HTMLElement,
 		{
 			title = "",
 			text = "",
@@ -22744,7 +22797,7 @@ class AlertDialog extends Dialog {
 			extraArgs,
 		} = {},
 	) {
-		super(t, {
+		super(gameWrapper, {
 			testLabel: "alert",
 			...extraArgs,
 		});
@@ -22764,7 +22817,7 @@ class AlertDialog extends Dialog {
 		this.createdButtons = [];
 		this.setButtons(buttons);
 	}
-	setButtons(t) {
+	setButtons(t: AlertButton[]) {
 		for (const t of this.createdButtons) {
 			this.removeButton(t);
 		}
@@ -22793,13 +22846,13 @@ class AlertDialog extends Dialog {
 			this.createdButtons.push(t);
 		}
 	}
-	setButtonsEnabled(t) {
+	setButtonsEnabled(enabled: boolean) {
 		for (const e of this.createdButtons) {
-			e.enabled = t;
+			e.enabled = enabled;
 		}
 	}
 	async waitForButton() {
-		return await new Promise((resolve) => {
+		return await new Promise<number>((resolve) => {
 			for (const [e, i] of this.createdButtons.entries()) {
 				i.onClick(() => {
 					resolve(e);
@@ -23110,19 +23163,19 @@ class TouchControl {
 		this.responsiveArea = responsiveArea;
 		this.cancelOthers = cancelOthers;
 	}
-	updateTouch(t: Touch) {
+	updateTouch(touch: Touch) {
 		if (
 			this.responsiveArea &&
 			(this.currentUsingTouchId == null || this.responsiveArea.cancelWhenLeaving) &&
-			!this.responsiveArea.testTouchInResponsiveArea(t)
+			!this.responsiveArea.testTouchInResponsiveArea(touch)
 		) {
 			return {
 				didHit: false,
 			};
 		}
-		const didHit = this.onUpdateTouch(t);
+		const didHit = this.onUpdateTouch(touch);
 		if (didHit) {
-			this.currentUsingTouchId = t.identifier;
+			this.currentUsingTouchId = touch.identifier;
 			this.didUpdateTouchLastLoop = true;
 		}
 		return {
@@ -23130,7 +23183,7 @@ class TouchControl {
 			cancelOthers: didHit && this.cancelOthers,
 		};
 	}
-	onUpdateTouch(t: Touch): boolean {
+	onUpdateTouch(touch: Touch): boolean {
 		return false;
 	}
 	endTouchLoop() {
@@ -23240,13 +23293,13 @@ class TouchJoystick extends TouchControl {
 		this.setPos(this.defaultPos);
 		this.setStickPos(this.defaultPos);
 	}
-	setPos(t) {
-		t = t.clone();
-		this.containerPos = t;
-		this.el.style.transform = `translate(${t.x}px, ${t.y}px) translate(-50%, -50%)`;
+	setPos(pos: Vector2) {
+		pos = pos.clone();
+		this.containerPos = pos;
+		this.el.style.transform = `translate(${pos.x}px, ${pos.y}px) translate(-50%, -50%)`;
 	}
-	setStickPos(e) {
-		const i = e.clone();
+	setStickPos(stickPos: Vector2) {
+		const i = stickPos.clone();
 		i.sub(this.containerPos);
 		const s = i.clone();
 		i.clampLength(0, 40);
@@ -23260,20 +23313,20 @@ class TouchJoystick extends TouchControl {
 	}
 }
 class TouchLookInput extends TouchControl {
-	currentTouchId = null;
+	currentTouchId: number | null = null;
 	prevTouchPos = new Vector2();
 	lastDeltaPos = new Vector2();
 	constructor() {
 		super();
 	}
-	override onUpdateTouch(t) {
+	override onUpdateTouch(touch: Touch) {
 		if (this.currentTouchId == null) {
-			this.currentTouchId = t.identifier;
+			this.currentTouchId = touch.identifier;
 		}
-		if (this.currentTouchId != t.identifier) {
+		if (this.currentTouchId != touch.identifier) {
 			return false;
 		}
-		const e = new Vector2(t.clientX, t.clientY);
+		const e = new Vector2(touch.clientX, touch.clientY);
 		if (this.currentUsingTouchId == null) {
 			this.prevTouchPos.copy(e);
 		}
@@ -23292,7 +23345,7 @@ class TouchButton extends TouchControl {
 	top;
 	bottom;
 	radius;
-	linkedInputKeys;
+	linkedInputKeys = new Set<InputKey>();
 	pressed;
 	constructor(
 		opts: {
@@ -23335,7 +23388,6 @@ class TouchButton extends TouchControl {
 		observeResize(() => {
 			this.updatePosition();
 		});
-		this.linkedInputKeys = new Set();
 		this.pressed = false;
 	}
 	updatePosition() {
@@ -23372,18 +23424,18 @@ class TouchButton extends TouchControl {
 			this.responsiveArea.pos.set(t, e);
 		}
 	}
-	override onUpdateTouch(t) {
+	override onUpdateTouch(touch: Touch) {
 		this.setPressed(true);
 		return true;
 	}
 	override onEndTouch() {
 		this.setPressed(false);
 	}
-	setPressed(t) {
-		this.pressed = t;
+	setPressed(pressed: boolean) {
+		this.pressed = pressed;
 		this.setPressedClass();
-		for (const e of this.linkedInputKeys) {
-			e.setKeyPressed(t, false, {
+		for (const inputKeys of this.linkedInputKeys) {
+			inputKeys.setKeyPressed(pressed, false, {
 				fromTouchButton: true,
 			});
 		}
@@ -23391,11 +23443,11 @@ class TouchButton extends TouchControl {
 	setPressedClass() {
 		this.el.classList.toggle("touching", this.pressed);
 	}
-	override setVisibility(t) {
-		this.el.classList.toggle("hidden", !t);
+	override setVisibility(visible: boolean) {
+		this.el.classList.toggle("hidden", !visible);
 	}
-	addInputKey(t) {
-		this.linkedInputKeys.add(t);
+	addInputKey(inputKey: InputKey) {
+		this.linkedInputKeys.add(inputKey);
 	}
 }
 class TouchScreenRegion extends TouchResponseArea {
@@ -24351,7 +24403,7 @@ function an() {
 export interface ListedMapConfig {
 	name?: string;
 	assetName?: string;
-	hash?: string;
+	hash: string;
 	size?: number;
 	label?: string;
 	hiddenInUi?: boolean;
@@ -24372,18 +24424,12 @@ export interface ShopConfigData {
 export interface PromosConfigData {
 	activePromos: PromoItem[];
 }
-class ConfigLoaderBase {
-	configManager;
-	configPath;
-	onConfigChangeCbs = new Set();
-	loadedConfigData: unknown = null;
-	constructor(t, e) {
-		this.configManager = t;
-		this.configPath = e;
+abstract class ConfigLoaderBase<T> {
+	onConfigChangeCbs = new Set<(configData: T) => void>();
+	loadedConfigData: T | null = null;
+	constructor(public configManager: ConfigManager, public configPath: string) {
 	}
-	transformData(t) {
-		throw new Error("transformData not implemented");
-	}
+	abstract transformData(t): T;
 	async load() {
 		const t = await fetch(this.configManager.basePath + this.configPath);
 		if (Array.from(t.headers.values()).length == 1) {
@@ -24404,16 +24450,16 @@ class ConfigLoaderBase {
 		}
 		this.loadedConfigData = this.transformData(this.loadedConfigData);
 		if (this.loadedConfigData) {
-			for (const t of this.onConfigChangeCbs) {
-				t(this.loadedConfigData);
+			for (const cb of this.onConfigChangeCbs) {
+				cb(this.loadedConfigData);
 			}
 		}
 	}
-	onConfigChange(t, e = true) {
-		if (this.loadedConfigData && e) {
-			t(this.loadedConfigData);
+	onConfigChange(cb: (config: T) => void, triggerNow = true) {
+		if (this.loadedConfigData && triggerNow) {
+			cb(this.loadedConfigData);
 		}
-		this.onConfigChangeCbs.add(t);
+		this.onConfigChangeCbs.add(cb);
 	}
 	removeOnConfigChange(t) {
 		this.onConfigChangeCbs.delete(t);
@@ -24424,9 +24470,8 @@ class ConfigLoaderBase {
 		}
 	}
 }
-class MapsConfig extends ConfigLoaderBase {
-	override loadedConfigData: MapsConfigData | null = null;
-	override transformData(t) {
+class MapsConfig extends ConfigLoaderBase<MapsConfigData> {
+	transformData(t): MapsConfigData {
 		if (!t) {
 			return {
 				mainMenuMapHash: "",
@@ -24460,27 +24505,26 @@ class MapsConfig extends ConfigLoaderBase {
 		}
 		return t;
 	}
-	getListedMapConfigByHash(t) {
-		return (this.loadedConfigData && this.loadedConfigData.maps.find((e) => e.hash === t)) || null;
+	getListedMapConfigByHash(hash: string) {
+		return (this.loadedConfigData && this.loadedConfigData.maps.find((e) => e.hash === hash)) || null;
 	}
-	hasListedMapConfigByHash(t) {
-		return !!this.loadedConfigData && !!this.loadedConfigData.maps.find((e) => e.hash === t);
+	hasListedMapConfigByHash(hash: string) {
+		return !!this.loadedConfigData && !!this.loadedConfigData.maps.find((e) => e.hash === hash);
 	}
-	getListedMapConfigByAssetName(t) {
+	getListedMapConfigByAssetName(assetName: string) {
 		if (!this.loadedConfigData) {
 			return null;
 		}
 		for (const e of this.loadedConfigData.maps) {
-			if (e.assetName == t) {
+			if (e.assetName == assetName) {
 				return e;
 			}
 		}
 		return null;
 	}
 }
-class PromosConfig extends ConfigLoaderBase {
-	override loadedConfigData: PromosConfigData | null = null;
-	override transformData(t) {
+class PromosConfig extends ConfigLoaderBase<PromosConfigData> {
+	transformData(t): PromosConfigData {
 		if (t) {
 			if (t.activePromos) {
 				t.activePromos = t.activePromos.filter((t) => t.id && t.image);
@@ -24494,9 +24538,8 @@ class PromosConfig extends ConfigLoaderBase {
 		};
 	}
 }
-class ShopsConfig extends ConfigLoaderBase {
-	override loadedConfigData: ShopConfigData | null = null;
-	override transformData(t) {
+class ShopsConfig extends ConfigLoaderBase<ShopConfigData> {
+	override transformData(t): ShopConfigData {
 		if (t) {
 			if (t.purchasableItems) {
 				t.purchasableItems = t.purchasableItems.filter((t) => t.id);
@@ -24515,15 +24558,15 @@ class ShopsConfig extends ConfigLoaderBase {
 			skinPresets: [],
 		};
 	}
-	getPurchaseableItem(t) {
+	getPurchaseableItem(id: string) {
 		return (
-			(this.loadedConfigData && this.loadedConfigData.purchasableItems.find((e) => e.id === t)) ||
+			(this.loadedConfigData && this.loadedConfigData.purchasableItems.find((e) => e.id === id)) ||
 			null
 		);
 	}
 }
 class ConfigManager {
-	basePath = null;
+	basePath: string | null = null;
 	suppressLogs = false;
 	shopConfig = new ShopsConfig(this, "shopConfig.json");
 	promosConfig = new PromosConfig(this, "promosConfig.json");
@@ -24578,14 +24621,14 @@ class OfflineGame {
 	receivedColliders = false;
 	scene: Object3D | null = null;
 	gameIsVisible = false;
-	onGameIsVisibleCbs = new Set();
-	onSdkGameplayStartedChangeCbs = new Set();
+	onGameIsVisibleCbs = new Set<() => void>();
+	onSdkGameplayStartedChangeCbs = new Set<() => void>();
 	prevSdkGameplayStarted = false;
 	myPlayer: Player;
 	boundUpdateUiVisible;
-	constructor(t) {
+	constructor(gameWrapper: HTMLElement) {
 		this.arrowManager = new ArrowManager(this.physics, this.hingeManager, 1);
-		this.crosshair = new Crosshair(t);
+		this.crosshair = new Crosshair(gameWrapper);
 		const e = getMain();
 		this.myPlayer = new Player(
 			this,
@@ -24645,14 +24688,14 @@ class OfflineGame {
 		};
 		getMain().mapLoader.loadLoadingMap(t);
 	}
-	setMapScene(t) {
+	setMapScene(scene: Object3D) {
 		if (this.scene) {
 			MapLoader.disposeMapGeometries(this.scene);
 			getMain().scene.remove(this.scene);
 		}
-		this.scene = t;
-		if (t) {
-			getMain().scene.add(t);
+		this.scene = scene;
+		if (scene) {
+			getMain().scene.add(scene);
 		}
 		this.updateGameIsVisible();
 	}
@@ -24665,8 +24708,8 @@ class OfflineGame {
 	get sdkGameplayStarted() {
 		return this.gameIsVisible && !this.destructed && this.myPlayer.playerHasInteracted;
 	}
-	onSdkGameplayStartedChange(t) {
-		this.onSdkGameplayStartedChangeCbs.add(t);
+	onSdkGameplayStartedChange(cb: () => void) {
+		this.onSdkGameplayStartedChangeCbs.add(cb);
 	}
 	updateSdkGameplayStarted() {
 		if (this.sdkGameplayStarted != this.prevSdkGameplayStarted) {
@@ -24684,7 +24727,7 @@ class OfflineGame {
 		}
 		this.myPlayer.afterPhysicsLoop(now, dt);
 	}
-	onMyPlayerChange(t: any) {}
+	onMyPlayerChange(cb: () => void) {}
 	getMyPlayer(): Player {
 		return this.myPlayer;
 	}
@@ -24702,13 +24745,13 @@ class OfflineGame {
 		const t = Boolean(this.scene && this.receivedColliders);
 		if (t != this.gameIsVisible) {
 			this.gameIsVisible = t;
-			this.onGameIsVisibleCbs.forEach((t) => (t as () => void)());
+			this.onGameIsVisibleCbs.forEach((t) => t());
 			this.updateSdkGameplayStarted();
 			getMain().renderer.renderWorthyEventHappened();
 		}
 	}
-	onGameIsVisible(t: () => void) {
-		this.onGameIsVisibleCbs.add(t);
+	onGameIsVisible(cb: () => void) {
+		this.onGameIsVisibleCbs.add(cb);
 	}
 	updateUiVisible() {
 		const t = !getMain().mainMenu.visible && !getMain().mainMenu.hideUi;
@@ -24724,18 +24767,18 @@ export class GameManager {
 	loadingBackgroundGame: OnlineGame | null = null;
 	joinedOnce = false;
 	isInGamesLoop = false;
-	onIsInGamesLoopChangeCbs = new Set();
+	onIsInGamesLoopChangeCbs = new Set<(isInGamesLoop: boolean) => void>();
 	onActiveGameChangeCbs = new Set<(game: Game | null) => void>();
 	readyToJoin = false;
-	onReadyToJoinChangeCbs = new Set();
-	onGameEndCbs = new Set();
-	windSfx: any = null;
-	waterSfx: any = null;
-	birdsSfx: any = null;
-	jungleSfx: any = null;
-	rainSfx: any = null;
-	insectsSfx: any = null;
-	constructor(public gameWrapper: any) {}
+	onReadyToJoinChangeCbs = new Set<(readyToJoin: boolean) => void>();
+	onGameEndCbs = new Set<() => void>();
+	windSfx?: SFXSound | null = null;
+	waterSfx?: SFXSound | null = null;
+	birdsSfx?: SFXSound | null = null;
+	jungleSfx?: SFXSound | null = null;
+	rainSfx?: SFXSound | null = null;
+	insectsSfx?: SFXSound | null = null;
+	constructor(public gameWrapper: HTMLElement) {}
 	async init() {
 		this.loadWindSfx();
 		this.loadWaterSfx();
@@ -24765,24 +24808,24 @@ export class GameManager {
 	async loadInsectsSfx() {
 		this.insectsSfx = await getMain().sfx.playSound("ambient/insects");
 	}
-	setAmbientVolumes(t: any, e: any, i: any, s: any, n: any, o: any) {
+	setAmbientVolumes(windVolume: number, waterVolume: number, birdsVolume: number, jungleVolume: number, rainVolume: number, insectsVolume: number) {
 		if (this.waterSfx) {
-			this.waterSfx.setVolume(e);
+			this.waterSfx.setVolume(waterVolume);
 		}
 		if (this.windSfx) {
-			this.windSfx.setVolume(t);
+			this.windSfx.setVolume(windVolume);
 		}
 		if (this.birdsSfx) {
-			this.birdsSfx.setVolume(i);
+			this.birdsSfx.setVolume(birdsVolume);
 		}
 		if (this.jungleSfx) {
-			this.jungleSfx.setVolume(s);
+			this.jungleSfx.setVolume(jungleVolume);
 		}
 		if (this.rainSfx) {
-			this.rainSfx.setVolume(n);
+			this.rainSfx.setVolume(rainVolume);
 		}
 		if (this.insectsSfx) {
-			this.insectsSfx.setVolume(o);
+			this.insectsSfx.setVolume(insectsVolume);
 		}
 	}
 	onActiveGameChange(cb: (game: Game | null) => void): void {
@@ -24793,20 +24836,20 @@ export class GameManager {
 	}
 	fireCurrentGameChangeCbs() {
 		if (this.activeGame) {
-			this.activeGame.onGameIsVisible((_visible: any) => {
+			this.activeGame.onGameIsVisible(() => {
 				this.updateSdkGameplayStarted();
 			});
 		}
 		this.updateSdkGameplayStarted();
 		this.onActiveGameChangeCbs.forEach((t) => t(this.activeGame));
 	}
-	onIsInGamesLoopChange(t: any) {
-		this.onIsInGamesLoopChangeCbs.add(t);
+	onIsInGamesLoopChange(cb: (isInGamesLoop: boolean) => void) {
+		this.onIsInGamesLoopChangeCbs.add(cb);
 	}
-	setIsInGamesLoop(t: any) {
-		if (this.isInGamesLoop != t) {
-			this.isInGamesLoop = t;
-			this.onIsInGamesLoopChangeCbs.forEach((e: any) => e(t));
+	setIsInGamesLoop(isInGamesLoop: boolean) {
+		if (this.isInGamesLoop != isInGamesLoop) {
+			this.isInGamesLoop = isInGamesLoop;
+			this.onIsInGamesLoopChangeCbs.forEach((cb) => cb(isInGamesLoop));
 		}
 	}
 	loop(now: number, dt: number) {
@@ -24832,13 +24875,13 @@ export class GameManager {
 			}
 		}
 	}
-	async prepareMatchMaking(t: any) {
+	async prepareMatchMaking(readyQueue: boolean) {
 		if (
-			(!t || getMain().network.matchMaking.isInUnreadyQueue) &&
+			(!readyQueue || getMain().network.matchMaking.isInUnreadyQueue) &&
 			getMain().network.shouldUseMatchMaking
 		) {
 			await getMain().network.matchMaking.initConnection();
-			if (t && !getMain().network.matchMaking.isInUnreadyQueue) {
+			if (readyQueue && !getMain().network.matchMaking.isInUnreadyQueue) {
 				return;
 			}
 			const e = this.getOnlineGame();
@@ -24905,8 +24948,8 @@ export class GameManager {
 		});
 		this.fireCurrentGameChangeCbs();
 	}
-	onGameEnd(t: any) {
-		this.onGameEndCbs.add(t);
+	onGameEnd(cb: () => void) {
+		this.onGameEndCbs.add(cb);
 	}
 	setJoinedOnce() {
 		this.joinedOnce = true;
@@ -25056,15 +25099,15 @@ export class GameManager {
 			t.poki.gameplayStop();
 		}
 	}
-	onReadyToJoinChange(t: any) {
-		this.onReadyToJoinChangeCbs.add(t);
+	onReadyToJoinChange(cb: (readyToJoin: boolean) => void) {
+		this.onReadyToJoinChangeCbs.add(cb);
 	}
-	removeOnReadyToJoinChange(t: any) {
-		this.onReadyToJoinChangeCbs.delete(t);
+	removeOnReadyToJoinChange(cb: (readyToJoin: boolean) => void) {
+		this.onReadyToJoinChangeCbs.delete(cb);
 	}
-	setReadyToJoin(t: any) {
-		this.readyToJoin = t;
-		this.onReadyToJoinChangeCbs.forEach((e) => e(t));
+	setReadyToJoin(readyToJoin: boolean) {
+		this.readyToJoin = readyToJoin;
+		this.onReadyToJoinChangeCbs.forEach((cb) => cb(readyToJoin));
 	}
 }
 class RecentGameTracker {
@@ -25387,8 +25430,8 @@ class HudIcon {
 		this.mat.dispose();
 		getMain().scene.remove(this.obj);
 	}
-	updateIconSize(t, e) {
-		this.mat.uniforms.iconSize.value.set((t / e) * this.size, this.size);
+	updateIconSize(height: number, width: number) {
+		this.mat.uniforms.iconSize.value.set((height / width) * this.size, this.size);
 	}
 	setPos(pos: Vector3) {
 		this.obj.position.copy(pos);
@@ -25481,19 +25524,19 @@ class HudIcons {
 			t.updateIconSize(window.innerHeight, window.innerWidth);
 		}
 	}
-	createIcon(icon) {
+	createIcon(icon: HudIconParams) {
 		const e = new HudIcon(this, icon);
 		this.createdIcons.add(e);
 		return e;
 	}
-	removeIcon(t) {
+	removeIcon(t: HudIcon) {
 		this.createdIcons.delete(t);
 		t.destructor();
 	}
-	setGlobalVisibility(t) {
-		this.globalVisibility = t;
-		for (const t of this.createdIcons) {
-			t.updateVisibility();
+	setGlobalVisibility(globalVisibility: boolean) {
+		this.globalVisibility = globalVisibility;
+		for (const createdIcon of this.createdIcons) {
+			createdIcon.updateVisibility();
 		}
 	}
 }
@@ -25547,13 +25590,13 @@ class ScreenFlash {
 	}
 }
 class ScreenFlashManager {
-	material = null;
-	createdFlashes = new Set();
+	material: ShaderMaterial | null = null;
+	createdFlashes = new Set<ScreenFlash>();
 	constructor(
 		public scene: Scene,
 		public camera: PerspectiveCamera,
 	) {}
-	setMaterial(material) {
+	setMaterial(material: ShaderMaterial) {
 		this.material = material;
 	}
 	flash({
@@ -25585,7 +25628,7 @@ class ScreenFlashManager {
 		this.createdFlashes.add(a);
 		return a;
 	}
-	getThetaFromArrowHitNormal(t) {
+	getThetaFromArrowHitNormal(t?: Vector3 | null) {
 		if (!t) {
 			return 0;
 		}
@@ -25610,12 +25653,12 @@ class ScreenFlashManager {
 		}
 		return posMod(o, 2 * Math.PI) - Math.PI;
 	}
-	loop(t) {
+	loop(now: number) {
 		const e = new Set();
-		for (const i of this.createdFlashes) {
-			i.loop(t);
-			if (i.shouldBeDestroyed) {
-				e.add(i);
+		for (const flash of this.createdFlashes) {
+			flash.loop(now);
+			if (flash.shouldBeDestroyed) {
+				e.add(flash);
 			}
 		}
 		for (const t of e) {
@@ -25623,6 +25666,12 @@ class ScreenFlashManager {
 			this.createdFlashes.delete(t);
 		}
 	}
+}
+interface RenderViewOptions {
+	/** @default 100 */
+	width?: number;
+	/** @default 100 */
+	height?: number;
 }
 class RenderView {
 	dirty = false;
@@ -25659,7 +25708,7 @@ class RenderView {
 	get needsRender() {
 		return this.dirty || this.alwaysDirty;
 	}
-	render(renderer, width: number, height: number) {
+	render(renderer: WebGLRenderer, width: number, height: number) {
 		if (this.needsRender) {
 			this.dirty = false;
 			if (this.scene && this.cam && this.ctx) {
@@ -25685,6 +25734,16 @@ class RenderView {
 		return await screenshot;
 	}
 }
+interface RenderOverlayOptions {
+	/** @default 0 */
+	minFov?: number
+	/** @default 180 */
+	maxFov?: number
+	/** @default 0.0 */
+	near?: number;
+	/** @default 100 */
+	far?: number;
+}
 class RenderOverlay {
 	scene = new Scene();
 	cam = new PerspectiveCamera();
@@ -25693,7 +25752,7 @@ class RenderOverlay {
 	near;
 	far;
 	enabled;
-	constructor({ minFov = 0, maxFov = 180, near = 0.01, far = 100 } = {}) {
+	constructor({ minFov = 0, maxFov = 180, near = 0.01, far = 100 }: RenderOverlayOptions = {}) {
 		this.cam.matrixAutoUpdate = false;
 		this.minFov = minFov;
 		this.maxFov = maxFov;
@@ -25827,16 +25886,16 @@ class GameRenderer {
 			this.renderer.setSize(t, e, false);
 		}
 	}
-	createRenderView(...params: any[]): RenderView {
-		const e = new RenderView(...params);
+	createRenderView(opts: RenderViewOptions): RenderView {
+		const e = new RenderView(opts);
 		this.renderViews.add(e);
 		return e;
 	}
 	removeRenderView(view: RenderView) {
 		this.renderViews.delete(view);
 	}
-	createRenderOverlay(...params: any[]): RenderOverlay {
-		const e = new RenderOverlay(...params);
+	createRenderOverlay(opts: RenderOverlayOptions): RenderOverlay {
+		const e = new RenderOverlay(opts);
 		this.renderOverlays.add(e);
 		return e;
 	}
@@ -29012,7 +29071,7 @@ class NetworkManager {
 	sendJoinReconnectToken(t: string) {
 		this.sendStringMessage(13, t);
 	}
-	sendJoinGameId(t: any, e: string | null = null) {
+	sendJoinGameId(gameId: number, e: string | null = null) {
 		let i = 8;
 		if (e) {
 			i += 16;
@@ -29020,7 +29079,7 @@ class NetworkManager {
 		const s = new ArrayBuffer(i);
 		const n = new Uint32Array(s);
 		n[0] = 1;
-		n[1] = t;
+		n[1] = gameId;
 		if (e) {
 			const computeT = (t: string) => {
 				const e = new ArrayBuffer(16);
@@ -29031,6 +29090,7 @@ class NetworkManager {
 				let s = 0;
 				const n = new DataView(e);
 				while (i < t.length) {
+					// oxlint-disable-next-line no-unused-expressions
 					t[i] == "-" && i++;
 					const e = t.slice(i, i + 2);
 					const o = parseInt(e, 16);
@@ -30800,7 +30860,7 @@ class AuthManager {
 	}
 }
 class State {
-	onStateChangedCbs = new Set();
+	onStateChangedCbs = new Set<() => void>();
 	cachedStateIndexDbKey = "cachedState";
 	getStateUrl = "";
 	fetchCurrentDataInstance;
@@ -30829,9 +30889,9 @@ class State {
 		this.markStateAsStale();
 		this.fetchCurrentData();
 	}
-	async saveCachedState(t) {
+	async saveCachedState(value: unknown) {
 		try {
-			await this.indexedDb.set(this.cachedStateIndexDbKey, t);
+			await this.indexedDb.set(this.cachedStateIndexDbKey, value);
 		} catch {}
 	}
 	async loadCachedState() {
@@ -30849,18 +30909,18 @@ class State {
 	markStateAsStale() {
 		this.stateIsStale = true;
 	}
-	onStateChanged(t) {
-		this.onStateChangedCbs.add(t);
+	onStateChanged(cb: () => void) {
+		this.onStateChangedCbs.add(cb);
 	}
-	removeOnStateChanged(t) {
-		this.onStateChangedCbs.delete(t);
+	removeOnStateChanged(cb: () => void) {
+		this.onStateChangedCbs.delete(cb);
 	}
 	fireStateChanged() {
 		this.saveCurrentCachedState();
 		this.onStateChangedCbs.forEach((t) => t());
 	}
-	async fetchCurrentData(t = false) {
-		if (this.stateIsStale || t) {
+	async fetchCurrentData(assumeStale = false) {
+		if (this.stateIsStale || assumeStale) {
 			await this.fetchCurrentDataInstance.run();
 		}
 	}
@@ -31019,10 +31079,10 @@ class ProfileState extends State {
 		}
 		return "Guest";
 	}
-	async setUsername(t) {
+	async setUsername(username: string) {
 		const e = apiPath("profile/username");
 		const i = new URLSearchParams();
-		i.set("username", t);
+		i.set("username", username);
 		const s = await this.authManager.requestWithAuthHeader(async (t) => {
 			if (!t) {
 				return {
@@ -31060,7 +31120,7 @@ class ProfileState extends State {
 					protected: false,
 				};
 			}
-			this.usernameData.username = t;
+			this.usernameData.username = username;
 			this.fireStateChanged();
 		}
 		return s;
@@ -31565,12 +31625,12 @@ class Poki {
 		const t = new Date();
 		return t.getUTCDate() > new Date(t.getUTCFullYear(), t.getUTCMonth() + 1, 0).getDate() / 2;
 	}
-	openExternalLink(t: any) {
+	openExternalLink(url: string) {
 		try {
-			PokiSDK.openExternalLink(t);
+			PokiSDK.openExternalLink(url);
 		} catch (error) {
 			console.error(error);
-			window.open(t, "_blank", "noopener,noreferrer");
+			window.open(url, "_blank", "noopener,noreferrer");
 		}
 	}
 }
@@ -31719,17 +31779,17 @@ class QuantcastManager {
 class BlobURLReference {
 	onDestructedCbs = new Set<() => void>();
 	onBlobUrlCreatedCbs = new Set<(url: string) => void>();
-	blobUrl = null;
+	blobUrl: string | null = null;
 	destructed = false;
 	constructor() {}
 	destructor() {
 		this.destructed = true;
 		this.onDestructedCbs.forEach((t) => t());
 	}
-	onDestructed(t) {
-		this.onDestructedCbs.add(t);
+	onDestructed(cb: () => void) {
+		this.onDestructedCbs.add(cb);
 	}
-	blobUrlCreated(url) {
+	blobUrlCreated(url: string) {
 		this.blobUrl = url;
 		this.onBlobUrlCreatedCbs.forEach((e) => e(url));
 	}
@@ -32018,7 +32078,7 @@ class ClassImageReference {
 	lastBlobUrl = null;
 	blobUrlChangeCbs = new Set<(url: string) => void>();
 	onNeedsUpdatesChangeCbs = new Set<() => void>();
-	constructor(public classId, public classSelectionImageManager: ClassSelectionImageManager) {
+	constructor(public classId: string, public classSelectionImageManager: ClassSelectionImageManager) {
 	}
 	destructor() {
 		this.classSelectionImageManager.removeUpdateReference(this.classId, this);
@@ -32030,8 +32090,8 @@ class ClassImageReference {
 		this._needsUpdates = t;
 		this.onNeedsUpdatesChangeCbs.forEach((t) => t());
 	}
-	onNeedsUpdatesChange(t) {
-		this.onNeedsUpdatesChangeCbs.add(t);
+	onNeedsUpdatesChange(cb: () => void) {
+		this.onNeedsUpdatesChangeCbs.add(cb);
 	}
 	onBlobUrlChange(cb: (url: string) => void, e = true) {
 		this.blobUrlChangeCbs.add(cb);
@@ -32044,15 +32104,15 @@ class ClassImageReference {
 		this.blobUrlChangeCbs.forEach((cb) => cb(blobUrl));
 	}
 }
-interface Thing {
+interface BlobURLCache {
 	updateReferences: Set<ClassImageReference>;
 	reference: BlobURLReference | null;
 	url: string | null;
-	lastLoadingSym: unique symbol | null;
+	lastLoadingSym: symbol | null;
 	avatarDirty: boolean;
 }
 class ClassSelectionImageManager {
-	cachedBlobUrlDatas = new Map<string, Thing>();
+	cachedBlobUrlDatas = new Map<string, BlobURLCache>();
 	teamId = 1;
 	constructor() {}
 	init() {
@@ -32160,8 +32220,8 @@ class ClassSelectionImageManager {
 		});
 		return i;
 	}
-	removeUpdateReference(t: string, e: ClassImageReference) {
-		this.getOrCreateBlobUrlData(t).updateReferences.delete(e);
+	removeUpdateReference(classId: string, e: ClassImageReference) {
+		this.getOrCreateBlobUrlData(classId).updateReferences.delete(e);
 	}
 }
 interface InfoTextOptions {
@@ -32178,7 +32238,7 @@ class InfoText {
 	priority;
 	percentage = 0;
 	isLoading;
-	onStateChangeCbs = new Set();
+	onStateChangeCbs = new Set<() => void>();
 	constructor(
 		public text: string,
 		{
@@ -32195,26 +32255,26 @@ class InfoText {
 		this.priority = priority;
 		this.isLoading = startLoading;
 	}
-	setIsLoading(t) {
-		if (this.isLoading != t) {
-			this.isLoading = t;
+	setIsLoading(isLoading: boolean) {
+		if (this.isLoading != isLoading) {
+			this.isLoading = isLoading;
 			this.fireStateChange();
 		}
 	}
-	onStateChange(t) {
-		this.onStateChangeCbs.add(t);
+	onStateChange(cb: () => void) {
+		this.onStateChangeCbs.add(cb);
 	}
 	fireStateChange() {
-		for (const t of this.onStateChangeCbs) {
-			t();
+		for (const cb of this.onStateChangeCbs) {
+			cb();
 		}
 	}
-	setShowPercentage(t) {
-		this.showPercentage = t;
+	setShowPercentage(showPercentage: boolean) {
+		this.showPercentage = showPercentage;
 		this.fireStateChange();
 	}
-	setPercentage(t) {
-		this.percentage = t;
+	setPercentage(percentage: number) {
+		this.percentage = percentage;
 		this.fireStateChange();
 	}
 	getText() {
@@ -32250,8 +32310,8 @@ class MainInfoTextManager {
 		this.updateText();
 		return info;
 	}
-	removeInfoText(t) {
-		this.loadingTexts.delete(t);
+	removeInfoText(info: InfoText) {
+		this.loadingTexts.delete(info);
 		this.updateText();
 	}
 	updateText() {
@@ -32377,8 +32437,8 @@ class FullScreenManager {
 			this.onAutoFullScreenChangeCbs.forEach((t) => t());
 		});
 	}
-	onAutoFullScreenChange(t) {
-		this.onAutoFullScreenChangeCbs.add(t);
+	onAutoFullScreenChange(cb: () => void) {
+		this.onAutoFullScreenChangeCbs.add(cb);
 	}
 	hasAutoFullScreen() {
 		return getMain().settingsManager.getValue("autoFullScreen");
@@ -32446,8 +32506,8 @@ class FullScreenManager {
 	isFullScreen() {
 		return Boolean(document.fullscreenElement);
 	}
-	onFullScreenChange(t) {
-		this.onFullScreenChangeCbs.add(t);
+	onFullScreenChange(cb: () => void) {
+		this.onFullScreenChangeCbs.add(cb);
 	}
 }
 class RewardKeysDialog extends Dialog {
@@ -32648,9 +32708,9 @@ class PilgrimAchievementManager {
 			this.#H = new Set(t);
 		}
 	}
-	reportVisitedMap(t) {
-		if (!this.#H.has(t)) {
-			this.#H.add(t);
+	reportVisitedMap(name: string) {
+		if (!this.#H.has(name)) {
+			this.#H.add(name);
 			this.#U.set("pilgrimVisitedMaps", Array.from(this.#H));
 			this.#N();
 		}
@@ -33058,11 +33118,11 @@ export class Main {
 (globalThis as any).ROLLUP_BUILD = false;
 (globalThis as any).PUBLISHER_BUILD = "none";
 let main: Main | null = null;
-function getMain() {
+function getMain(): Main {
 	if (!main) {
 		throw new Error("Main instance is not initialized");
 	}
-	return main;
+	return main!;
 }
 const go = new CSSStyleSheet();
 go.replaceSync(

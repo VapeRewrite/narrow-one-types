@@ -374,7 +374,7 @@ function $l(e: number, t: number) {
 			return 5;
 		}
 
-		if (ic(t) || t == 6) {
+		if (isCTF(t) || t == 6) {
 			if (e == ac) {
 				return 3;
 			}
@@ -399,7 +399,7 @@ function nc(e: number) {
 	return e == 8 || e == 9 || e == 10;
 }
 
-function ic(e: number) {
+function isCTF(e: number) {
 	return e == 1 || e == 9;
 }
 
@@ -422,7 +422,7 @@ function sc(e: number) {
 	t.push("avatar");
 	t.push("playerName");
 
-	if (ic(e)) {
+	if (isCTF(e)) {
 		t.push("flags");
 	}
 
@@ -631,7 +631,7 @@ export function ab(e: number, t: number, n: number, i = 1) {
 	return (e = lerp(t, n, (e = No((e = inverseLerp(t, n, e)), i))));
 }
 export {
-	ic as $,
+	isCTF as $,
 	n as D,
 	e as F,
 	kl as G,
