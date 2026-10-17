@@ -15,12 +15,6 @@ declare const PokiSDK: {
 	pokiInit: boolean;
 	pokiInitErrored: boolean;
 };
-
-declare const steamworks: {
-	achievement: {
-		activate(name: string): void;
-	};
-};
 import {
 	clamp,
 	lerp,
@@ -1536,6 +1530,8 @@ class SettingsDialog extends Dialog {
 						buttons: [
 							{
 								text: "never mind",
+								testLabel: "nevermind",
+								onClick: undefined,
 							},
 							{
 								text: "Unlink it!",
@@ -1870,15 +1866,10 @@ class AssetPackage {
 		return await new Response(blob).arrayBuffer();
 	}
 }
-interface PlusOnlyVerificationData {
-	expires: number;
-	[key: string]: unknown;
-}
-
-let jt: PlusOnlyVerificationData | null = null;
-let Gt: Promise<PlusOnlyVerificationData | null> | null = null;
+let jt = null;
+let Gt = null;
 const workerHandler = {
-	mapCached(t: string) {
+	mapCached(t) {
 		getMain().mapLoader.markMapAsCached(t);
 	},
 	reportMapLoadProgress(t: number, e: number): void {
@@ -1887,7 +1878,7 @@ const workerHandler = {
 	firstMapDownloaded() {
 		getMain().mapLoader.reportFirstMapDownloaded();
 	},
-	mapGameplayObjects(t: RawGameplayData, e: number) {
+	mapGameplayObjects(t, e) {
 		getMain().mapLoader.setGamplayObjects(t, e);
 	},
 	getPlusOnlyVerificationData: async function () {
@@ -2181,7 +2172,7 @@ class AssetsManager {
 		return AssetsManager.deserializeThreeObject(d);
 	}
 }
-function _t(t: any) {
+function _t(t) {
 	if (!t.slots || !Array.isArray(t.slots)) {
 		t.slots = [];
 		if (t.maleSkin) {
@@ -2243,7 +2234,7 @@ function Xt(t: unknown) {
 	}
 	return Qt(e);
 }
-function Qt(t: any = null) {
+function Qt(t = null) {
 	if (typeof t !== "object" || Array.isArray(t) || t == null) {
 		return {
 			equippedSkinIds: [],
@@ -2272,7 +2263,7 @@ function Qt(t: any = null) {
 	}
 	return t as SkinData;
 }
-function Zt(t: any) {
+function Zt(t) {
 	if (!Array.isArray(t)) {
 		return [1, 1, 1];
 	}
@@ -2347,6 +2338,7 @@ export interface SkinObjectOpts {
 	teamColor?: { r: number; g: number; b: number };
 	skin: SkinData;
 	rawSkin?: unknown;
+	bow?: BowAssetConfig | null;
 }
 export interface PreviewShopItemConfig {
 	itemId?: string;
@@ -4285,10 +4277,10 @@ class SkinModel {
 	destructed = false;
 	obj: Object3D | null = null;
 	materials: Material[] = [];
-	lastSetMatrices = null;
-	onInitCbs = new Set();
+	lastSetMatrices: Matrix4[] | null = null;
+	onInitCbs = new Set<() => void>();
 	getSkinAbortController = new AbortController();
-	useWorldWeather;
+	useWorldWeather: boolean;
 	initCalled = false;
 	constructor({ skinObjectOpts, init = true, useWorldWeather = true }: { skinObjectOpts: SkinObjectOpts, init?: boolean, useWorldWeather?: boolean }) {
 		this.skinObjectOpts = skinObjectOpts;
@@ -4331,7 +4323,7 @@ class SkinModel {
 		}
 		if (
 			t &&
-			((t.geometry.boundingSphere = new Sphere(new Vector3(0, 1, 0), 1)), !this.destructed)
+			((t! as Mesh).geometry.boundingSphere = new Sphere(new Vector3(0, 1, 0), 1)), !this.destructed
 		) {
 			this.obj = t;
 			const e = new Map();
@@ -4362,7 +4354,7 @@ class SkinModel {
 		}
 		if (!this.useWorldWeather) {
 			for (const t of this.materials) {
-				GameMaterials.resetWeatherUniforms(t);
+				GameMaterials.resetWeatherUniforms(t as ShaderMaterial);
 			}
 		}
 		this.isInit = true;
@@ -4381,14 +4373,15 @@ class SkinModel {
 	applySkeleton(skeleton: PlayerSkeleton) {
 		this.lastSetMatrices = skeleton.getMatrices();
 		for (const t of this.materials) {
-			if (t.uniforms.skinMatrices) {
-				t.uniforms.skinMatrices.value = this.lastSetMatrices;
+			const tm = t as ShaderMaterial;
+			if (tm.uniforms.skinMatrices) {
+				tm.uniforms.skinMatrices.value = this.lastSetMatrices;
 			}
 		}
 	}
 	setHitFlashMaterialsTime(time: number) {
 		for (const e of this.materials) {
-			e.uniforms.time.value = time;
+			(e as ShaderMaterial).uniforms.time.value = time;
 		}
 	}
 	setHitFlashMaterialsValue(index: number, flashTime: number, flashPosition: Vector3) {
@@ -4396,8 +4389,13 @@ class SkinModel {
 			throw new Error("Invalid index");
 		}
 		for (const s of this.materials) {
-			s.uniforms.hitFlashTimes.value[index] = flashTime;
-			s.uniforms.hitFlashPositions.value[index].copy(flashPosition);
+			const sm = s as ShaderMaterial;
+			if (sm.uniforms.hitFlashTimes) {
+				sm.uniforms.hitFlashTimes.value[index] = flashTime;
+			}
+			if (sm.uniforms.hitFlashPositions) {
+				sm.uniforms.hitFlashPositions.value[index].copy(flashPosition);
+			}
 		}
 	}
 	computeApproximateBoundingSphere() {
@@ -4611,7 +4609,7 @@ const de = {
 	},
 };
 interface BowAssetConfig {
-	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number
+	arrowSkin?: string | null; bowId?: string; arrowCount?: number; skins?: unknown[]; teamColor?: string, teamId?: number; separateObjectNames?: string[]
 }
 class BowAssetLoader {
 	obj = new Object3D();
@@ -5774,10 +5772,10 @@ class SkinDownloaderDialog extends Dialog {
 	widthInput;
 	heightInput;
 	imageEl;
-	currentBlobReference;
-	createdDownloadBlobReferences;
-	skinConfig;
-	constructor(t, e, i, s) {
+	currentBlobReference: BlobURLReference | null = null;
+	createdDownloadBlobReferences: Set<BlobURLReference> = new Set();
+	skinConfig: SkinObjectOpts;
+	constructor(t: HTMLElement, e: AvatarsManager, i: SkinObjectOpts, s: SkinObjectOpts) {
 		super(t);
 		this.avatarsManager = e;
 		this.contentEl.classList.add("skin-downloader-dialog-content");
@@ -5842,7 +5840,7 @@ class SkinDownloaderDialog extends Dialog {
 		d.textContent = "Pose ";
 		n.appendChild(d);
 		this.poseInput = document.createElement("select");
-		const c = [];
+		const c: [string, string][] = [];
 		c.push(["", "None"]);
 		for (const { uiName, id } of allWeapons) {
 			c.push([id, uiName]);
@@ -5882,7 +5880,7 @@ class SkinDownloaderDialog extends Dialog {
 		this.imageEl.classList.add("downloadable-skin-preview");
 		this.contentEl.appendChild(this.imageEl);
 		this.currentBlobReference = null;
-		this.createdDownloadBlobReferences = [];
+		this.createdDownloadBlobReferences = new Set<BlobURLReference>();
 		this.skinConfig = s;
 		this.reloadPreview();
 	}
@@ -5895,7 +5893,7 @@ class SkinDownloaderDialog extends Dialog {
 		for (const t of this.createdDownloadBlobReferences) {
 			t.destructor();
 		}
-		this.createdDownloadBlobReferences = [];
+		this.createdDownloadBlobReferences = new Set<BlobURLReference>();
 	}
 	getCurrentAvatarConfig(width: number, height: number) {
 		const clipPathType = this.shapeInput.value ?? "none";
@@ -5906,14 +5904,14 @@ class SkinDownloaderDialog extends Dialog {
 			g: parseInt(value.substring(3, 5), 16) / 255,
 			b: parseInt(value.substring(5, 7), 16) / 255,
 		};
-		let a = null;
+		let a: string[] = [];
 		let bow = null;
 		if (this.poseInput.value) {
 			const t = getWeapon(this.poseInput.value);
 			a = [`bows/${t.bowId}/shopClassItem`];
 			const { skins, arrowSkin } = getMain().skins.skinNetworkDataToBowAssetData(
 				t.bowId,
-				this.skinConfig,
+				this.skinConfig as { equippedSkinIds?: string[] | undefined },
 			);
 			bow = {
 				teamId: 1,
@@ -5933,13 +5931,11 @@ class SkinDownloaderDialog extends Dialog {
 			clipPathType,
 			bow,
 			skinObjectOpts: {
-				teamColor,
-				skin: this.skinConfig,
+				teamId: this.skinConfig.teamId,
+				skin: this.skinConfig.skin,
 			},
+			skeletonPoseLayers: a,
 		};
-		if (a) {
-			l.skeletonPoseLayers = a;
-		}
 		return l;
 	}
 	reloadPreview() {
@@ -5948,7 +5944,7 @@ class SkinDownloaderDialog extends Dialog {
 		}
 		const t = 250 * globalThis.devicePixelRatio;
 		const e = this.getCurrentAvatarConfig(t, t);
-		const i = this.avatarsManager.getAvatar(e).getBlobUrlReference();
+		const i = this.avatarsManager.getAvatar(e as AvatarConfig).getBlobUrlReference();
 		if (this.currentBlobReference) {
 			this.currentBlobReference.destructor();
 		}
@@ -5968,8 +5964,8 @@ class SkinDownloaderDialog extends Dialog {
 		const t = Number(this.widthInput.value);
 		const e = Number(this.heightInput.value);
 		const i = this.getCurrentAvatarConfig(t, e);
-		const s = this.avatarsManager.getAvatar(i).getBlobUrlReference();
-		this.createdDownloadBlobReferences.push(s);
+		const s = this.avatarsManager.getAvatar(i as AvatarConfig).getBlobUrlReference();
+		this.createdDownloadBlobReferences.add(s);
 		(async () => {
 			const t = await s.getBlobUrl();
 			const e = document.createElement("a");
@@ -7471,13 +7467,16 @@ class ShopCustomizationView {
 		getMain().config.shopConfig.removeOnConfigChange(reloadFilteredItems);
 	}
 }
+interface ClassSelectionImageOptions {
+	extraClasses?: string[];
+}
 class ClassSelectionImage {
 	el = document.createElement("div");
 	backgroundEl;
 	imageEl;
 	seed;
 	updateReference;
-	constructor(public classId: string, { extraClasses = [] } = {}) {
+	constructor(public classId: string, { extraClasses = [] }: ClassSelectionImageOptions = {}) {
 		this.el.classList.add(
 			"class-selection-image-container",
 			"wrinkledPaper",
@@ -7674,6 +7673,8 @@ class PresetsView {
 							},
 							{
 								text: "No",
+								testLabel: "no",
+								onClick: undefined,
 							},
 						],
 					});
@@ -8062,14 +8063,14 @@ class ProfileDialog extends Dialog {
 }
 class CornerProfile {
 	el = document.createElement("button");
-	clickCbs = new Set<(event: PointerEvent) => void>();
+	clickCbs = new Set<(event: MouseEvent) => void>();
 	avatarEl;
 	usernameEl;
 	ownedCoins;
 	boundAvatarUrlChanged;
 	constructor() {
 		this.el.classList.add("main-menu-corner-profile");
-		this.el.addEventListener("click", (t) => {
+		this.el.addEventListener("click", (t: MouseEvent) => {
 			this.clickCbs.forEach((e) => e(t));
 		});
 		this.avatarEl = document.createElement("div");
@@ -8529,10 +8530,10 @@ class SquadSettingsDialog extends Dialog {
 		this.squadManager.removeOnSquadSettingChange(this.onSquadSettingChange);
 		this.squadManager.removeOnMySquadLeaderStateChange(this.onMySquadLeaderStateChange);
 	}
-	onSquadSettingChange = (t, e) => {
-		const i = this.settings.get(t);
+	onSquadSettingChange = (name: string, value: SettingValue) => {
+		const i = this.settings.get(name);
 		if (i) {
-			i.setValue(e);
+			i.setValue(value);
 		}
 	};
 	onMySquadLeaderStateChange = () => {
@@ -8558,14 +8559,10 @@ class SquadSettingsDialog extends Dialog {
 	}
 }
 class Timeout {
-	cb;
 	id = -1;
-	ms;
 	isDestructed = false;
-	constructor(t, e, i = false) {
-		this.cb = t;
-		this.ms = e;
-		if (i) {
+	constructor(public cb: () => void, public ms: number, startNow = false) {
+		if (startNow) {
 			this.start();
 		}
 	}
@@ -8581,10 +8578,10 @@ class Timeout {
 			return this.id >= 0 && (clearTimeout(this.id), (this.id = -1), true);
 		}
 	}
-	start(t = this.ms) {
+	start(time = this.ms) {
 		if (!this.isDestructed) {
 			this.stop();
-			this.id = setTimeout(this.execute.bind(this), t);
+			this.id = setTimeout(this.execute.bind(this), time);
 		}
 	}
 	execute() {
@@ -8593,11 +8590,11 @@ class Timeout {
 			this.cb();
 		}
 	}
-	static promise(t) {
-		return new Promise((resolve, reject) => {
+	static promise(timeout: number) {
+		return new Promise<void>((resolve, reject) => {
 			setTimeout(() => {
 				resolve();
-			}, t);
+			}, timeout);
 		});
 	}
 }
@@ -8629,7 +8626,7 @@ class SpringValue {
 		this.loopStart = loopStart;
 		this.loopEnd = loopEnd;
 	}
-	loop(e, i) {
+	loop(now: number, dt: number) {
 		let s = this.target - this.value;
 		if (this.loopValue) {
 			this.target = this.performValueLoop(this.target);
@@ -8652,13 +8649,13 @@ class SpringValue {
 		s = clamp(s, -this.maxSpring, this.maxSpring);
 		this.velocity += s;
 		this.velocity *= this.dampening;
-		this.value += this.velocity * i;
+		this.value += this.velocity * dt;
 		if (this.loopValue) {
 			this.value = this.performValueLoop(this.value);
 		}
 	}
-	performValueLoop(t) {
-		return wrap(t, this.loopStart, this.loopEnd);
+	performValueLoop(value: number) {
+		return wrap(value, this.loopStart, this.loopEnd);
 	}
 }
 class SpringVector3 {
@@ -8690,18 +8687,18 @@ class SpringVector3 {
 			dampening,
 		});
 	}
-	loop(t: number, e: number): void {
-		this.xValue.loop(t, e);
-		this.yValue.loop(t, e);
-		this.zValue.loop(t, e);
+	loop(now: number, dt: number): void {
+		this.xValue.loop(now, dt);
+		this.yValue.loop(now, dt);
+		this.zValue.loop(now, dt);
 	}
 	get value() {
 		return new Vector3(this.xValue.value, this.yValue.value, this.zValue.value);
 	}
-	set value(t) {
-		this.xValue.value = t.x;
-		this.yValue.value = t.y;
-		this.zValue.value = t.z;
+	set value(value) {
+		this.xValue.value = value.x;
+		this.yValue.value = value.y;
+		this.zValue.value = value.z;
 	}
 	get target() {
 		return new Vector3(this.xValue.target, this.yValue.target, this.zValue.target);
@@ -9099,6 +9096,25 @@ export interface SphereManifold {
 	normal: Vector3;
 	penetration: number;
 }
+interface ColliderOptions {
+	ignoreArrows?: boolean | undefined;
+	isLadder?: boolean | undefined;
+	isLadderAllSides?: boolean | undefined;
+	excludeTeamId?: number | undefined;
+	excludeWearingShopItems?: never[] | undefined;
+	isDeathTrigger?: boolean | undefined;
+	shootSfx?: string | undefined;
+	allowJump?: boolean | undefined;
+	allowWalk?: boolean | undefined;
+	movePlayerUp?: boolean | undefined;
+	slippery?: boolean | undefined;
+	slowDownPlayerAmount?: number | undefined;
+	airFrictionModifier?: number | undefined;
+	touchDamageAmount?: number | undefined;
+	touchDamageDistance?: number | undefined;
+	triggerHingeId?: number | undefined;
+	triggerAppearingObjectId?: number | undefined;
+}
 class ColliderBase {
 	invWorldMatrix;
 	invWorldMatrixNoTranslate;
@@ -9141,7 +9157,7 @@ class ColliderBase {
 			touchDamageDistance = 1.5,
 			triggerHingeId = -1,
 			triggerAppearingObjectId = -1,
-		},
+		}: ColliderOptions,
 	) {
 		this.invWorldMatrix = worldMatrix.clone().invert();
 		this.invWorldMatrixNoTranslate = this.invWorldMatrix.clone().setPosition(0, 0, 0);
@@ -9174,21 +9190,25 @@ class ColliderBase {
 		return this.slowDownPlayerAmount > 0 || this.airFrictionModifier > 0;
 	}
 }
-const Re = 1;
-const Ue = 2;
+const UP = 1;
+const DOWN = 2;
 const qe = 3;
 const He = 4;
 const We = 5;
 const Ne = 6;
+interface Face {
+	face: number;
+	normal: Vector3;
+	dot: number;
+}
 class BoxCollider extends ColliderBase {
 	box = new Box3(new Vector3(-1, -1, -1), new Vector3(1, 1, 1));
 	override aabb;
-	cachedUpFaces;
-	constructor(...t) {
+	cachedUpFaces: Face[] | null = null;
+	constructor(...t: [worldMatrix: Matrix4, opts: ColliderOptions]) {
 		super(...t);
 		this.aabb = this.box.clone();
 		this.aabb.applyMatrix4(this.worldMatrix);
-		this.cachedUpFaces = null;
 	}
 	override getSphereManifold(t: Vector3, e: number): SphereManifold {
 		const i = t.clone().applyMatrix4(this.invWorldMatrix);
@@ -9219,31 +9239,31 @@ class BoxCollider extends ColliderBase {
 		}
 		const t = new Vector3();
 		const e = new Vector3(1, 0, 0);
-		const i = new Vector3(0, 1, 0);
+		const upNormal = new Vector3(0, 1, 0);
 		const s = new Vector3(0, 0, 1);
 		t.applyMatrix4(this.worldMatrix);
 		e.applyMatrix4(this.worldMatrix);
-		i.applyMatrix4(this.worldMatrix);
+		upNormal.applyMatrix4(this.worldMatrix);
 		s.applyMatrix4(this.worldMatrix);
 		e.sub(t);
-		i.sub(t);
+		upNormal.sub(t);
 		s.sub(t);
 		e.normalize();
-		i.normalize();
+		upNormal.normalize();
 		s.normalize();
 		const n = e.clone().negate();
-		const o = i.clone().negate();
+		const downNormal = upNormal.clone().negate();
 		const a = s.clone().negate();
 		const r = new Vector3(0, 1, 0);
-		const l = [
+		const l: Face[] = [
 			{
-				face: Re,
-				normal: i,
+				face: UP,
+				normal: upNormal,
 				dot: 0,
 			},
 			{
-				face: Ue,
-				normal: o,
+				face: DOWN,
+				normal: downNormal,
 				dot: 0,
 			},
 			{
@@ -9274,20 +9294,20 @@ class BoxCollider extends ColliderBase {
 		this.cachedUpFaces = l;
 		return this.cachedUpFaces;
 	}
-	getIsOnFace(t, e) {
-		switch (e.face) {
-			case Re:
-				return t.y >= 1;
-			case Ue:
-				return t.y <= -1;
+	getIsOnFace(pos: Vector3, face: Face) {
+		switch (face.face) {
+			case UP:
+				return pos.y >= 1;
+			case DOWN:
+				return pos.y <= -1;
 			case qe:
-				return t.x >= 1;
+				return pos.x >= 1;
 			case He:
-				return t.x <= -1;
+				return pos.x <= -1;
 			case We:
-				return t.z >= 1;
+				return pos.z >= 1;
 			case Ne:
-				return t.z <= -1;
+				return pos.z <= -1;
 		}
 		return false;
 	}
@@ -9620,7 +9640,7 @@ class PlayerBody extends RigidBody {
 	manifoldShouldMovePlayerUp(t: SphereManifold, e: number): boolean {
 		return t.colliderType == "box" && !!t.isAtEdge && !!t.isAtUpFace && e > 0.1;
 	}
-	override resolveMapCollisionsOctree(t: any): void {
+	override resolveMapCollisionsOctree(step: number): void {
 		if (this.noclip) {
 			return;
 		}
@@ -9832,22 +9852,22 @@ class PlayerBody extends RigidBody {
 	getAllowJump() {
 		return !(this.onJumpableColliderTime > 200) && !this.inAirAfterJump && !(this.velocity.y > 5);
 	}
-	jump(t) {
+	jump(force: number) {
 		this.isOnFloor = false;
 		this.isOnJumpableCollider = false;
 		this.isOnUnwalkableCollider = false;
 		this.isOnSlipperyCollider = false;
 		this.inAirAfterJump = true;
 		this.lastJumpTime = getMain().now;
-		const e = Math.max(0, t - this.velocity.y);
-		this.velocity.y += e;
+		const diff = Math.max(0, force - this.velocity.y);
+		this.velocity.y += diff;
 	}
 }
-const Je = 1;
-const Ke = 2;
-const Ye = 3;
-const Xe = 4;
-const Qe = 5;
+const REPORT_FLY = 1;
+const REPORT_INVULNERABLE = 2;
+const REPORT_INVALID_ARROW = 3;
+const REPORT_INVALID_ARROW_FREQUENCY = 4;
+const REPORT_INVALID_DEATH_OPERATION = 5;
 class AntiCheat {
 	reportedPlayerTimes = new Map<number, number>();
 	onPlayerNeedsReportCbs = new Set<(playerId: number, reportType: number, value: number) => void>();
@@ -10231,10 +10251,10 @@ class BowWeapon extends WeaponBase {
 		player: Player,
 		public bowWeaponId: number,
 		public bowWeaponTypeId: string,
-		s,
+		opts: WeaponHolderOptions,
 	) {
 		const n = new BowAssetLoader();
-		super(player, n.obj, s);
+		super(player, n.obj, opts);
 		this.equipSfxName = "weapon/equipBow";
 		this.bowAssetLoader = n;
 	}
@@ -10248,7 +10268,7 @@ class BowWeapon extends WeaponBase {
 		}
 		return getMain().settingsManager.getValue("autoShoot");
 	}
-	override actionDown(t?: { fromTouchButton?: boolean }) {
+	override actionDown(t?: { fromTouchButton?: boolean } | null) {
 		this.rawActionIsDown = true;
 		if (this.actionIsDown) {
 			return;
@@ -10263,7 +10283,7 @@ class BowWeapon extends WeaponBase {
 			);
 		}
 	}
-	override actionUp(t?: { fromTouchButton?: boolean }) {
+	override actionUp(t?: { fromTouchButton?: boolean } | null) {
 		this.rawActionIsDown = false;
 		this.actionIsDown &&
 			((this.getAutoShootEnabled() &&
@@ -10277,12 +10297,12 @@ class BowWeapon extends WeaponBase {
 					},
 				)));
 	}
-	shootArrow(t) {
+	shootArrow(fireAmount01: number) {
 		if (this.player.hasOwnership) {
 			const pos = this.player.getCamPos();
 			const s = this.player.getShootDirection();
 			const n = this.player.game.crosshair.currentAccuracy;
-			const computeO = (t, i) => {
+			const computeO = (t: Vector3, i: number) => {
 				const s = t.clone();
 				s.x += 1;
 				s.cross(t).normalize();
@@ -10295,16 +10315,16 @@ class BowWeapon extends WeaponBase {
 			};
 			const o = computeO(s, q(0, 30, 0, 0.05, n));
 			const a = this.player.getSendArrowId();
-			const r = getMain().network.sendCreateArrow(this.player.game, this.player.id, {
+			const r = getMain().network.sendCreateArrow(this.player.game as OnlineGame, this.player.id, {
 				arrowId: a,
 				pos,
 				dir: o,
-				fireAmount01: t,
+				fireAmount01: fireAmount01,
 			});
 			this.player.game.arrowManager.createArrow(this.player, r);
 		}
 	}
-	verifyArrowFrequency(t) {
+	verifyArrowFrequency(frequency: number) {
 		return true;
 	}
 	getArrowOpts(fireAmount01: number): Partial<ArrowWeaponOpts> {
@@ -10333,12 +10353,12 @@ class BowWeapon extends WeaponBase {
 	getWalkAccuracyMultiplier() {
 		return 2;
 	}
-	getClonedArrowObject(t) {
-		return this.bowAssetLoader.getClonedArrowObject(t);
+	getClonedArrowObject(cb: () => void) {
+		return this.bowAssetLoader.getClonedArrowObject(cb);
 	}
-	getLoadSpeed(t, i) {
-		const s = this.player.getStatClassValue("arrowLoadingSpeed");
-		return lerp(t, i, s);
+	getLoadSpeed(start: number, end: number) {
+		const arrowLoadingSpeed = this.player.getStatClassValue("arrowLoadingSpeed");
+		return lerp(start, end, arrowLoadingSpeed);
 	}
 }
 class SmallCrossbow extends BowWeapon {
@@ -10472,8 +10492,8 @@ class SmallCrossbow extends BowWeapon {
 		this.loadingActivity.loop(a, e);
 		this.shootingActivity.loop(o, e);
 	}
-	override verifyArrowFrequency(t: number): boolean {
-		return t < 0.004;
+	override verifyArrowFrequency(frequency: number): boolean {
+		return frequency < 0.004;
 	}
 	override getThirdPersonSkeletonLayers(): Array<{ name: string; weight: number }> {
 		return [
@@ -10537,7 +10557,7 @@ class LongAttackHelper {
 	}
 }
 class MeleeWeapon extends WeaponBase {
-	#a = null;
+	#a: string | null = null;
 	get lastSkinAssetName() {
 		return this.#a;
 	}
@@ -10657,10 +10677,10 @@ class MeleeWeapon extends WeaponBase {
 			this.playSfx(this.hitSfxName, this.hitSfxOptions || undefined);
 		}
 	}
-	validateHit(t) {
-		return t.pos.distanceTo(this.player.pos) < 5;
+	validateHit(target: Player) {
+		return target.pos.distanceTo(this.player.pos) < 5;
 	}
-	ownedPlayerAttacked(t) {}
+	ownedPlayerAttacked(player: Player) {}
 	getDamageMultiplier() {
 		return 0;
 	}
@@ -10677,7 +10697,7 @@ class MeleeWeapon extends WeaponBase {
 	getAttackSpeedStat() {
 		return this.player.getStatClassValue("meleeAttackSpeed");
 	}
-	updateMeleeAsset(skinAssetName) {
+	updateMeleeAsset(skinAssetName: string) {
 		this.#a = skinAssetName;
 		this.meleeAssetLoader.setConfig({
 			skinAssetName,
@@ -10751,7 +10771,7 @@ export class ChargedAttack {
 		}
 		return t;
 	}
-	loop(t: number, i: number, s: number): void {
+	loop(t: number, i: number, s: number): { preparing: boolean; cooldownActive: boolean } {
 		if (this.actionIsDown && !this.cooldownIsActive && !this.isPreparingAttack) {
 			this.isPreparingAttack = true;
 			const t = lerp(
@@ -10867,13 +10887,13 @@ const bowWeapons = {
 		async shootMultiple(t: number, e: unknown): Promise<void> {
 			this.isShootingMultiple = true;
 			for (let i = 0; i < t; i++) {
-				this.shootArrow(e);
+				this.shootArrow(e as number);
 				getMain().sfx.playSound("weapon/bow/shoot", {
 					pos: this.player.getSfxPos(),
 					minPitch: 1,
 					maxPitch: 1.1,
 				});
-				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * e));
+				this.holdingHandler.addFirstPersonImpulse(new Vector3(0, 0, 0.005 * (e as number)));
 				if (i < t - 1) {
 					await Timeout.promise(50);
 					this.shootingMultipleVisualLoadState = true;
@@ -10926,8 +10946,8 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s || this.isShootingMultiple, e);
 		}
-		override verifyArrowFrequency(t: number): boolean {
-			return t < 0.006;
+		override verifyArrowFrequency(frequency: number): boolean {
+			return frequency < 0.006;
 		}
 		override getAutoShootActionUp() {
 			return this.arrowCount >= 3;
@@ -11082,8 +11102,8 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s, e);
 		}
-		override verifyArrowFrequency(t: number): boolean {
-			return t < 0.004;
+		override verifyArrowFrequency(frequency: number): boolean {
+			return frequency < 0.004;
 		}
 		override getAutoShootActionUp() {
 			return this.fireAmount01 >= 1;
@@ -11257,8 +11277,8 @@ const bowWeapons = {
 			this.holdingHandlerManager.loop(s, this.player);
 			this.shootingActivity.loop(s, e);
 		}
-		override verifyArrowFrequency(t: number): boolean {
-			return t < 0.003;
+		override verifyArrowFrequency(frequency: number): boolean {
+			return frequency < 0.003;
 		}
 		override getAutoShootActionUp() {
 			return this.fireAmount01 >= 1;
@@ -11329,8 +11349,8 @@ const bowWeapons = {
 				},
 			});
 			this.bowAssetLoader.onAssetChange((t: Object3D) => {
-				this.currentHandleObject = t.getObjectByName("handleRotation");
-				this.currentArrowBoxObject = t.getObjectByName("arrowBoxRotation");
+				this.currentHandleObject = t.getObjectByName("handleRotation")!;
+				this.currentArrowBoxObject = t.getObjectByName("arrowBoxRotation")!;
 			});
 			this.emptyFirstPersonConfig = {
 				posOffset: new Vector3(0.1, -0.5, -0.2),
@@ -11473,8 +11493,8 @@ const bowWeapons = {
 				this.currentArrowBoxObject.rotation.x = lerp(0, 0.2, o * (1 - this.loadingActivity.weight));
 			}
 		}
-		override verifyArrowFrequency(t: number): boolean {
-			return t < 0.007;
+		override verifyArrowFrequency(frequency: number): boolean {
+			return frequency < 0.007;
 		}
 		override getAutoShootActionUp() {
 			return !this.hasReleasedAction;
@@ -11676,8 +11696,8 @@ const bowWeapons = {
 			this.loadWeightStart.loop(s, dt);
 			this.shootingWeight.loop(this.weaponIsLoaded(), dt);
 		}
-		override verifyArrowFrequency(t: number): boolean {
-			return t < 0.003;
+		override verifyArrowFrequency(frequency: number): boolean {
+			return frequency < 0.003;
 		}
 		override getAutoShootActionUp() {
 			return !this.isLoadingWeapon();
@@ -12266,8 +12286,8 @@ const gi = {
 		override getThirdPersonSkeletonLayers() {
 			return si("bluntHeavy", this.attackStartActivity, this.attackEndActivity);
 		}
-		override ownedPlayerAttacked(t: Player): void {
-			t.ownedPlayerDidBluntHeavyHit();
+		override ownedPlayerAttacked(player: Player): void {
+			player.ownedPlayerDidBluntHeavyHit();
 		}
 	},
 	pokeLight: class extends MeleeWeapon {
@@ -12608,14 +12628,18 @@ const gi = {
 		}
 	},
 };
+interface WeaponSelectionItemOptions {
+	classId: string;
+	keyNumber: number;
+}
 class WeaponSelectionItem {
-	keyNumber;
+	keyNumber: number;
 	el = document.createElement("div");
 	classSelectionImage;
 	_selected;
 	keyEl;
-	onClickCbs;
-	constructor({ classId, keyNumber }) {
+	onClickCbs = new Set<() => void>();
+	constructor({ classId, keyNumber }: WeaponSelectionItemOptions) {
 		this.keyNumber = keyNumber;
 		this.el.classList.add("weaponSelectionItem");
 		this.classSelectionImage = new ClassSelectionImage(classId, {
@@ -12632,23 +12656,22 @@ class WeaponSelectionItem {
 		this.keyEl.classList.add("weaponSelectionItemKeyNumber", "blueNight");
 		this.keyEl.textContent = String(keyNumber);
 		this.el.appendChild(this.keyEl);
-		this.onClickCbs = new Set();
 	}
 	get selected() {
 		return this._selected;
 	}
-	set selected(t) {
-		this._selected = t;
-		this.el.classList.toggle("selected", t);
+	set selected(value: boolean) {
+		this._selected = value;
+		this.el.classList.toggle("selected", value);
 	}
-	set needsAvatarUpdates(t) {
-		this.classSelectionImage.needsUpdates = t;
+	set needsAvatarUpdates(value: boolean) {
+		this.classSelectionImage.needsUpdates = value;
 	}
-	onClick(t) {
-		this.onClickCbs.add(t);
+	onClick(cb: () => void) {
+		this.onClickCbs.add(cb);
 	}
-	setCssColor(t, e) {
-		this.classSelectionImage.setCssColor(t, e);
+	setCssColor(color: string, borderColor: string) {
+		this.classSelectionImage.setCssColor(color, borderColor);
 	}
 }
 let fi = false;
@@ -12690,8 +12713,9 @@ class WeaponSelectionDialog extends Dialog {
 	boundKeyDown;
 	boundUpdateSelectedUi;
 	boundUpdateVisible;
-	constructor(t) {
-		super(t, {
+	mainMenuVisibility?: boolean;
+	constructor(gameWrapper: HTMLElement) {
+		super(gameWrapper, {
 			allowCurtainClose: false,
 			needsCurtain: false,
 			needsUnlockedPointer: false,
@@ -12785,34 +12809,34 @@ class WeaponSelectionDialog extends Dialog {
 			e.needsAvatarUpdates = t;
 		}
 	}
-	setCssColor(t, e) {
+	setCssColor(color: string, borderColor: string) {
 		for (const i of this.weaponSelectionItems) {
-			i.setCssColor(t, e);
+			i.setCssColor(color, borderColor);
 		}
 	}
-	onKeyDown(t) {
+	onKeyDown(e: KeyboardEvent) {
 		if (!getMain().input.inputHasFocus()) {
-			for (const [e, i] of this.weaponSelectionItems.entries()) {
-				if (t.code == `Digit${i.keyNumber}`) {
-					this.selectWeapon(e);
+			for (const [k, item] of this.weaponSelectionItems.entries()) {
+				if (e.code == `Digit${item.keyNumber}`) {
+					this.selectWeapon(k);
 				}
 			}
 		}
 	}
-	selectWeapon(t) {
+	selectWeapon(idx: number) {
 		return (
-			!!this.visible && ((Si = Mi(t)), getMain().indexedDb.set("selectedWeaponId", Si), Pi(), true)
+			!!this.visible && ((Si = Mi(idx)), getMain().indexedDb.set("selectedWeaponId", Si), Pi(), true)
 		);
 	}
-	deltaSelectWeapon(t) {
-		return this.selectWeapon(Si + t);
+	deltaSelectWeapon(delta: number) {
+		return this.selectWeapon(Si + delta);
 	}
-	setPlayerVisibility(t) {
-		this.playerVisibility = t;
+	setPlayerVisibility(playerVisibility: boolean) {
+		this.playerVisibility = playerVisibility;
 		this.updateVisible();
 	}
-	setMainMenuVisibility(t) {
-		this.mainMenuVisibility = t;
+	setMainMenuVisibility(mainMenuVisibility: boolean) {
+		this.mainMenuVisibility = mainMenuVisibility;
 		this.updateVisible();
 	}
 	updateVisible() {
@@ -12830,7 +12854,7 @@ class WeaponSelectionDialog extends Dialog {
 		this.visible = t;
 	}
 }
-new Uint32Array([-1])[0];
+new Uint32Array([-1])[0]; // bro what
 export interface PlayerParams {
 	teamId: number;
 	needsPlayerModel: boolean;
@@ -12845,6 +12869,10 @@ interface Stun {
 interface StunEvent {
 	time: number;
 	stun: Stun;
+}
+interface PlayerScoreData {
+	scores: { flags: number; kills: number; deaths: number; total: number };
+	elo: number;
 }
 export class Player {
 	#l: string | null = null;
@@ -13670,7 +13698,7 @@ export class Player {
 					this.lastAntiFlyRaycastDist = 0;
 				}
 				const i = Math.max(t, e);
-				this.report(Je, i);
+				this.report(REPORT_FLY, i);
 			}
 		}
 		if (this.dead) {
@@ -13709,7 +13737,7 @@ export class Player {
 				}
 				this.negativeHealthCounter++;
 				if (this.negativeHealthCounter >= 2) {
-					this.report(Ke, 1);
+					this.report(REPORT_INVULNERABLE, 1);
 					this.negativeHealthCounter = 0;
 				}
 			}
@@ -13961,28 +13989,28 @@ export class Player {
 			DIE: 4,
 		};
 	}
-	sendPerformAction(t: number) {
+	sendPerformAction(action: number) {
 		if (this.hasOwnership) {
-			getMain().network.sendPlayerPerformAction(this.id, t);
+			getMain().network.sendPlayerPerformAction(this.id, action);
 		}
 	}
-	receivedPerformAction(t: number) {
+	receivedPerformAction(action: number) {
 		if (!this.hasOwnership) {
 			this.lastReceivedActionTime = getMain().now;
-			if (t == Player.PlayerAction.JUMP) {
+			if (action == Player.PlayerAction.JUMP) {
 				this.onJumpPress();
-			} else if (t == Player.PlayerAction.FIRE_DOWN) {
+			} else if (action == Player.PlayerAction.FIRE_DOWN) {
 				this.onFireDown();
-			} else if (t == Player.PlayerAction.FIRE_UP) {
+			} else if (action == Player.PlayerAction.FIRE_UP) {
 				this.onFireUp();
-			} else if (t == Player.PlayerAction.DIE) {
+			} else if (action == Player.PlayerAction.DIE) {
 				this.die();
 			}
 		}
 	}
-	receiveChangeClassFromServer(t: any) {
+	receiveChangeClassFromServer(bowIndex: number) {
 		if (!this.hasOwnership) {
-			this.setActiveBowWeapon(t);
+			this.setActiveBowWeapon(bowIndex);
 		}
 	}
 	setHasOwnership(hasOwnership: boolean): void {
@@ -14034,10 +14062,7 @@ export class Player {
 	setScores({
 		scores,
 		elo,
-	}: {
-		scores: { flags: number; kills: number; deaths: number; total: number };
-		elo: number;
-	}): void {
+	}: PlayerScoreData): void {
 		const { flags, kills, deaths, total } = scores;
 		this.scoreFlags = flags;
 		this.scoreKills = kills;
@@ -14055,10 +14080,10 @@ export class Player {
 		const s = this.inputManager.getKey("fire");
 		const n = this.inputManager.getKey("toggleWeapon");
 		if (t) {
-			i.onPressedDown(this.boundOnJumpPress);
-			s.onPressedDown(this.boundOnFireDown);
-			s.onPressedUp(this.boundOnFireUp);
-			n.onPressedDown(this.boundToggleActiveWeapon);
+			i.onPressedDown(this.boundOnJumpPress as (i: { fromTouchButton?: boolean }) => boolean);
+			s.onPressedDown(this.boundOnFireDown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.onPressedUp(this.boundOnFireUp as (i: { fromTouchButton?: boolean }) => boolean);
+			n.onPressedDown(this.boundToggleActiveWeapon as (i: { fromTouchButton?: boolean }) => boolean);
 			e.dialogManager.onNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
 			e.cam.onThirdPersonChange(this.boundOnThirdPersonChange);
 			e.input.touch.onTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
@@ -14070,9 +14095,9 @@ export class Player {
 			this.smoothCamSetting = Boolean(e.settingsManager.getValue("smoothCam"));
 			this.updateSmoothCam();
 		} else {
-			i.removeCb(this.boundOnJumpPress);
-			s.removeCb(this.boundOnFireDown);
-			s.removeCb(this.boundOnFireUp);
+			i.removeCb(this.boundOnJumpPress as (i: { fromTouchButton?: boolean }) => boolean);
+			s.removeCb(this.boundOnFireDown as (i: { fromTouchButton?: boolean }) => boolean);
+			s.removeCb(this.boundOnFireUp as (i: { fromTouchButton?: boolean }) => boolean);
 			e.dialogManager.removeOnNeedsUnlockedPointerChange(this.boundUpdateSmoothCam);
 			e.cam.removeOnThirdPersonChange(this.boundOnThirdPersonChange);
 			e.input.touch.removeOnTouchSupportedChange(this.boundUpdateToggleWeaponTouchButtonVisibility);
@@ -14515,14 +14540,14 @@ export class Player {
 								(t) => e - t < 3000,
 							);
 							if (this.recentInvalidArrowTimes.length >= 3) {
-								player.report(Ye, 1);
+								player.report(REPORT_INVALID_ARROW, 1);
 								this.recentInvalidArrowTimes = [];
 							}
 						}
 					}, 1000);
 				}
 			} else {
-				player.report(Ye, 1);
+				player.report(REPORT_INVALID_ARROW, 1);
 			}
 		}
 		if (!this.hasOwnership) {
@@ -14534,10 +14559,10 @@ export class Player {
 			});
 		}
 	}
-	markValidArrowHit(player: Player, e: Arrow, i: any) {
+	markValidArrowHit(player: Player, e: Arrow, collider: Collider) {
 		const network = getMain().network;
 		e.consume();
-		let i_arrowDamage = i.arrowDamage;
+		let i_arrowDamage = collider.arrowDamage;
 		if (e) {
 			i_arrowDamage *= e.damageMultiplier;
 		}
@@ -14547,7 +14572,7 @@ export class Player {
 		}
 		let a = "arrow";
 		player.hasOwnership &&
-			(i.bodyPart == "head" && (a = "headshotByOwnedPlayer"),
+			(collider.bodyPart == "head" && (a = "headshotByOwnedPlayer"),
 			player.pos.distanceTo(this.pos) > 420 && (a = "ultraLongRangeOwner"),
 			this.#g &&
 				player.bowWeapon &&
@@ -14582,41 +14607,41 @@ export class Player {
 	get avgArrowCreationFrequency() {
 		return this.recentArrowCreationTimes.length / 2000;
 	}
-	getMeleeDamage(t: Player) {
-		if (!t.meleeWeapon) {
+	getMeleeDamage(attacker: Player) {
+		if (!attacker.meleeWeapon) {
 			return 0;
 		}
 		return (
-			t.meleeWeapon.getDamageMultiplier() *
-			lerp(0.5, 1.5, t.getStatClassValue("meleeAttackStrength"))
+			attacker.meleeWeapon.getDamageMultiplier() *
+			lerp(0.5, 1.5, attacker.getStatClassValue("meleeAttackStrength"))
 		);
 	}
-	hitByMeleeFromServer(t: Player) {
-		if (!t.meleeWeapon) {
+	hitByMeleeFromServer(attacker: Player) {
+		if (!attacker.meleeWeapon) {
 			return;
 		}
-		if (!t.meleeWeapon.validateHit(this)) {
+		if (!attacker.meleeWeapon.validateHit(this)) {
 			return;
 		}
-		const e = this.pos.clone().sub(t.pos);
-		const i = this.getMeleeDamage(t);
+		const e = this.pos.clone().sub(attacker.pos);
+		const i = this.getMeleeDamage(attacker);
 		let s = "melee";
-		if (t.meleeWeapon.lastSkinAssetName == "bluntLightFryingPan") {
+		if (attacker.meleeWeapon.lastSkinAssetName == "bluntLightFryingPan") {
 			s = "fryingPan";
 		}
 		const n = 300000;
-		const o = performance.now() - t.creationTime;
-		const a = performance.now() - t.#d;
+		const o = performance.now() - attacker.creationTime;
+		const a = performance.now() - attacker.#d;
 		if (o > n && a > n) {
 			s = "meleeSpammer";
 		}
 		this.applyDamage(i, e, s);
-		if (!(this.hasOwnership || t.hasOwnership)) {
+		if (!(this.hasOwnership || attacker.hasOwnership)) {
 			this.addMeleeHitFlash();
-			t.meleeWeapon.playHitSfx();
+			attacker.meleeWeapon.playHitSfx();
 		}
 		if (this.hasOwnership) {
-			const e = t.meleeWeapon.getStunData();
+			const e = attacker.meleeWeapon.getStunData();
 			if (e) {
 				this.applyStun(e);
 			}
@@ -14774,7 +14799,7 @@ export class Player {
 	getShootDirection() {
 		const t = getMain();
 		if (t.cam.thirdPersonMode == "back") {
-			const e = t.cam.getRayCastCache(t.now, 100);
+			const e = t.cam.getRayCastCache(t.cam.position, 100);
 			if (e) {
 				const t = this.physicsManager.rayCastMapColliders(e, () => true);
 				if (t) {
@@ -15297,7 +15322,7 @@ class Flag {
 		public teamId: number,
 		position: Vector3,
 		rotation: Quaternion,
-		public game: Game,
+		public game: OnlineGame,
 		public physicsManager: PhysicsManager,
 	) {
 		this.defaultPosition = position;
@@ -15475,18 +15500,18 @@ class Flag {
 			for (const cb of this.onNearDefaultPosChangeCbs as Set<() => void>) cb();
 		}
 	}
-	sendFlagReturnProgressToServer(t) {
+	sendFlagReturnProgressToServer(selfPos: Vector3) {
 		let e = Infinity;
 		for (const i of this.game.getMyFlags()) {
-			const s = 1 - t.distanceTo(i.position) / i.defaultPosition.distanceTo(this.defaultPosition);
+			const s = 1 - selfPos.distanceTo(i.position) / i.defaultPosition.distanceTo(this.defaultPosition);
 			if (s < e) {
 				e = s;
 			}
 		}
 		getMain().network.sendFlagReturnProgress(this.id, e);
 	}
-	addReturnProgress(t) {
-		this.returnProgress += t;
+	addReturnProgress(extraProgress: number) {
+		this.returnProgress += extraProgress;
 	}
 	droppedByOwner() {
 		this.#m++;
@@ -16150,8 +16175,8 @@ class ArrowManager {
 		}
 		getMain();
 	}
-	getSphereGeo(t) {
-		return this.sphereGeos[t];
+	getSphereGeo(index: number) {
+		return this.sphereGeos[index];
 	}
 	loop(now: number, dt: number) {
 		for (const [i, s] of this.arrows) {
@@ -16174,7 +16199,7 @@ class ArrowManager {
 			}
 		}
 	}
-	createArrow(shotBy: Player, params) {
+	createArrow(shotBy: Player, params: ArrowSpawnOptions) {
 		const i = new Arrow(this.physics, this.hingeManager, shotBy, params, {
 			arrowManager: this,
 			scene: getMain().scene,
@@ -16389,10 +16414,10 @@ class ScoreDot {
 	removePointPolygonId;
 	points;
 	lastBorderTimerPercent;
-	returnTimerRect;
-	removePointPolygon;
+	returnTimerRect: HTMLElement;
+	removePointPolygon: HTMLElement;
 	removeAnimationTimeout;
-	constructor(t) {
+	constructor(teamColor: string) {
 		this.el.classList.add("score-ui-dot");
 		this.el.setAttributeNS(null, "viewBox", "0 0 200 200");
 		const e = Ui("returnTimer");
@@ -16425,7 +16450,7 @@ class ScoreDot {
 \t\t\t</defs>
 \t\t\t<polygon points="${s}" class="shadow" />
 \t\t\t<polygon points="${s}" class="bg" />
-\t\t\t<polygon points="${s}" class="center-dot" style="--team-color: ${t};" mask="url(#${e})" />
+\t\t\t<polygon points="${s}" class="center-dot" style="--team-color: ${teamColor};" mask="url(#${e})" />
 \t\t\t<polygon points="${s}" class="border bg" />
 \t\t\t<polygon points="${s}" class="border fg" mask="url(#${i})" />
 \t\t\t<g class="shards-container" transform="translate(100 100) scale(0.3)">
@@ -16461,43 +16486,44 @@ class ScoreDot {
 		}
 		return this.removePointPolygon;
 	}
-	setState(t, e) {
-		this.el.classList.toggle("captured", t);
-		this.el.classList.toggle("grabbed", t || e <= 0);
-		this.el.classList.toggle("returned", e >= 1);
+	setState(grabbed: boolean, captured: number) {
+		this.el.classList.toggle("captured", grabbed);
+		this.el.classList.toggle("grabbed", grabbed || captured <= 0);
+		this.el.classList.toggle("returned", captured >= 1);
 		const i = this.getReturnTimerRect();
 		if (i) {
-			const t = 0.23 + 0.54 * e;
+			const t = 0.23 + 0.54 * captured;
 			i.setAttributeNS(null, "y", String(200 * (1 - t)));
 			i.setAttributeNS(null, "height", String(200 * t));
 		}
 	}
-	setRemoved(t, e) {
-		this.el.classList.toggle("removed", t);
-		if (t && e) {
+	setRemoved(removed: boolean, animate: boolean) {
+		this.el.classList.toggle("removed", removed);
+		if (removed && animate) {
 			this.el.classList.add("animating");
 			this.removeAnimationTimeout.start();
 		}
 	}
-	setBorderTimerPercent(t) {
-		const e = Math.round(60 * t) / 60;
+	setBorderTimerPercent(percent: number) {
+		const e = Math.round(60 * percent) / 60;
 		if (this.lastBorderTimerPercent == e) {
 			return;
 		}
 		this.lastBorderTimerPercent = e;
-		const i = [];
-		i.push(new Vector2(0, 0));
-		i.push(new Vector2(0, -1));
-		i.push(new Vector2(-1, 0));
-		i.push(new Vector2(0, 1));
-		i.push(new Vector2(1, 0));
-		i.push(new Vector2(0, -1));
+		const i = [
+			new Vector2(0, 0),
+			new Vector2(0, -1),
+			new Vector2(-1, 0),
+			new Vector2(0, 1),
+			new Vector2(1, 0),
+			new Vector2(0, -1),
+		];
 		const s = 4 * e;
 		const n = s % 1;
 		const o = i.length - Math.floor(s) - 2;
 		i.splice(2 + o);
-		const a = i[i.length - 1];
-		const r = i[i.length - 2];
+		const a = i[i.length - 1]!;
+		const r = i[i.length - 2]!;
 		a.lerp(r, n);
 		for (const t of i) {
 			t.multiplyScalar(100);
@@ -16510,28 +16536,32 @@ class ScoreDot {
 		}
 	}
 }
+type FlagGrabbedState = "return" | "grab" | "drop";
+type FlagNotificationType = "capture" | FlagGrabbedState;
+interface FlagNotificationData {
+	type: FlagNotificationType,
+	teamId: FlagScoreItem["teamId"]
+};
 class FlagScoreItem {
 	el = document.createElement("div");
 	iconEl;
-	teamId;
-	onNeedsNotificationCbs;
+	onNeedsNotificationCbs = new Set<(notification: FlagNotificationData) => void>();
 	hasReceivedScore;
 	currentMaxScoreCount;
 	score;
-	grabbedState;
+	grabbedState: FlagGrabbedState = "return";
 	removeScoreTimerIsRunning;
 	removeScoreTimer;
 	prevNow;
 	timerStateReceived;
 	dots;
-	constructor(t) {
+	constructor(public teamId: number) {
 		this.el.classList.add("flag-score-item");
 		this.iconEl = document.createElementNS(svgNamespace, "svg");
 		this.iconEl.classList.add("flag-score-icon");
 		this.iconEl.setAttributeNS(null, "viewBox", "0 0 241.205 241.205");
-		this.teamId = t;
 		this.el.appendChild(this.iconEl);
-		const e = teamData[t];
+		const e = teamData[teamId]!;
 		this.iconEl.innerHTML = `
 \t\t\t<path fill="${e.cssColor}" style="stroke-width: 20px; stroke: white;" d="M160.8,38.551c-20.152,0-40.3-13.435-40.3-13.435S100.348,38.551,80.2,38.551s-40.3-6.717-40.3-6.717V132.6a31.093,31.093,0,0,0,3.318,14.013,160.68,160.68,0,0,0,77.29,73.31,160.68,160.68,0,0,0,77.29-73.31,31.093,31.093,0,0,0,3.318-14.013V31.834S180.956,38.551,160.8,38.551Z"/>
 \t\t\t<g style="transform: scale(0.8); transform-origin: center;">
@@ -16539,11 +16569,9 @@ class FlagScoreItem {
 \t\t\t\t<path fill="${e.cssColorDark}" d="M67.178,75.757l13.367,52.576h80.8l13.07-52.576L147.369,95.6a5.886,5.886,0,0,1-8.6-1.84l-17.972-31.67L102.8,93.3a5.887,5.887,0,0,1-8.526,1.846Z"/>
 \t\t\t</g>
 \t\t`;
-		this.onNeedsNotificationCbs = new Set();
 		this.hasReceivedScore = false;
 		this.currentMaxScoreCount = 3;
 		this.score = 0;
-		this.grabbedState = "return";
 		this.removeScoreTimerIsRunning = false;
 		this.removeScoreTimer = Infinity;
 		this.prevNow = Date.now();
@@ -16555,27 +16583,27 @@ class FlagScoreItem {
 			this.dots.push(t);
 		}
 	}
-	setScore(t) {
-		if (t > this.score && this.hasReceivedScore) {
+	setScore(score: number) {
+		if (score > this.score && this.hasReceivedScore) {
 			this.grabbedState = "return";
 			this.fireNeedsNotification("capture");
 		}
-		this.score = t;
+		this.score = score;
 		this.hasReceivedScore = true;
 		this.updatePointIcons();
 	}
-	setScoreTimerState(t) {
+	setScoreTimerState(score: FlagScoreTimerState) {
 		let e = false;
-		if (t.maxScoreCount != this.currentMaxScoreCount) {
+		if (score.maxScoreCount != this.currentMaxScoreCount) {
 			e = true;
-			this.currentMaxScoreCount = t.maxScoreCount;
+			this.currentMaxScoreCount = score.maxScoreCount;
 		}
-		this.removeScoreTimerIsRunning = t.timerRunning;
+		this.removeScoreTimerIsRunning = score.timerRunning;
 		this.prevNow = Date.now();
-		this.removeScoreTimer = t.msUntilRemove;
+		this.removeScoreTimer = score.msUntilRemove;
 		for (const [i, s] of this.dots.entries()) {
-			s.setRemoved(i > t.maxScoreCount - 1, this.timerStateReceived && e && i == t.maxScoreCount);
-			if (i != t.maxScoreCount - 1) {
+			s.setRemoved(i > score.maxScoreCount - 1, this.timerStateReceived && e && i == score.maxScoreCount);
+			if (i != score.maxScoreCount - 1) {
 				s.setBorderTimerPercent(0);
 			} else {
 				s.setBorderTimerPercent(this.getBorderTimerPercent());
@@ -16589,7 +16617,7 @@ class FlagScoreItem {
 		}
 		return q(60, 0, 0, 1, this.removeScoreTimer / 1000, true);
 	}
-	loop(t, e) {
+	loop(now: number, dt: number) {
 		if (this.removeScoreTimerIsRunning) {
 			const t = Date.now();
 			const e = t - this.prevNow;
@@ -16606,10 +16634,10 @@ class FlagScoreItem {
 			}
 		}
 	}
-	setGrabbedState(t) {
-		if (this.grabbedState != t) {
-			this.grabbedState = t;
-			this.fireNeedsNotification(t);
+	setGrabbedState(grabbedState: FlagGrabbedState) {
+		if (this.grabbedState != grabbedState) {
+			this.grabbedState = grabbedState;
+			this.fireNeedsNotification(grabbedState);
 			this.updatePointIcons();
 		}
 	}
@@ -16636,37 +16664,41 @@ class FlagScoreItem {
 		}
 		return score;
 	}
-	onNeedsNotification(t) {
-		this.onNeedsNotificationCbs.add(t);
+	onNeedsNotification(cb: (notification: FlagNotificationData) => void) {
+		this.onNeedsNotificationCbs.add(cb);
 	}
-	fireNeedsNotification(t) {
+	fireNeedsNotification(type: FlagNotificationType) {
 		this.onNeedsNotificationCbs.forEach((e) =>
 			e({
-				type: t,
+				type: type,
 				teamId: this.teamId,
 			}),
 		);
 	}
 }
+interface FlagScoreTimerState {
+	maxScoreCount: number,
+	msUntilRemove: number,
+	timerRunning: boolean,
+}
 class FlagScoreboard {
 	el = document.createElement("div");
-	onNeedsNotificationCbs;
+	onNeedsNotificationCbs = new Set<(data: FlagNotificationData) => void>();
 	scoreItems;
 	constructor(
 		public gameWrapper: HTMLElement,
-		e,
+		teams: number,
 	) {
 		this.el.classList.add("flag-score-container");
 		gameWrapper.appendChild(this.el);
-		this.onNeedsNotificationCbs = new Set();
 		this.scoreItems = [];
-		for (let t = 0; t < e; t++) {
-			if (t == 0) {
+		for (let teamId = 0; teamId < teams; teamId++) {
+			if (teamId == 0) {
 				continue;
 			}
-			const e = new FlagScoreItem(t);
+			const e = new FlagScoreItem(teamId);
 			this.el.appendChild(e.el);
-			this.scoreItems[t] = e;
+			this.scoreItems[teamId] = e;
 			e.onNeedsNotification((t) => {
 				this.onNeedsNotificationCbs.forEach((e) => e(t));
 			});
@@ -16675,17 +16707,17 @@ class FlagScoreboard {
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	update(t) {
+	update(scores: number[]) {
 		for (let e = 0; e < this.scoreItems.length; e++) {
 			if (e != 0) {
-				this.scoreItems[e].setScore(t[e]);
+				this.scoreItems[e]!.setScore(scores[e]!);
 			}
 		}
 	}
-	setFlagScoreTimerState(t) {
-		for (const e of this.scoreItems) {
-			if (e) {
-				e.setScoreTimerState(t);
+	setFlagScoreTimerState(score: FlagScoreTimerState) {
+		for (const scoreItem of this.scoreItems) {
+			if (scoreItem) {
+				scoreItem.setScoreTimerState(score);
 			}
 		}
 	}
@@ -16696,10 +16728,10 @@ class FlagScoreboard {
 			}
 		}
 	}
-	setFlagGrabbedState(t, e) {
-		const i = this.scoreItems[t];
+	setFlagGrabbedState(index: number, grabbedState: FlagGrabbedState) {
+		const i = this.scoreItems[index];
 		if (i) {
-			i.setGrabbedState(e);
+			i.setGrabbedState(grabbedState);
 		}
 	}
 	getFinalFlagHeld() {
@@ -16734,11 +16766,11 @@ class FlagScoreboard {
 		}
 		return t / e;
 	}
-	onNeedsNotification(t) {
+	onNeedsNotification(t: (data: FlagNotificationData) => void) {
 		this.onNeedsNotificationCbs.add(t);
 	}
-	setVisible(t) {
-		this.el.style.display = t ? "" : "none";
+	setVisible(visible: boolean) {
+		this.el.style.display = visible ? "" : "none";
 	}
 }
 class HealthUi {
@@ -16798,14 +16830,14 @@ class HealthUi {
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
 	}
-	setHealth(t) {
-		const e = 100 * (t = clampTo01(t));
+	setHealth(health: number) {
+		const e = 100 * (health = clampTo01(health));
 		this.mainBarContainer.style.width = `${e}%`;
 		if (this.fgEl) {
-			this.fgEl.classList.toggle("beating", t < 0.2);
+			this.fgEl.classList.toggle("beating", health < 0.2);
 		}
 	}
-	flashDamageProtection(t) {
+	flashDamageProtection(t: number) {
 		t = 100 * clampTo01(t);
 		this.damageProtectionBarContainer2.style.left = `${t}%`;
 		this.damageProtectionBar.style.transform = `translateX(-${t}%)`;
@@ -16815,17 +16847,17 @@ class HealthUi {
 		this.damageProtectionBar.style.opacity = "0";
 		this.damageProtectionBar.style.transition = "";
 	}
-	setVisible(t) {
-		this.el.style.display = t ? "" : "none";
+	setVisible(visible: boolean) {
+		this.el.style.display = visible ? "" : "none";
 	}
-	setCssColor(t, e) {
+	setCssColor(color: string, borderColor: string) {
 		this.borderBar.style.cssText = `
 \t\t\t--wrinkled-paper-seed: ${this.seed};
-\t\t\t--wrinkled-paper-border-color: ${e};
+\t\t\t--wrinkled-paper-border-color: ${borderColor};
 \t\t`;
 		this.mainBar.style.cssText = `
 \t\t\t--wrinkled-paper-seed: ${this.seed};
-\t\t\t--wrinkled-paper-color: ${t};
+\t\t\t--wrinkled-paper-color: ${color};
 \t\t`;
 	}
 }
@@ -16887,12 +16919,12 @@ class SkipText {
 		window.removeEventListener("keydown", this.keyDownCb);
 		this.fireSkipAction();
 	}
-	setText(t) {
-		this.text = t;
+	setText(text: string) {
+		this.text = text;
 		this.updateText();
 	}
-	setVisibility(t) {
-		this.el.style.display = t ? "" : "none";
+	setVisibility(visible: boolean) {
+		this.el.style.display = visible ? "" : "none";
 	}
 	updateText() {
 		let text = this.text;
@@ -16924,8 +16956,8 @@ class SkipText {
 	startCreationCooldown() {
 		this.creationCooldownEnd = performance.now() + 1000;
 	}
-	setAllowSpaceSkip(t) {
-		this.allowSpaceSkip = t;
+	setAllowSpaceSkip(allowSpaceSkip: boolean) {
+		this.allowSpaceSkip = allowSpaceSkip;
 	}
 	async waitForTimerEnd() {
 		const t = new Promise((resolve) => {
@@ -16947,25 +16979,21 @@ class SkipText {
 	}
 }
 class PlayersListDialog extends Dialog {
-	playersList: any;
-	skinManager;
 	teamWonTitle = document.createElement("h2");
-	teamsContainer: any;
-	currentAvatarBlobUrlReferences: any;
-	configuredColumnTypes: any;
-	teamEls: any;
-	skipText: any;
-	scoresFrozen: any;
-	playersListDirty: any;
-	boundOnResize: any;
-	constructor(t: any, e: any, i: any, customOnCurtainClickCb: any) {
-		super(t, {
+	teamsContainer;
+	currentAvatarBlobUrlReferences;
+	configuredColumnTypes;
+	teamEls;
+	skipText;
+	scoresFrozen;
+	playersListDirty;
+	boundOnResize;
+	constructor(gameWrapper: HTMLElement, public playersList: Map<number, Player>, public skinManager: SkinsManager, customOnCurtainClickCb: () => boolean) {
+		super(gameWrapper, {
 			customOnCurtainClickCb,
 			needsUnlockedPointer: false,
 			startVisible: false,
 		});
-		this.playersList = e;
-		this.skinManager = i;
 		this.teamWonTitle.classList.add("playersListTeamWonTitle", "blueNight");
 		this.teamWonTitle.style.display = "none";
 		this.el.appendChild(this.teamWonTitle);
@@ -17061,7 +17089,7 @@ class PlayersListDialog extends Dialog {
 			}
 		}
 	}
-	setActiveGamemode(t: any) {
+	setActiveGamemode(t) {
 		this.configuredColumnTypes = R(t);
 		this.updateTableHeaders();
 		this.updatePlayersList();
@@ -17148,11 +17176,11 @@ class PlayersListDialog extends Dialog {
 		}
 		const e = Array.from(this.currentAvatarBlobUrlReferences);
 		this.currentAvatarBlobUrlReferences.clear();
-		const i = Array.from(this.playersList.values() as any[]).sort((t: any, e: any) => e.scoreTotal - t.scoreTotal) as any[];
-		for (const e of i as any[]) {
+		const i = Array.from(this.playersList.values()).sort((t, e) => e.scoreTotal - t.scoreTotal) as any[];
+		for (const e of i) {
 			const i = document.createElement("tr");
 			i.classList.add("playersListItem", "tableItem");
-			this.teamEls[(e as any).teamId].tbody.appendChild(i);
+			this.teamEls[e.teamId].tbody.appendChild(i);
 			for (const s of this.configuredColumnTypes) {
 				if (!U(e.teamId) && s != "avatar" && s != "playerName") {
 					continue;
@@ -17236,12 +17264,12 @@ class PlayersListDialog extends Dialog {
 		this.updatePlayersList();
 		this.scoresFrozen = true;
 	}
-	setGameEndState(t: any) {
+	setGameEndState(teamId: number) {
 		this.allowCurtainClose = false;
-		if (t == null) {
+		if (teamId == null) {
 			return;
 		}
-		const e = teamData[t]!;
+		const e = teamData[teamId]!;
 		this.teamWonTitle.textContent = `Team ${e.id} won!`;
 		this.teamWonTitle.style.display = "";
 		this.teamWonTitle.style.color = e.cssColor;
@@ -17421,15 +17449,23 @@ class ScoreOffsetNotificationsUi {
 		}
 	}
 }
+interface GameOverStatsDialogOpts {
+	trackedMyPlayerScores: Map<number, number>;
+	totalScore: number;
+	myTeamId: number;
+	receivedCoins: number;
+	coinsAlreadyDoubled: boolean;
+	autoSkipStatsScreen: SettingValue | undefined;
+}
 class GameOverStatsDialog extends Dialog {
 	statsContainer;
 	didWatchRewardedAd;
 	rewardedAdFailed;
-	onRewardedAdIsPlayingChangeCbs;
+	onRewardedAdIsPlayingChangeCbs = new Set<(playing: boolean) => void>();
 	skipText;
 	boundOnResize;
 	constructor(
-		t,
+		t: HTMLElement,
 		{
 			trackedMyPlayerScores,
 			totalScore,
@@ -17437,7 +17473,7 @@ class GameOverStatsDialog extends Dialog {
 			receivedCoins,
 			coinsAlreadyDoubled,
 			autoSkipStatsScreen,
-		},
+		}: GameOverStatsDialogOpts,
 	) {
 		super(t, {
 			allowCurtainClose: false,
@@ -17445,7 +17481,7 @@ class GameOverStatsDialog extends Dialog {
 		const r = document.createElement("h2");
 		r.classList.add("dialogTitle", "blueNight");
 		r.textContent = "Your Game Stats";
-		const l = teamData[myTeamId];
+		const l = teamData[myTeamId]!;
 		r.style.color = l.cssColor;
 		this.el.appendChild(r);
 		this.statsContainer = document.createElement("div");
@@ -17490,7 +17526,7 @@ class GameOverStatsDialog extends Dialog {
 		c.appendChild(p);
 		this.didWatchRewardedAd = false;
 		this.rewardedAdFailed = false;
-		this.onRewardedAdIsPlayingChangeCbs = new Set();
+		this.onRewardedAdIsPlayingChangeCbs = new Set<(playing: boolean) => void>();
 		if (receivedCoins > 0) {
 			const t = document.createElement("div");
 			t.classList.add("game-over-stats-coins-container");
@@ -17588,10 +17624,10 @@ class GameOverStatsDialog extends Dialog {
 		const e = clamp(window.innerHeight - 350, 100, 600);
 		this.statsContainer.style.maxHeight = `${e}px`;
 	}
-	onRewardedAdIsPlayingChange(t) {
+	onRewardedAdIsPlayingChange(t: (playing: boolean) => void) {
 		this.onRewardedAdIsPlayingChangeCbs.add(t);
 	}
-	fireRewardedAdIsPlayingChange(t) {
+	fireRewardedAdIsPlayingChange(t: boolean) {
 		this.onRewardedAdIsPlayingChangeCbs.forEach((e) => e(t));
 	}
 }
@@ -18196,16 +18232,16 @@ class PhysicsManager {
 				t.beginPhysicsSteps();
 			}
 		}
-		const i = (e * this.timeScale) / 1000 / this.stepCount;
+		const step = (e * this.timeScale) / 1000 / this.stepCount;
 		for (let t = 0; t < this.stepCount; t++) {
 			for (const t of this.rigidBodies) {
 				if (t.enabled) {
-					t.stepVelocity(i);
+					t.stepVelocity(step);
 				}
 			}
 			for (const t of this.rigidBodies) {
 				if (t.enabled) {
-					t.resolveMapCollisionsOctree(i);
+					t.resolveMapCollisionsOctree(step);
 				}
 			}
 		}
@@ -19834,8 +19870,8 @@ class OnlineGame {
 	gameEndStatsAfterRewardedAdTimer: GameEndTimer | null;
 	currentLoadedMapHash: string | null;
 	boundUpdateUiVisible: () => void;
-	boundOnPlayerListDown: () => void;
-	boundOnPlayerListUp: () => void;
+	boundOnPlayerListDown: () => boolean;
+	boundOnPlayerListUp: () => boolean;
 	antiCheat: AntiCheat;
 	chat: Chat;
 	constructor(public gameWrapper: HTMLElement) {
@@ -20076,14 +20112,7 @@ class OnlineGame {
 		}
 	}
 	async loadMap(t: string) {
-		const e = (data: {
-			type: string;
-			gameplayData?: GameplayData;
-			scene?: Object3D;
-			hinges?: unknown;
-			appearingObjects?: unknown;
-			colliders?: unknown;
-		}) => {
+		const e = (data: MapLoadingInfo) => {
 			if (data.type == "gameplay-data") {
 				this.updateMapGameplayData(data.gameplayData!);
 			} else if (data.type == "colliders") {
@@ -20097,9 +20126,9 @@ class OnlineGame {
 			} else {
 				if (data.type == "scene") {
 					if (this.destructed) {
-						MapLoader.disposeMapGeometries(data.scene!);
+						MapLoader.disposeMapGeometries(data.scene as Object3D);
 					} else {
-						this.setMapScene(data.scene ?? null, t);
+						this.setMapScene((data.scene ?? null) as Object3D | null, t);
 					}
 					this.hingeManager.setHingeObjects(data.hinges as any);
 					this.appearingObjectsManager.setAppearingObjects(data.appearingObjects as any);
@@ -20138,7 +20167,7 @@ class OnlineGame {
 	}
 	#C: string | null = null;
 	updateMapGameplayData(mapGameplayData: {
-		flags: { flagTeamId: number; pos: number[]; rot: number[] }[];
+		flags: { flagTeamId: number; pos: Vector3; rot: Quaternion }[];
 		spawnPositions: { pos: Vector3; rot: Quaternion }[][];
 		mapName: string;
 		assetName: string;
@@ -20288,10 +20317,10 @@ class OnlineGame {
 			this.fireSquadPlayersChange();
 		}
 	}
-	setPlayerServerFlyEnabled(t: number, e: boolean) {
-		const i = this.players.get(t);
+	setPlayerServerFlyEnabled(playerID: number, enabled: boolean) {
+		const i = this.players.get(playerID);
 		if (i) {
-			i.setServerFlyEnabled(e);
+			i.setServerFlyEnabled(enabled);
 		}
 	}
 	setSameSquadPlayerData(t: any) {
@@ -20308,14 +20337,14 @@ class OnlineGame {
 			this.playersListDialog.playersListChanged();
 		}
 	}
-	onSquadPlayersChange(t: any) {
-		this.onSquadPlayersChangeCbs.add(t);
+	onSquadPlayersChange(cb: () => void) {
+		this.onSquadPlayersChangeCbs.add(cb);
 	}
 	fireSquadPlayersChange() {
 		this.onSquadPlayersChangeCbs.forEach((t) => t());
 	}
-	setPlayerScores(t: unknown) {
-		const e = this.players.get((t as { playerId?: number }).playerId!);
+	setPlayerScores(t: PlayerScoreData & {playerId: number}) {
+		const e = this.players.get(t.playerId);
 		if (e) {
 			e.setScores(t);
 		}
@@ -20357,8 +20386,8 @@ class OnlineGame {
 			const e = this.players.get(t);
 			this.gameEnded ||
 				(i == 0 || i == 1
-					? e && e.dead && e.report(Qe, 1)
-					: i == 3 && e && e.dead && e.report(Qe, 1));
+					? e && e.dead && e.report(REPORT_INVALID_DEATH_OPERATION, 1)
+					: i == 3 && e && e.dead && e.report(REPORT_INVALID_DEATH_OPERATION, 1));
 			if (e) {
 				e.changeFlagFromServer(s, i);
 			} else if (i == 3) {
@@ -20549,15 +20578,15 @@ class OnlineGame {
 		const h = this.players.get(t);
 		if (h) {
 			if (h.dead) {
-				h.report(Qe, 1);
+				h.report(REPORT_INVALID_DEATH_OPERATION, 1);
 			}
 			h.serverArrowCreated();
 			if (h.bowWeapon) {
 				if (!h.bowWeapon.verifyArrowFrequency(h.avgArrowCreationFrequency)) {
-					h.report(Xe, 3);
+					h.report(REPORT_INVALID_ARROW_FREQUENCY, 3);
 				}
 			} else {
-				h.report(Xe, 1);
+				h.report(REPORT_INVALID_ARROW_FREQUENCY, 1);
 			}
 		}
 		const d = this.getMyPlayer();
@@ -20652,7 +20681,7 @@ class OnlineGame {
 			i.receiveChangeClassFromServer(e);
 		}
 	}
-	receivePlayerChangeWeaponType(t: number, e: number) {
+	receivePlayerChangeWeaponType(t: number, e: boolean) {
 		const i = this.players.get(t);
 		if (i) {
 			i.receiveChangeWeaponTypeFromServer(e);
@@ -20674,9 +20703,9 @@ class OnlineGame {
 			i.setGungameWeaponIndex(e);
 		}
 	}
-	updateFlagScoreboard(t: any) {
+	updateFlagScoreboard(scores: number[]) {
 		if (this.flagScoreUi) {
-			this.flagScoreUi.update(t);
+			this.flagScoreUi.update(scores);
 		}
 	}
 	updateAllEliminationScoreboards() {
@@ -21103,15 +21132,17 @@ class OnlineGame {
 			this.onGameEndFinishCbs.forEach((t) => t());
 		}
 	}
-	onPlayerListDown() {
+	onPlayerListDown(): boolean {
 		if (!this.gameEnded) {
 			this.playersListDialog.visible = true;
 		}
+		return false;
 	}
-	onPlayerListUp() {
+	onPlayerListUp(): boolean {
 		if (!this.gameEnded) {
 			this.playersListDialog.visible = false;
 		}
+		return false;
 	}
 	get usedForCameraShotsOnly() {
 		return this._usedForCameraShotsOnly;
@@ -21331,9 +21362,13 @@ class SquadDialog extends Dialog {
 					buttons: [
 						{
 							text: "Yes",
+							testLabel: "yes",
+							onClick: undefined,
 						},
 						{
 							text: "No",
+							testLabel: "no",
+							onClick: undefined,
 						},
 					],
 				});
@@ -21946,12 +21981,12 @@ function Rs() {
 class MainMenu {
 	el = document.getElementById("mainMenu")!;
 	loadingImageContainer: HTMLElement;
-	currentJoinState;
+	currentJoinState: "joinable" | "joined" | "joining" = "joinable";
 	loadScreenHidden;
 	toggledVisibilityState;
 	toggleMenuButton;
 	visible;
-	onVisibilityChangeCbs = new Set<any>();
+	onVisibilityChangeCbs = new Set<(visible: boolean) => void>();
 	contentVisible;
 	userProfileDialog: ProfileDialog | null;
 	cornerProfile;
@@ -22012,7 +22047,7 @@ class MainMenu {
 		this.el.appendChild(e);
 		this.userProfileDialog = null;
 		this.cornerProfile = new CornerProfile();
-		this.cornerProfile.onClick((t: any) => {
+		this.cornerProfile.onClick((t: MouseEvent) => {
 			this.openUserProfileDialog({
 				showExtraStats: t.altKey,
 			});
@@ -22137,9 +22172,13 @@ class MainMenu {
 						buttons: [
 							{
 								text: "Yes",
+								testLabel: "yes",
+								onClick: undefined,
 							},
 							{
 								text: "No",
+								testLabel: "no",
+								onClick: undefined,
 							},
 						],
 					});
@@ -22174,9 +22213,13 @@ class MainMenu {
 							buttons: [
 								{
 									text: "Exit",
+									testLabel: "exit",
+									onClick: undefined,
 								},
 								{
 									text: "stay in game",
+									testLabel: "stayingame",
+									onClick: undefined,
 								},
 							],
 						});
@@ -22219,6 +22262,8 @@ class MainMenu {
 							},
 							{
 								text: "No",
+								testLabel: "no",
+								onClick: undefined,
 							},
 						],
 					});
@@ -22271,11 +22316,11 @@ class MainMenu {
 		t.input.touch.onTouchSupportedChange(() => {
 			this.updateToggleMenuVisible();
 		});
-		const e = t.input.keys.get("mainMenu");
-		if (!e) {
+		const mainMenuKey = t.input.keys.get("mainMenu");
+		if (!mainMenuKey) {
 			throw new Error("Assertion failed, no main menu key");
 		}
-		e.onPressedDown(() => {
+		mainMenuKey.onPressedDown(() => {
 			t.input.unlockPointer();
 			this.makeMainMenuVisibleFromUserGesture();
 		});
@@ -22392,7 +22437,7 @@ class MainMenu {
 			this.loadScreenHidden = true;
 		}
 	}
-	setJoinState(t: any) {
+	setJoinState(t: "joinable" | "joined" | "joining") {
 		this.currentJoinState = t;
 		getMain().mainInfoTextManager.updateText();
 		this.updateVisibility();
@@ -22504,10 +22549,10 @@ class MainMenu {
 			(t.input.touch.touchSupported || !t.input.desiredPointerLockedState) &&
 			!(t.gameManager.activeGame && t.gameManager.activeGame.gameEnded);
 	}
-	onVisibilityChange(t: any) {
+	onVisibilityChange(t: (visible: boolean) => void) {
 		this.onVisibilityChangeCbs.add(t);
 	}
-	removeOnVisibilityChange(t: any) {
+	removeOnVisibilityChange(t: (visible: boolean) => void) {
 		this.onVisibilityChangeCbs.delete(t);
 	}
 	get shouldPlayMusic() {
@@ -22540,7 +22585,7 @@ class MainMenu {
 		}
 		return this.shopDialog;
 	}
-	openUserProfileDialog(t: any) {
+	openUserProfileDialog(t: { showExtraStats?: boolean }) {
 		if (!this.userProfileDialog) {
 			this.userProfileDialog = new ProfileDialog(this.gameWrapper, t);
 			getMain().dialogManager.addDialog(this.userProfileDialog);
@@ -22763,6 +22808,14 @@ class AlertDialog extends Dialog {
 		});
 	}
 }
+interface AlertOpts {
+		title?: string;
+		text?: string;
+		buttons?: { text: string; testLabel: string; onClick: (() => void) | undefined }[];
+		closeOnButtonClick?: boolean;
+		extraArgs?: Record<string, unknown>;
+}
+
 class DialogManager {
 	curtainEl = document.createElement("div");
 	_curtainElVisible;
@@ -22861,7 +22914,7 @@ class DialogManager {
 			firstClosableDialog.close();
 		}
 	}
-	showAlert(t: any) {
+	showAlert(t: AlertOpts) {
 		const e = new AlertDialog(this.gameWrapper, t);
 		this.addDialog(e);
 		return e;
@@ -22934,10 +22987,10 @@ class DialogManager {
 	onCurtainZIndexChange(t: (zIndex: number) => void) {
 		this.onCurtainZIndexChangeCbs.add(t);
 	}
-	onCurtainVisibilityChange(t: any) {
+	onCurtainVisibilityChange(t: (visible: boolean) => void) {
 		this.onCurtainVisibilityChangeCbs.add(t);
 	}
-	removeOnCurtainVisibilityChange(t: any) {
+	removeOnCurtainVisibilityChange(t: (visible: boolean) => void) {
 		this.onCurtainVisibilityChangeCbs.delete(t);
 	}
 	onNeedsUnlockedPointerChange(t: () => void) {
@@ -22975,7 +23028,7 @@ class InputKey {
 		this.mouseButtons = mouseButtons;
 		this.gamepadButtons = gamepadButtons;
 	}
-	setKeyCodePressed(t, e, i) {
+	setKeyCodePressed(t: string, e: boolean, i: boolean = false) {
 		let needsPreventDefault = false;
 		let preventOthers = false;
 		if (this.keyCodes.includes(t)) {
@@ -22987,10 +23040,10 @@ class InputKey {
 			preventOthers,
 		};
 	}
-	setMouseButtonPressed(t, e, i) {
+	setMouseButtonPressed(t: number, e: boolean, i: boolean = false) {
 		return !!this.mouseButtons.includes(t) && this.setKeyPressed(e, i);
 	}
-	setPressedGamepadButtons(t, e) {
+	setPressedGamepadButtons(t: number[], e: boolean) {
 		let i = false;
 		for (const e of this.gamepadButtons) {
 			if (t.includes(e)) {
@@ -23001,9 +23054,9 @@ class InputKey {
 		return this.pressedGamepad != i && ((this.pressedGamepad = i), this.setKeyPressed(i, e));
 	}
 	setKeyPressed(
-		t,
-		e,
-		i = {
+		t: boolean,
+		e?: boolean,
+		i: { fromTouchButton?: boolean } = {
 			fromTouchButton: false,
 		},
 	) {
@@ -23030,34 +23083,34 @@ class InputKey {
 		}
 		return s;
 	}
-	onPressedChange(t) {
+	onPressedChange(t: (t: boolean) => boolean) {
 		this.onPressedChangeCbs.add(t);
 	}
-	onPressedDown(t) {
+	onPressedDown(t: (i: { fromTouchButton?: boolean }) => boolean) {
 		this.onPressedDownCbs.add(t);
 	}
-	onPressedUp(t) {
+	onPressedUp(t: (i: { fromTouchButton?: boolean }) => boolean) {
 		this.onPressedUpCbs.add(t);
 	}
-	removeCb(t) {
+	removeCb(t: (e: boolean) => boolean | ((i: { fromTouchButton?: boolean }) => boolean)) {
 		const e = t;
-		this.onPressedChangeCbs.delete(e);
-		this.onPressedDownCbs.delete(e);
-		this.onPressedUpCbs.delete(e);
+		this.onPressedChangeCbs.delete(e as (e: boolean) => boolean);
+		this.onPressedDownCbs.delete(e as (i: { fromTouchButton?: boolean }) => boolean);
+		this.onPressedUpCbs.delete(e as (i: { fromTouchButton?: boolean }) => boolean);
 	}
 }
 class TouchControl {
 	el = document.createElement("div");
 	visible = true;
-	currentUsingTouchId = null;
+	currentUsingTouchId: number | null = null;
 	didUpdateTouchLastLoop = false;
-	responsiveArea;
-	cancelOthers;
+	responsiveArea: TouchResponseArea | null = null;
+	cancelOthers: boolean = true;
 	constructor({ responsiveArea = null, cancelOthers = true } = {}) {
 		this.responsiveArea = responsiveArea;
 		this.cancelOthers = cancelOthers;
 	}
-	updateTouch(t) {
+	updateTouch(t: Touch) {
 		if (
 			this.responsiveArea &&
 			(this.currentUsingTouchId == null || this.responsiveArea.cancelWhenLeaving) &&
@@ -23077,7 +23130,7 @@ class TouchControl {
 			cancelOthers: didHit && this.cancelOthers,
 		};
 	}
-	onUpdateTouch(t) {
+	onUpdateTouch(t: Touch): boolean {
 		return false;
 	}
 	endTouchLoop() {
@@ -23088,29 +23141,32 @@ class TouchControl {
 		this.didUpdateTouchLastLoop = false;
 	}
 	onEndTouch() {}
-	setVisibility(t) {
+	setVisibility(t: boolean) {
 		this.visible = t;
 		this.el.style.display = t ? "" : "none";
 	}
 }
 class TouchResponseArea {
-	cancelWhenLeaving;
+	cancelWhenLeaving: boolean = false;
 	constructor(t = false) {
 		this.cancelWhenLeaving = t;
 	}
-	testTouchInResponsiveArea(t) {
+	testTouchInResponsiveArea(t: Touch): boolean {
 		return false;
 	}
 }
-class TouchCircleArea extends TouchResponseArea {
-	pos;
-	radius;
-	constructor(t, e, i) {
-		super(i);
+class TouchCircleArea extends TouchControl {
+	pos: Vector2 | null = null;
+	radius: number = 0;
+	constructor(t: Vector2 | null, e: number) {
+		super();
 		this.pos = t || new Vector2();
 		this.radius = e;
 	}
-	override testTouchInResponsiveArea(t) {
+	override testTouchInResponsiveArea(t: Touch) {
+		if (!this.pos) {
+			return false;
+		}
 		return new Vector2(t.clientX, t.clientY).distanceTo(this.pos) < this.radius;
 	}
 }
@@ -23142,7 +23198,7 @@ class TouchJoystick extends TouchControl {
 		this.doubleTapped = false;
 		this.setDefaultPos(defaultPos);
 	}
-	override onUpdateTouch(t) {
+	override onUpdateTouch(t: Touch) {
 		const e = new Vector2(t.clientX, t.clientY);
 		if (this.currentUsingTouchId == null) {
 			this.onIsTouchingChange(true);
@@ -23158,7 +23214,7 @@ class TouchJoystick extends TouchControl {
 		this.resetPos();
 		this.setOpacity(1);
 	}
-	onIsTouchingChange(t) {
+	onIsTouchingChange(t: boolean) {
 		this.doubleTapped = false;
 		if (t != this.lastIsTouchingValue) {
 			this.lastIsTouchingValue = t;
@@ -23168,13 +23224,15 @@ class TouchJoystick extends TouchControl {
 			this.lastIsTouchingToggleTime = getMain().now;
 		}
 	}
-	setOpacity(t) {
+	setOpacity(t: number) {
 		this.el.style.opacity = String(t);
 	}
-	setDefaultPos(t) {
+	setDefaultPos(t: Vector2) {
 		this.defaultPos = t.clone();
 		if (this.responsiveArea instanceof TouchCircleArea) {
+			if (this.responsiveArea.pos) {
 			this.responsiveArea.pos.copy(this.defaultPos);
+		}
 		}
 		this.resetPos();
 	}
@@ -23409,7 +23467,7 @@ class TouchControls {
 					this.jumpButton = new TouchButton({
 						right: 150,
 						bottom: 30,
-						responsiveArea: new TouchCircleArea(null, 50, false),
+						responsiveArea: new TouchCircleArea(null, 50),
 						img: "static/img/touchUI/jump.svg",
 					});
 					this.jumpButton.addInputKey(getMain().input.getKey("jump"));
@@ -23418,7 +23476,7 @@ class TouchControls {
 						right: 80,
 						bottom: 100,
 						radius: 50,
-						responsiveArea: new TouchCircleArea(null, 70, false),
+						responsiveArea: new TouchCircleArea(null, 70),
 						img: "static/img/touchUI/shoot.svg",
 					});
 					this.fireButton.addInputKey(getMain().input.getKey("fire"));
@@ -23426,7 +23484,7 @@ class TouchControls {
 					this.toggleWeaponButton = new TouchButton({
 						right: 30,
 						bottom: 200,
-						responsiveArea: new TouchCircleArea(null, 40, false),
+						responsiveArea: new TouchCircleArea(null, 40),
 						img: "static/img/touchUI/toggleWeapon.svg",
 					});
 					this.toggleWeaponButton.addInputKey(getMain().input.getKey("toggleWeapon"));
@@ -23436,7 +23494,7 @@ class TouchControls {
 						left: 20,
 						top: 100,
 						radius: 15,
-						responsiveArea: new TouchCircleArea(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20),
 						img: "static/img/touchUI/playerList.svg",
 						cancelOthers: true,
 					});
@@ -23446,7 +23504,7 @@ class TouchControls {
 						left: 60,
 						top: 100,
 						radius: 15,
-						responsiveArea: new TouchCircleArea(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20),
 						img: "static/img/touchUI/view.svg",
 						cancelOthers: true,
 					});
@@ -23456,7 +23514,7 @@ class TouchControls {
 						left: 100,
 						top: 100,
 						radius: 15,
-						responsiveArea: new TouchCircleArea(null, 20, false),
+						responsiveArea: new TouchCircleArea(null, 20),
 						img: "static/img/touchUI/chat.svg",
 						cancelOthers: true,
 					});
@@ -23596,10 +23654,10 @@ class TouchControls {
 			i.updatePosition();
 		}
 	}
-	onTouchSupportedChange(t) {
+	onTouchSupportedChange(t: () => void) {
 		this.onTouchSupportedChangeCbs.add(t);
 	}
-	removeOnTouchSupportedChange(t) {
+	removeOnTouchSupportedChange(t: () => void) {
 		this.onTouchSupportedChangeCbs.delete(t);
 	}
 	*visibileTouchElements() {
@@ -23609,7 +23667,7 @@ class TouchControls {
 			}
 		}
 	}
-	updateTouches(e) {
+	updateTouches(e: TouchEvent) {
 		if (e.cancelable) {
 			e.preventDefault();
 		}
@@ -23655,11 +23713,11 @@ class TouchControls {
 		}
 		this.lastUpdateTouchesTime = performance.now();
 	}
-	loop(t, e) {}
+	loop(t: number, e: number) {}
 	afterLoop() {
 		this.lastDeltaLook.set(0, 0);
 	}
-	onTouchListenerClick(t) {
+	onTouchListenerClick(t: () => void) {
 		this.onTouchListenerClickCbs.add(t);
 	}
 	updateCursorVisibility() {
@@ -23667,7 +23725,7 @@ class TouchControls {
 	}
 }
 class InputManager {
-	keys = new Map();
+	keys = new Map<string, InputKey>();
 	desiredPointerLockedState;
 	forceUnlockedPointer;
 	currentLockedKeys;
@@ -23799,7 +23857,7 @@ class InputManager {
 		window.addEventListener("keyup", (t) => {
 			this.setKeyCodePressed(t, false);
 		});
-		const e = (t) =>
+		const e = (t: MouseEvent) =>
 			t.target == document.body ||
 			t.target == this.touch.touchListener ||
 			t.target == getMain().mainMenu.el;
@@ -23985,7 +24043,7 @@ class InputManager {
 			["INPUT", "SELECT", "BUTTON"].includes(document.activeElement.tagName)
 		);
 	}
-	setKeyCodePressed(t, e) {
+	setKeyCodePressed(t: KeyboardEvent, e: boolean) {
 		if (e && this.inputHasFocus()) {
 			return;
 		}
@@ -24006,7 +24064,7 @@ class InputManager {
 		}
 		this.updateAxisInputs();
 	}
-	setMouseButtonPressed(t, e) {
+	setMouseButtonPressed(t: number, e: boolean) {
 		let i = false;
 		for (const s of this.keys.values()) {
 			if (s.setMouseButtonPressed(t, e, i)) {
@@ -24015,7 +24073,7 @@ class InputManager {
 		}
 		this.updateAxisInputs();
 	}
-	fireWheelButton(t) {
+	fireWheelButton(t: string) {
 		const e = performance.now() - this.lastFiredWheelButtonTime;
 		if (e < q(4, 10, 0, 300, this.recentWheelButtonCount, true)) {
 			return;
@@ -24032,7 +24090,7 @@ class InputManager {
 			}
 		}
 	}
-	setPressedGamepadButtons(t) {
+	setPressedGamepadButtons(t: number[]) {
 		let e = false;
 		for (const i of this.keys.values()) {
 			if (i.setPressedGamepadButtons(t, e)) {
@@ -24066,10 +24124,10 @@ class InputManager {
 		this.walkInput.add(this.touch.joyStickValue);
 		this.walkInput.clampLength(0, 1);
 	}
-	getKey(t) {
-		const e = this.keys.get(t);
+	getKey(key: string) {
+		const e = this.keys.get(key);
 		if (!e) {
-			throw new Error(`Key ${t} not found`);
+			throw new Error(`Key ${key} not found`);
 		}
 		return e;
 	}
@@ -24077,7 +24135,7 @@ class InputManager {
 		if (!("keyboard" in navigator)) {
 			return;
 		}
-		const t = new Set();
+		const t = new Set<string>();
 		for (const e of this.keys.values()) {
 			for (const i of e.keyCodes) {
 				t.add(i);
@@ -24105,10 +24163,10 @@ class InputManager {
 		this.updateDesiredPointerLockedState();
 		this.forceUnlockedPointer = false;
 	}
-	onPointerLockChange(t) {
+	onPointerLockChange(t: (locked: boolean) => void) {
 		this.onPointerLockChangeCbs.add(t);
 	}
-	onDesiredPointerLockChange(t) {
+	onDesiredPointerLockChange(t: (locked: boolean) => void) {
 		this.onDesiredPointerLockChangeCbs.add(t);
 	}
 	updateDesiredPointerLockedState() {
@@ -24198,10 +24256,10 @@ class InputManager {
 }
 const Zs = getURLSearchParams();
 const tn = Boolean(Zs.debugBa);
-let en = null;
+let en: DialogManager | null = null;
 let sn = false;
-let nn: any = null;
-function on(t) {
+let nn: string | null = null;
+function on(t: string) {
 	if (sn) {
 		return;
 	}
@@ -24220,6 +24278,7 @@ function on(t) {
 		buttons: [
 			{
 				text: "No",
+				testLabel: "no",
 				onClick() {
 					document.body.innerHTML = "";
 					location.href = "about:blank";
@@ -24227,6 +24286,7 @@ function on(t) {
 			},
 			{
 				text: "Absolutely",
+				testLabel: "absolutely",
 				onClick() {
 					document.body.innerHTML = "";
 					location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
@@ -24661,7 +24721,7 @@ class OfflineGame {
 type Game = OfflineGame | OnlineGame;
 export class GameManager {
 	activeGame: Game | null = null;
-	loadingBackgroundGame: any = null;
+	loadingBackgroundGame: OnlineGame | null = null;
 	joinedOnce = false;
 	isInGamesLoop = false;
 	onIsInGamesLoopChangeCbs = new Set();
@@ -24852,7 +24912,7 @@ export class GameManager {
 		this.joinedOnce = true;
 		this.setIsInGamesLoop(true);
 	}
-	getOnlineGame() {
+	getOnlineGame(): OnlineGame {
 		if (this.loadingBackgroundGame) {
 			return this.loadingBackgroundGame;
 		}
@@ -24932,9 +24992,13 @@ export class GameManager {
 				buttons: [
 					{
 						text: "Yes",
+						testLabel: "yes",
+						onClick: undefined,
 					},
 					{
 						text: "No",
+						testLabel: "no",
+						onClick: undefined,
 					},
 				],
 			});
@@ -25074,9 +25138,9 @@ class GameCamera {
 	cam = new PerspectiveCamera(65, 1, 0.08, 900);
 	isDoingLobbyShots;
 	prevHasPlayer;
-	lobbyCamPositions;
+	lobbyCamPositions: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] }[] | null = null;
 	hasDoneFirstLobbyShot;
-	currentLobbyShot;
+	currentLobbyShot: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] } | null = null;
 	currentLobbyShotT;
 	currentLobbyShotDuration;
 	thirdPersonMode;
@@ -25095,7 +25159,7 @@ class GameCamera {
 		this.currentLobbyShotT = 0;
 		this.currentLobbyShotDuration = 5000;
 		this.thirdPersonMode = "none";
-		this.onThirdPersonChangeCbs = new Set();
+		this.onThirdPersonChangeCbs = new Set<() => void>();
 		this.thirdPersonPhysicsNeedsReset = false;
 		this.thirdPersonPhysics = new SpringVector3({
 			dampening: 0.1,
@@ -25114,7 +25178,7 @@ class GameCamera {
 		const t = getMain();
 		t.scene.add(this.cam);
 		t.settingsManager.onValueChange("fov", (t) => {
-			this.baseFov = t;
+			this.baseFov = t as number;
 			getMain().renderer.renderWorthyEventHappened();
 		});
 		t.input.getKey("toggleThirdPerson").onPressedDown(() => {
@@ -25122,13 +25186,14 @@ class GameCamera {
 			t =
 				this.thirdPersonMode == "none" ? "back" : this.thirdPersonMode == "back" ? "front" : "none";
 			this.setThirdPersonMode(t);
+			return false;
 		});
 	}
 	onResize() {
 		this.cam.aspect = window.innerWidth / window.innerHeight;
 		this.cam.updateProjectionMatrix();
 	}
-	loop(t, i) {
+	loop(t: number, i: number) {
 		let s = null;
 		const n = getMain();
 		if (n.gameManager.activeGame) {
@@ -25214,19 +25279,19 @@ class GameCamera {
 			if (this.currentLobbyShotT > 1 || !this.currentLobbyShot) {
 				this.currentLobbyShotT = 0;
 				if (this.hasDoneFirstLobbyShot) {
-					const t = this.lobbyCamPositions.filter((t) => t != this.currentLobbyShot);
+					const t = this.lobbyCamPositions!.filter((s) => s != this.currentLobbyShot);
 					this.currentLobbyShot = randomChoice(t) || null;
 				} else {
 					this.hasDoneFirstLobbyShot = true;
-					this.currentLobbyShot = this.lobbyCamPositions[0];
+					this.currentLobbyShot = this.lobbyCamPositions![0] ?? null;
 				}
 				this.computeLobbyShotDuration();
 			}
 			if (this.currentLobbyShot) {
 				const t = this.currentLobbyShot;
 				const e = this.currentLobbyShotT;
-				this.cam.position.lerpVectors(t.posA, t.posB, e);
-				this.cam.quaternion.slerpQuaternions(t.rotA, t.rotB, e);
+				this.cam.position.lerpVectors(new Vector3().fromArray(t.posA), new Vector3().fromArray(t.posB), e);
+				this.cam.quaternion.slerpQuaternions(new Quaternion().fromArray(t.rotA), new Quaternion().fromArray(t.rotB), e);
 				this.cam.updateMatrixWorld();
 			}
 		}
@@ -25239,7 +25304,7 @@ class GameCamera {
 		if (!this.currentLobbyShot) {
 			return 10000;
 		}
-		const t = this.currentLobbyShot.posA.distanceTo(this.currentLobbyShot.posB);
+		const t = new Vector3().fromArray(this.currentLobbyShot!.posA).distanceTo(new Vector3().fromArray(this.currentLobbyShot!.posB));
 		this.currentLobbyShotDuration = 5000 * t;
 	}
 	playerRespawned() {
@@ -25261,11 +25326,11 @@ class GameCamera {
 	get thirdPerson() {
 		return this.thirdPersonMode != "none";
 	}
-	setLobbyCamPositions(t) {
+	setLobbyCamPositions(t: { posA: number[]; rotA: number[]; posB: number[]; rotB: number[] }[]) {
 		this.lobbyCamPositions = t;
 		this.currentLobbyShot = null;
 	}
-	getRayCastCache(t, e) {
+	getRayCastCache(t: Vector3, e: number) {
 		const pos = this.pos;
 		const s = new Vector3(0, 0, -e);
 		s.applyQuaternion(this.rot);
@@ -25276,17 +25341,17 @@ class GameCamera {
 		}
 		return null;
 	}
-	setThirdPersonMode(t) {
+	setThirdPersonMode(t: string) {
 		if (t != this.thirdPersonMode) {
 			this.thirdPersonMode = t;
 			this.thirdPersonPhysicsNeedsReset = true;
-			this.onThirdPersonChangeCbs.forEach((t) => t());
+			this.onThirdPersonChangeCbs.forEach((t: () => void) => t());
 		}
 	}
-	onThirdPersonChange(t) {
+	onThirdPersonChange(t: () => void) {
 		this.onThirdPersonChangeCbs.add(t);
 	}
-	removeOnThirdPersonChange(t) {
+	removeOnThirdPersonChange(t: () => void) {
 		this.onThirdPersonChangeCbs.delete(t);
 	}
 }
@@ -27309,7 +27374,7 @@ class SquadManager {
 	beforeMatchmakeConnectSquadSettings: SquadSettings | null = null;
 	myClientIsSquadLeader = false;
 	lastSquadLeaderToken: string | null = null;
-	onSquadSettingChangeCbs = new Set<(setting: string, value: unknown) => void>();
+	onSquadSettingChangeCbs = new Set<(setting: string, value: SettingValue) => void>();
 	onMySquadLeaderStateChangeCbs = new Set<() => void>();
 	boundUpdateGameSquadPlayers: () => void;
 	constructor(
@@ -27603,10 +27668,10 @@ class SquadManager {
 			this.matchMakeManager.sendSquadSettingChange(t, e);
 		}
 	}
-	onSquadSettingChange(t: (setting: string, value: unknown) => void) {
+	onSquadSettingChange(t: (setting: string, value: SettingValue) => void) {
 		this.onSquadSettingChangeCbs.add(t);
 	}
-	removeOnSquadSettingChange(t: (setting: string, value: unknown) => void) {
+	removeOnSquadSettingChange(t: (setting: string, value: SettingValue) => void) {
 		this.onSquadSettingChangeCbs.delete(t);
 	}
 	setConfiguredTeamColor(t: number, e: number) {
@@ -27687,6 +27752,8 @@ class SquadManager {
 				const buttons: { text: string; onClick?: () => void; enabled?: boolean }[] = [
 					{
 						text: "Ok",
+						testLabel: "ok",
+						onClick: undefined,
 					},
 					{
 						text: "Update now",
@@ -27947,7 +28014,7 @@ function Rn(value: number, max = 1): number {
 function Un(value: number, max = 1): number {
 	return Fn(value, 0, max, 8);
 }
-function decodeTextPacket(buffer: ArrayBuffer, e = 4) {
+function decodeTextPacket(buffer: ArrayBufferLike, e = 4) {
 	if (buffer.byteLength < e + 4) {
 		return null;
 	}
@@ -27959,7 +28026,7 @@ function decodeTextPacket(buffer: ArrayBuffer, e = 4) {
 		return null;
 	}
 }
-function Hn(buffer: ArrayBuffer) {
+function parseJSONPacket(buffer: ArrayBufferLike) {
 	const e = decodeTextPacket(buffer);
 	if (e) {
 		try {
@@ -28230,9 +28297,13 @@ class NetworkManager {
 					buttons: [
 						{
 							text: "Keep trying",
+							testLabel: "keepTrying",
+							onClick: undefined,
 						},
 						{
 							text: "Cancel",
+							testLabel: "cancel",
+							onClick: undefined,
 						},
 					],
 				});
@@ -28529,7 +28600,7 @@ class NetworkManager {
 			if (!t) {
 				return;
 			}
-			const [, e, n, kills, deaths, total] = s as unknown as number[];
+			const [, e, n, kills, deaths, total] = s as unknown as [unknown, number, number, number, number, number];
 			const elo = i[6]!;
 			const scores = {
 				flags: n,
@@ -28556,7 +28627,7 @@ class NetworkManager {
 			}
 			const e = s[1]!;
 			const i = s[2]!;
-			t.receivePlayerChangeWeaponType(e as number, i as number);
+			t.receivePlayerChangeWeaponType(e as number, i as boolean);
 		} else if (s[0]! == 19) {
 			const t = getMain().gameManager.getOnlineGame();
 			if (!t) {
@@ -28631,7 +28702,7 @@ class NetworkManager {
 			if (!t) {
 				return;
 			}
-			const i = Hn(buffer);
+			const i = parseJSONPacket(buffer);
 			t.setSameSquadPlayerData(i.playerDatas);
 		} else if (s[0]! == 27) {
 			const t = decodeTextPacket(buffer);
@@ -28680,7 +28751,7 @@ class NetworkManager {
 				game.chat.receivedChatMessage(messageData);
 			}
 		} else if (s[0]! == 38) {
-			const t = Hn(buffer);
+			const t = parseJSONPacket(buffer);
 			const i = getMain().gameManager.getOnlineGame();
 			if (!i) {
 				return;
@@ -28691,10 +28762,10 @@ class NetworkManager {
 			if (!t) {
 				return;
 			}
-			const e = s[1]! == 1;
+			const enabled = s[1]! == 1;
 			for (let i = 2; i < s.length; i++) {
-				const n = s[i]!;
-				t.setPlayerServerFlyEnabled(n, e);
+				const playerID = s[i]!;
+				t.setPlayerServerFlyEnabled(playerID, enabled);
 			}
 		} else if (s[0]! == 55) {
 			const t = decodeTextPacket(buffer);
@@ -28889,12 +28960,16 @@ class NetworkManager {
 			title: "Connection closed",
 			text: "You have been kicked for being afk for too long. Do you want to try and rejoin the same game?",
 			buttons: [
-				{
-					text: "Attempt to Rejoin",
-				},
-				{
-					text: "No Thanks",
-				},
+						{
+							text: "Attempt to Rejoin",
+							testLabel: "attemptToRejoin",
+							onClick: undefined,
+						},
+						{
+							text: "No Thanks",
+							testLabel: "noThanks",
+							onClick: undefined,
+						},
 			],
 		});
 		if ((await e.waitForButton()) == 0) {
@@ -29202,8 +29277,8 @@ class NetworkManager {
 	sendRequestNextGameState() {
 		this.send([12]);
 	}
-	sendPlayerPerformAction(t: number, e: number) {
-		this.send([9, t, e]);
+	sendPlayerPerformAction(playerID: number, action: number) {
+		this.send([9, playerID, action]);
 	}
 	sendRequestRespawn(t: number) {
 		this.send([35, t]);
@@ -29410,13 +29485,13 @@ class PeliLinkFlow {
 	isLoggedIn;
 	profileHasPeliEmail;
 	callbacks;
-	createdAlerts = new Set();
+	createdAlerts = new Set<AlertDialog>();
 	constructor(t, e, i) {
 		this.isLoggedIn = t;
 		this.profileHasPeliEmail = e;
 		this.callbacks = i;
 	}
-	showAlert(t: any) {
+	showAlert(t: AlertOpts) {
 		const e = getMain().dialogManager.showAlert(t);
 		this.createdAlerts.add(e);
 		e.addOnCloseCb(() => {
@@ -29439,6 +29514,7 @@ class PeliLinkFlow {
 						},
 						{
 							text: "No thanks",
+							testLabel: "noThanks2",
 							onClick: async () => {
 								const t = this.showAlert({
 									title: "Logout required",
@@ -29473,6 +29549,7 @@ class PeliLinkFlow {
 				buttons: [
 					{
 						text: "Link to existing",
+						testLabel: "linkToExisting",
 						onClick: () => {
 							(async () => {
 								try {
@@ -29498,6 +29575,7 @@ class PeliLinkFlow {
 					},
 					{
 						text: "Create new account",
+						testLabel: "createNewAccount",
 						onClick: async () => {
 							if ((await this.callbacks.peliLogin()).success) {
 								this.showAlert({
@@ -29529,8 +29607,7 @@ class AccountExistsDialog extends Dialog {
 	#O;
 	#F;
 	#B;
-	override visible;
-	constructor(t) {
+	constructor(t: HTMLElement) {
 		super(t, {
 			startVisible: false,
 		});
@@ -29660,7 +29737,7 @@ class AuthManager {
 							{
 								type: "oAuthTokenReceived",
 							},
-							"*" as any,
+							"*",
 						);
 					}
 					let i = null;
@@ -29686,7 +29763,7 @@ class AuthManager {
 		});
 		this.refreshSessionInstance = new Waiter(async () => {
 			const t = apiPath("auth/refreshSession");
-			await this.fetchAuthSessionData(t, null, {
+			await this.fetchAuthSessionData(t, new URLSearchParams(), {
 				fromRefreshAttempt: true,
 			});
 		});
@@ -29746,11 +29823,9 @@ class AuthManager {
 	}
 	async init() {
 		try {
-			this.currentSessionData = (await getMain().indexedDb.get("currentAuthSessionData")) as {
-				expires: number;
-				secureId?: string;
-				token?: string;
-			} | null;
+			this.currentSessionData = (await getMain().indexedDb.get("currentAuthSessionData")) as
+			| { expires: number; secureId: string; token: string }
+			| null;
 			this.prevSessionNonce = await getMain().indexedDb.get("prevSessionNonce");
 		} catch {}
 		this.isInit = true;
@@ -29773,7 +29848,7 @@ class AuthManager {
 				issuer: e.loginIssuer,
 			};
 		}
-		if (t) {
+		if (t && e.nonce) {
 			this.handleAuthToken(t, e.nonce, true);
 			const i = new URL(window.location.href);
 			i.search = "";
@@ -29815,7 +29890,7 @@ class AuthManager {
 	async showLoginDialog(t = "login"): Promise<{ error?: string } | undefined> {
 		const e = new LoginDialog(this.gameWrapper, t);
 		getMain().dialogManager.addDialog(e);
-		const i = await e.waitForFlowEnd();
+		const i = (await e.waitForFlowEnd()) as { success: boolean; usedPelicanParty: boolean } | null;
 		if (t == "linknew") {
 			this.handleLinkAccountResultNotifications(i);
 		}
@@ -29885,6 +29960,7 @@ class AuthManager {
 					buttons: [
 						{
 							text: "Log out",
+							testLabel: "logOut",
 							onClick: async () => {
 								if ((await this.peliLogout()) != "dismissed") {
 									s.close();
@@ -30003,7 +30079,7 @@ class AuthManager {
 					});
 				}
 				getMain().profileState.clearAndRefetch();
-			} else if (t.error == "account-already-exists") {
+			} else if ((t as { error?: string }).error == "account-already-exists") {
 				if (t.usedPelicanParty) {
 					const t = new AccountExistsDialog(this.gameWrapper);
 					getMain().dialogManager.addDialog(t);
@@ -30015,12 +30091,12 @@ class AuthManager {
 				}
 			} else {
 				let e = "An error occurred while trying to link your account.";
-				if (t.error == "already-linked") {
+				if ((t as { error?: string }).error == "already-linked") {
 					e = "This account is already linked to you.";
-				} else if (t.error == "linked-maximum-reached") {
+				} else if ((t as { error?: string }).error == "linked-maximum-reached") {
 					e = "You have reached the maximum of linkable accounts.";
 				} else {
-					console.error(`Account link error: ${t.error}`);
+					console.error(`Account link error: ${(t as { error?: string }).error}`);
 				}
 				getMain().dialogManager.showAlert({
 					title: "Account linking failed",
@@ -30260,13 +30336,13 @@ class AuthManager {
 		e: URLSearchParams,
 	) {
 		if (t.type == "accessToken") {
-			e.set("accessToken", t.accessToken);
-			e.set("issuer", t.issuer);
+			e.set("accessToken", t.accessToken!);
+			e.set("issuer", t.issuer!);
 		} else {
 			if (t.type != "idToken") {
 				throw new Error(`Unknown type: "${t.type}".`);
 			}
-			e.set("idToken", t.idToken);
+			e.set("idToken", t.idToken!);
 		}
 		e.set("authType", t.type);
 	}
@@ -30373,6 +30449,8 @@ class AuthManager {
 				buttons: [
 					{
 						text: "oh no",
+						testLabel: "ohNo",
+						onClick: undefined,
 					},
 				],
 			});
@@ -30429,9 +30507,12 @@ class AuthManager {
 					buttons: [
 						{
 							text: "No thanks",
+							testLabel: "noThanks",
+							onClick: undefined,
 						},
 						{
 							text: "Log out everywhere",
+							testLabel: "logOutEverywhere",
 							onClick: () => {
 								this.logoutEverywhere();
 							},
@@ -30995,10 +31076,10 @@ class ShopState extends State {
 	ownedCoins = 0;
 	purchasedItems = new Set<number>();
 	purchasingItemTasks = new Map<number, Promise<unknown>>();
-	constructor(...t: unknown[]) {
-		super(...(t as any));
+	constructor(...t: [auth: AuthManager, db: IndexedDB]) {
+		super(...t);
 	}
-	override getCurrentState(): any {
+	override getCurrentState() {
 		return {
 			ownedCoins: this.ownedCoins,
 			purchasedItems: Array.from(this.purchasedItems),
@@ -31730,8 +31811,8 @@ interface AvatarConfig {
 	secondBackgroundColor?: string | null;
 	backgroundAlpha: number;
 	clipPathType: string;
-	skeletonPoseLayers: string;
-	bow?: null;
+	skeletonPoseLayers: string[];
+	bow?: BowAssetConfig | null;
 	skinObjectOpts: {
 		teamId: number;
 		skin: SkinOpts;
@@ -31937,7 +32018,7 @@ class ClassImageReference {
 	lastBlobUrl = null;
 	blobUrlChangeCbs = new Set<(url: string) => void>();
 	onNeedsUpdatesChangeCbs = new Set<() => void>();
-	constructor(public classId, public classSelectionImageManager: ClassSelectionImage) {
+	constructor(public classId, public classSelectionImageManager: ClassSelectionImageManager) {
 	}
 	destructor() {
 		this.classSelectionImageManager.removeUpdateReference(this.classId, this);
@@ -31964,10 +32045,10 @@ class ClassImageReference {
 	}
 }
 interface Thing {
-	updateReferences: Set<unknown>;
-	reference: null;
-	url: null;
-	lastLoadingSym: null;
+	updateReferences: Set<ClassImageReference>;
+	reference: BlobURLReference | null;
+	url: string | null;
+	lastLoadingSym: unique symbol | null;
 	avatarDirty: boolean;
 }
 class ClassSelectionImageManager {
@@ -31985,7 +32066,7 @@ class ClassSelectionImageManager {
 			this.loadClassBlobUrl(t);
 		}
 	}
-	async loadClassBlobUrl(t) {
+	async loadClassBlobUrl(t: string) {
 		const e = this.getOrCreateBlobUrlData(t);
 		if (!e.avatarDirty) {
 			return;
@@ -32019,34 +32100,34 @@ class ClassSelectionImageManager {
 			}
 		}
 	}
-	createClassBlobUrl(t) {
+	createClassBlobUrl(t: string) {
 		const e = getWeapon(t);
 		const i = getMain();
 		const s = i.skins.getClassSkinDataWithAppliedPreset(t);
 		const { skins, arrowSkin } = i.skins.skinNetworkDataToBowAssetData(e.bowId, s);
 		return i.avatars
 			.getAvatar({
-				skinObjectOpts: {
-					skin: s,
-					teamId: this.teamId,
-				},
 				width: 200,
 				height: 200,
 				clipPathType: "none",
 				cameraType: "upper-body",
-				skeletonPoseLayers: [`bows/${e.bowId}/shopClassItem`],
+				skeletonPoseLayers: `bows/${e.bowId}/shopClassItem`,
 				backgroundAlpha: 0,
+				skinObjectOpts: {
+					skin: s,
+					teamId: this.teamId,
+				},
 				bow: {
 					teamId: this.teamId,
 					bowId: e.bowId,
 					arrowCount: 1,
 					skins,
 					arrowSkin,
-				},
+				} as BowAssetConfig,
 			})
 			.getBlobUrlReference();
 	}
-	setTeamId(t) {
+	setTeamId(t: number) {
 		if (t == null) {
 			t = 1;
 		}
@@ -32079,7 +32160,7 @@ class ClassSelectionImageManager {
 		});
 		return i;
 	}
-	removeUpdateReference(t, e) {
+	removeUpdateReference(t: string, e: ClassImageReference) {
 		this.getOrCreateBlobUrlData(t).updateReferences.delete(e);
 	}
 }
@@ -32314,7 +32395,7 @@ class FullScreenManager {
 	}
 	async suggestAutoFullScreen() {
 		const t = "suggestAutoFullScreenVersion";
-		if ((await getMain().indexedDb.get(t)) >= 1) {
+		if ((await getMain().indexedDb.get<number>(t)) >= 1) {
 			return;
 		}
 		const e = getMain().dialogManager.showAlert({
@@ -32323,9 +32404,13 @@ class FullScreenManager {
 			buttons: [
 				{
 					text: "Heck Yeah!",
+					testLabel: "heckyeah",
+					onClick: undefined,
 				},
 				{
 					text: "No Thanks",
+					testLabel: "nothanks",
+					onClick: undefined,
 				},
 			],
 		});
