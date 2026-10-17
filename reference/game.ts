@@ -14116,16 +14116,16 @@ export class Player {
 		this.scoreTotal = total;
 		this.elo = elo;
 	}
-	setHasEvents(t: boolean) {
-		if (t == this.hasKeyEvents) {
+	setHasEvents(hasKeyEvents: boolean) {
+		if (hasKeyEvents == this.hasKeyEvents) {
 			return;
 		}
 		const e = getMain();
-		this.hasKeyEvents = t;
+		this.hasKeyEvents = hasKeyEvents;
 		const i = this.inputManager.getKey("jump");
 		const s = this.inputManager.getKey("fire");
 		const n = this.inputManager.getKey("toggleWeapon");
-		if (t) {
+		if (hasKeyEvents) {
 			i.onPressedDown(this.boundOnJumpPress as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 			s.onPressedDown(this.boundOnFireDown as unknown as (i: { fromTouchButton?: boolean }) => boolean);
 			s.onPressedUp(this.boundOnFireUp as unknown as (i: { fromTouchButton?: boolean }) => boolean);
@@ -14174,8 +14174,8 @@ export class Player {
 	resetSmoothLookRot() {
 		this.smoothLookRotTarget.copy(this.lookRot);
 	}
-	setHasMovementAccuracyOffset(t: boolean) {
-		t
+	setHasMovementAccuracyOffset(hasMovementAccuracyOffset: boolean) {
+		hasMovementAccuracyOffset
 			? this.movementAccuracyOffset ||
 				(this.movementAccuracyOffset = this.game.crosshair.createAccuracyOffset())
 			: this.movementAccuracyOffset &&
@@ -14441,9 +14441,9 @@ export class Player {
 			getMain().network.sendChangeActiveWeaponType(this.id, this.hasActiveMeleeWeapon);
 		}
 	}
-	receiveChangeWeaponTypeFromServer(t: boolean) {
-		if (t != this.hasActiveMeleeWeapon) {
-			this.hasActiveMeleeWeapon = t;
+	receiveChangeWeaponTypeFromServer(hasActiveMeleeWeapon: boolean) {
+		if (hasActiveMeleeWeapon != this.hasActiveMeleeWeapon) {
+			this.hasActiveMeleeWeapon = hasActiveMeleeWeapon;
 			this.startToggleActiveWeaponCooldown();
 			this.updateActiveWeapon();
 			getMain().renderer.renderWorthyEventHappened();
@@ -14471,8 +14471,8 @@ export class Player {
 			this.activeWeapon.actionDown();
 		}
 	}
-	setServerFlyEnabled(t: boolean) {
-		this.serverFlyEnabled = t;
+	setServerFlyEnabled(enabled: boolean) {
+		this.serverFlyEnabled = enabled;
 		this.updateFly();
 	}
 	updateFly() {
@@ -14496,13 +14496,13 @@ export class Player {
 		this.updateModelVisibility();
 		this.updateUseFirstPersonHoldingHandlers();
 	}
-	addHitFlash(t: number) {
+	addHitFlash(hitColliderID: number) {
 		const e = new Vector3();
-		if (t == 0) {
+		if (hitColliderID == 0) {
 			e.y = 0.2;
-		} else if (t == 1) {
+		} else if (hitColliderID == 1) {
 			e.y = 0.9;
-		} else if (t == 2) {
+		} else if (hitColliderID == 2) {
 			e.y = 1.9;
 		}
 		const now = getMain().now;
@@ -14520,10 +14520,10 @@ export class Player {
 	addMeleeHitFlash() {
 		this.addHitFlash(1);
 	}
-	playerClaimedHitByArrow(player: Player, e: number, i: number) {
-		const s = this.rigidBody.colliders[i];
+	playerClaimedHitByArrow(player: Player, arrowID: number, colliderID: number) {
+		const s = this.rigidBody.colliders[colliderID];
 		if (s) {
-			const i = this.game.arrowManager.getArrowById(player.id, e);
+			const i = this.game.arrowManager.getArrowById(player.id, arrowID);
 			if (!i) {
 				return;
 			}
@@ -14598,7 +14598,7 @@ export class Player {
 		}
 		if (!this.hasOwnership) {
 			if (!player.hasOwnership) {
-				this.addHitFlash(i);
+				this.addHitFlash(colliderID);
 			}
 			this.sfxManager.playSound(`player/takeDamage/${this.gender}/${intRandom(1, 4)}`, {
 				pos: this.getSfxPos(),
@@ -14729,8 +14729,8 @@ export class Player {
 			damageWithArmorStrength,
 		};
 	}
-	applyDamage(damage: number, arrowHit: Vector3 | null, i: string) {
-		this.#l = i;
+	applyDamage(damage: number, arrowHit: Vector3 | null, cause: string) {
+		this.#l = cause;
 		const time = performance.now();
 		const { damageWithoutArmorStrength, damageWithArmorStrength } =
 			this.getDamageAmountForCurrentArmor(damage);
@@ -14759,19 +14759,19 @@ export class Player {
 		const i = t + e;
 		return (t -= i - Math.min(i, 0.9));
 	}
-	forceSetHealthFromServer(t: number) {
-		if (t < this.health) {
-			const e = this.health - t;
-			this.setHealthFromHit(t, null, e);
+	forceSetHealthFromServer(health: number) {
+		if (health < this.health) {
+			const e = this.health - health;
+			this.setHealthFromHit(health, null, e);
 		}
 	}
-	setHealthFromHit(t: number, arrowHitNormalWorld: Vector3 | null, i: number, s = 1) {
-		this.health = t;
+	setHealthFromHit(health: number, arrowHitNormalWorld: Vector3 | null, vignetteAmount: number, s = 1) {
+		this.health = health;
 		this.lastHitTime = getMain().now;
 		if (this.hasOwnership) {
 			getMain().screenFlash.flash({
 				arrowHitNormalWorld: arrowHitNormalWorld as unknown as Vector3,
-				vignetteAmount: 1 - i,
+				vignetteAmount: 1 - vignetteAmount,
 			});
 			this.sfxManager.playSound(`player/takeDamage/${this.gender}/${intRandom(1, 4)}`);
 			this.updateHealthUi(s);
@@ -14810,7 +14810,7 @@ export class Player {
 	getFrontThirdPersonCamRot() {
 		return this.computeCamRot(this.frontThirdPersonLookRot);
 	}
-	computeCamRot(t: Vector2) {
+	computeCamRot(lookRot: Vector2) {
 		const e = 0.01 * (this.lastJumpLandTime - getMain().now);
 		let i = 0;
 		if (
@@ -14821,7 +14821,7 @@ export class Player {
 			i = q(0.012, 0.1, 0.1, 0.3, this.lastJumpLandAmount);
 		}
 		const s = (e / (0.5 + e ** 2)) * i;
-		const n = new Euler(t.y + s, t.x, 0, "YXZ");
+		const n = new Euler(lookRot.y + s, lookRot.x, 0, "YXZ");
 		const o = new Quaternion();
 		o.setFromEuler(n);
 		return o;
@@ -14998,12 +14998,12 @@ export class Player {
 			}
 		}
 	}
-	die(t = false) {
+	die(respawn = false) {
 		if (this.dead) {
 			return;
 		}
 		this.sendPerformAction(Player.PlayerAction.DIE);
-		if (t && this.hasOwnership) {
+		if (respawn && this.hasOwnership) {
 			getMain().network.sendRequestRespawn(this.id);
 		}
 		const e = this.game instanceof OnlineGame ? this.game : null;
@@ -15067,7 +15067,7 @@ export class Player {
 		this.stopFallSound();
 		this.updateModelVisibility();
 	}
-	respawn(t: unknown) {
+	respawn(key: number) {
 		if (!this.hasOwnership) {
 			return;
 		}
@@ -15075,7 +15075,7 @@ export class Player {
 		if (this.game instanceof OnlineGame) {
 			e = y(this.teamId, this.game.activeGamemode);
 		}
-		const { pos, rot } = this.game.getSpawnPosition(e as any, t as unknown as number);
+		const { pos, rot } = this.game.getSpawnPosition(e, key);
 		const n = new Vector3(0, 0, 1);
 		n.applyQuaternion(rot);
 		n.y = 0;
@@ -15118,8 +15118,8 @@ export class Player {
 		this.sendPlayerDataToServer();
 		this.sendMyEquippedSkinData();
 	}
-	receivedSpawn(t: number, e: unknown) {
-		this.currentSpawnId = t;
+	receivedSpawn(spawnId: number, key: number) {
+		this.currentSpawnId = spawnId;
 		this.dead = false;
 		this.updateIconVisibility();
 		this.updateEliminationScoreboard();
@@ -15131,7 +15131,7 @@ export class Player {
 		}
 		this.updateModelVisibility();
 		if (this.hasOwnership) {
-			this.respawn(e);
+			this.respawn(key);
 		}
 	}
 	resetDeadPoseWeights() {
@@ -15143,8 +15143,8 @@ export class Player {
 		}
 		this.deadAnimationWeight = 0;
 	}
-	onPlayerHasInteractedChange(t: boolean) {
-		this.onPlayerHasInteractedChangeCbs.add(t as unknown as () => void);
+	onPlayerHasInteractedChange(cb: () => void) {
+		this.onPlayerHasInteractedChangeCbs.add(cb);
 	}
 	setPlayerHasInteracted() {
 		if (!this.playerHasInteracted) {
@@ -15184,15 +15184,15 @@ export class Player {
 			}
 		}
 	}
-	setPosition(t: Vector3) {
-		this.pos.copy(t);
-		this.rigidBody.pos.copy(t);
+	setPosition(pos: Vector3) {
+		this.pos.copy(pos);
+		this.rigidBody.pos.copy(pos);
 		this.rigidBody.velocity.set(0, 0, 0);
 		this.cachedCamPosDirty = true;
 	}
-	sendChangeFlag(flagId: number, changeOperation: number, i = true) {
+	sendChangeFlag(flagId: number, changeOperation: number, record = true) {
 		if (!this.game.gameEnded && this.game.gameStarted) {
-			if (i) {
+			if (record) {
 				for (const [i, s] of this.sentChangeFlagMessages.entries()) {
 					if (getMain().now - s.sendTime > 3000) {
 						this.sentChangeFlagMessages.splice(i);
@@ -15211,45 +15211,45 @@ export class Player {
 			getMain().network.sendChangeFlag(this.id, flagId, changeOperation);
 		}
 	}
-	changeFlagFromServer(t: Flag, e: number) {
-		if (e == 0) {
-			this.holdingFlag = t;
-			t.startHoldByPlayer(this);
+	changeFlagFromServer(flag: Flag, operation: number) {
+		if (operation == 0) {
+			this.holdingFlag = flag;
+			flag.startHoldByPlayer(this);
 			this.sfxManager.playSound("flag/grab", {
 				pos: this.pos,
 			});
-		} else if (e == 1) {
+		} else if (operation == 1) {
 			this.holdingFlag = null;
-			const e = t.heldCountSinceLastReturn;
+			const e = flag.heldCountSinceLastReturn;
 			if (this.hasOwnership && e == 4) {
 				activateSteamAchievement("captureFlagAfterThree");
 			}
-			t.returnToDefaultPos();
+			flag.returnToDefaultPos();
 		} else {
-			if (e == 2) {
+			if (operation == 2) {
 				this.holdingFlag = null;
-				t.removeCurrentHoldingPlayer();
+				flag.removeCurrentHoldingPlayer();
 				this.sfxManager.playSound("flag/drop", {
 					pos: this.pos,
 				});
-			} else if (e == 3) {
-				if (this.holdingFlag == t) {
+			} else if (operation == 3) {
+				if (this.holdingFlag == flag) {
 					this.holdingFlag = null;
 				}
-				t.returnToDefaultPos();
+				flag.returnToDefaultPos();
 			}
 		}
-		this.removeChangeFlagFromQueue(t.id, e);
+		this.removeChangeFlagFromQueue(flag.id, operation);
 	}
-	stopHoldingFlag(t: Flag | null) {
-		if (this.holdingFlag == t) {
+	stopHoldingFlag(flag: Flag | null) {
+		if (this.holdingFlag == flag) {
 			this.holdingFlag = null;
 		}
 	}
-	removeChangeFlagFromQueue(t: number, e: number) {
+	removeChangeFlagFromQueue(flagId: number, changeOperation: number) {
 		for (let i = this.sentChangeFlagMessages.length - 1; i >= 0; i--) {
 			const s = this.sentChangeFlagMessages[i];
-			if (s!.flagId == t && s!.changeOperation == e) {
+			if (s!.flagId == flagId && s!.changeOperation == changeOperation) {
 				return void this.sentChangeFlagMessages.splice(i, 1);
 			}
 		}
@@ -15259,19 +15259,19 @@ export class Player {
 			this.game.updateEliminationScoreboard(this.teamId);
 		}
 	}
-	report(t: number, e: unknown) {
+	report(t: number, severity: number) {
 		if (!(this.game instanceof OnlineGame)) {
 			throw new Error("Reporting players is not supported in offline games");
 		}
 		if (
 			!(
-				(e as number) <= 0 ||
+				(severity as number) <= 0 ||
 				this.hasOwnership ||
 				this.game.gameEnded ||
 				performance.now() < this.creationTime + 15000
 			)
 		) {
-			this.game.antiCheat.reportPlayer(this.id, t, e as number);
+			this.game.antiCheat.reportPlayer(this.id, t, severity as number);
 		}
 	}
 }
@@ -17918,7 +17918,7 @@ class Chat {
 				this.updateVisibility();
 			}
 		};
-		this.chatKey.onPressedDown(this.boundChatKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+		this.chatKey.onPressedDown(this.boundChatKeyCb);
 		this.chatVisibilityKey = i.input.getKey("toggleChatVisibility");
 		this.boundChatVisibilityKeyCb = () => {
 			if (this.visible) {
@@ -17930,7 +17930,7 @@ class Chat {
 				this.textBoxEl.focus();
 			}
 		};
-		this.chatVisibilityKey.onPressedDown(this.boundChatVisibilityKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+		this.chatVisibilityKey.onPressedDown(this.boundChatVisibilityKeyCb);
 		this.boundUpdateVisibilities = () => {
 			this.updateVisibility();
 			this.updateTouchButtonVisibility();
@@ -17961,8 +17961,8 @@ class Chat {
 	}
 	destructor() {
 		this.gameWrapper.removeChild(this.el);
-		this.chatKey.removeCb(this.boundChatKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
-		this.chatVisibilityKey.removeCb(this.boundChatVisibilityKeyCb as unknown as (i: { fromTouchButton?: boolean }) => boolean);
+		this.chatKey.removeCb(this.boundChatKeyCb);
+		this.chatVisibilityKey.removeCb(this.boundChatVisibilityKeyCb);
 		const t = getMain();
 		t.network.squadManager.removeOnUserVisibleSquadIdChange(this.boundUpdateVisibilities);
 		t.input.touch.removeOnTouchSupportedChange(this.boundOnTouchSupported);
