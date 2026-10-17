@@ -105,7 +105,7 @@ declare function $l(e: number, t: number): 0 | 1 | 2 | 3 | 4 | 5;
 export declare function a0(e: number): e is 2 | 4 | 5 | 7 | 8 | 10;
 export declare function a6(e: number): e is 4 | 5 | 7 | 8;
 declare function nc(e: number): e is 8 | 9 | 10;
-declare function ic(e: number): e is 1 | 9;
+declare function isCTF(e: number): e is 1 | 9;
 declare function rc(e: number): "-" | "CTF Bows Only" | "Capture the Flag" | "FFA Bows Only" | "Free For All" | "Gun Game" | "King of the Hill" | "Melee Only" | "TDM Bows Only" | "Team Deathmatch" | "Team Elimination";
 declare function sc(e: number): string[];
 declare const ac = 1;
@@ -167,5 +167,5 @@ declare function pc(e: number): boolean;
 declare function mc(e: number, t: number, n: number): number[];
 declare function fc(e: number, t: number, n: number): number[];
 export declare function ab(e: number, t: number, n: number, i?: number): number;
-export { ic as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip, clamp, lerp, posMod, teamData, wrap, partNames, Po as q, noAttackTeam, uc as s, recurseChildren, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
+export { isCTF as $, n as D, e as F, kl as G, fc as K, MapLoadError, mc as N, sc as R, AssetWorkerMessenger, pc as U, rc as X, ac as Y, oc as Z, zl as _, clampTo01, Xl as al, Zl as an, lc as ao, partNamesNeedsFlip, clamp, lerp, posMod, teamData, wrap, partNames, Po as q, noAttackTeam, uc as s, recurseChildren, nc as u, Ul as v, inverseLerp, dc as x, $l as y, Wl as z, };
 //# sourceMappingURL=three.d.ts.map
