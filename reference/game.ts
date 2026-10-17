@@ -14729,11 +14729,11 @@ export class Player {
 			damageWithArmorStrength,
 		};
 	}
-	applyDamage(t: number, e: Vector3 | null, i: string) {
+	applyDamage(damage: number, arrowHit: Vector3 | null, i: string) {
 		this.#l = i;
 		const time = performance.now();
 		const { damageWithoutArmorStrength, damageWithArmorStrength } =
-			this.getDamageAmountForCurrentArmor(t);
+			this.getDamageAmountForCurrentArmor(damage);
 		const a = {
 			damage: damageWithArmorStrength,
 			time,
@@ -14746,7 +14746,7 @@ export class Player {
 			if (this.game.gameStarted) {
 				this.health -= damageWithArmorStrength;
 			}
-			this.setHealthFromHit(this.health, e, damageWithArmorStrength, t);
+			this.setHealthFromHit(this.health, arrowHit, damageWithArmorStrength, t);
 			return true;
 		}
 		return false;
@@ -14871,9 +14871,9 @@ export class Player {
 		e.applyQuaternion(this.getCamRot());
 		return e;
 	}
-	setServerData(t: number, e: number, i: number, s: unknown, n: unknown, o = false) {
+	setServerData(x: number, y: number, z: number, rotX: number, rotY: number, setback = false) {
 		const a = this.serverPos.clone();
-		this.serverPos.set(t, e, i);
+		this.serverPos.set(x, y, z);
 		if (!this.hasValidPosition) {
 			this.hasValidPosition = true;
 			if (!this.hasOwnership) {
@@ -14896,7 +14896,7 @@ export class Player {
 			this.predictedServerAcceleration.sub(this.lastPredictedServerVelocity);
 			this.predictedServerAcceleration.divideScalar(r);
 		}
-		if (this.hasOwnership && o) {
+		if (this.hasOwnership && setback) {
 			let t = false;
 			for (const e of this.recentForcedServerPositions) {
 				if (this.serverPos.distanceTo(e.pos) < 0.1) {
@@ -14912,14 +14912,14 @@ export class Player {
 				this.setPosition(this.serverPos);
 			}
 		}
-		this.predictedServerPos.set(t, e, i);
+		this.predictedServerPos.set(x, y, z);
 		this.lastPredictedServerVelocity.copy(this.predictedServerVelocity);
 		if (!this.hasOwnership) {
-			this.lookRot.set(s as any, n as any);
+			this.lookRot.set(rotX, rotY);
 			this.resetSmoothLookRot();
 			this.cachedCamRotDirty = true;
 		}
-		const l = e > a.y;
+		const l = y > a.y;
 		if (l != this.networkPosIsMovingUp) {
 			this.networkPosIsMovingUp = l;
 			if (l && this.rigidBody.isAboveJumpableCollider()) {
@@ -14976,9 +14976,9 @@ export class Player {
 			},
 		});
 	}
-	touchedDamageCollider(t: unknown) {
+	touchedDamageCollider(damage: number) {
 		if (this.hasOwnership) {
-			this.applyDamage(t as unknown as number, null as unknown as Vector3, "environment");
+			this.applyDamage(damage, null, "environment");
 		}
 	}
 	dieFromFall() {
