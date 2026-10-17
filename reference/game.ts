@@ -17871,7 +17871,7 @@ interface RawChatMessage {
 		guardianRejected?: boolean;
 	};
 }
-class Chat {
+export class Chat {
 	createdMessages: ChatMessage[] = [];
 	visible = false;
 	toggledVisible = true;
@@ -19852,7 +19852,7 @@ interface GameEndAccountStats {
 	newCoinCount: number,
 	alreadyDoubled: boolean,
 }
-class OnlineGame {
+export class OnlineGame {
 	#S: number | null = null;
 	teamCount = 3;
 	activeGamemode = _;
@@ -24621,7 +24621,7 @@ interface SpawnPosition {
 	pos: Vector3;
 	rot: Quaternion;
 }
-class OfflineGame {
+export class OfflineGame {
 	physics = new PhysicsManager();
 	hingeManager = new HingeManager();
 	arrowManager;
@@ -24770,7 +24770,7 @@ class OfflineGame {
 		this.crosshair.setGameUiVisibility(t);
 	}
 }
-type Game = OfflineGame | OnlineGame;
+export type Game = OfflineGame | OnlineGame;
 export class GameManager {
 	activeGame: Game | null = null;
 	loadingBackgroundGame: OnlineGame | null = null;

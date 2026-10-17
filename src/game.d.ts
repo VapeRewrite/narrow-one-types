@@ -2550,7 +2550,7 @@ interface RawChatMessage {
         guardianRejected?: boolean;
     };
 }
-declare class Chat {
+export declare class Chat {
     gameWrapper: HTMLElement;
     game: OnlineGame;
     createdMessages: ChatMessage[];
@@ -3041,7 +3041,7 @@ interface GameEndAccountStats {
     newCoinCount: number;
     alreadyDoubled: boolean;
 }
-declare class OnlineGame {
+export declare class OnlineGame {
     #private;
     gameWrapper: HTMLElement;
     teamCount: number;
@@ -3713,7 +3713,7 @@ interface SpawnPosition {
     pos: Vector3;
     rot: Quaternion;
 }
-declare class OfflineGame {
+export declare class OfflineGame {
     physics: PhysicsManager;
     hingeManager: HingeManager;
     arrowManager: ArrowManager;
@@ -3746,7 +3746,7 @@ declare class OfflineGame {
     updateUiVisible(): void;
     setUiVisible(t: boolean): void;
 }
-type Game = OfflineGame | OnlineGame;
+export type Game = OfflineGame | OnlineGame;
 export declare class GameManager {
     gameWrapper: HTMLElement;
     activeGame: Game | null;

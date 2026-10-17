@@ -1,6 +1,6 @@
 {
 	"name": "@wq2/narrow-one-types",
-	"version": "0.0.0",
+	"version": "0.0.1",
 	"module": "index.ts",
 	"files": ["src", "README.md", "LICENSE.md"],
 	"publishConfig": {
