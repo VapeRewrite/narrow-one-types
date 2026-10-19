@@ -346,20 +346,16 @@ function* recurseChildren(
 	}
 } // ---- game mode / state constants ----
 
-const zl = 0;
-export const FREE_FOR_ALL = 2;
-export const a1 = 3;
+const UNKNOWN_GAMEMODE = 0;
+export const TEAM_DEATHMATCH = 2;
+export const TEAM_ELIMINATION = 3;
 const GUN_GAME = 5;
 export const KING_OF_THE_HILL = 6;
 const MELEE_ONLY = 7;
-export const FFA_2 = 10;
+export const TEAM_DEATHMATCH_BOWS_ONLY = 10;
 const OFFLINE_GAME_TEAM = 0;
-export const aj = 1;
-export const ak = 2;
-const Xl = 3;
-export const am = 4;
-const Zl = 5;
-export const ap = 6;
+// export const aj = 1;
+// export const ak = 2;
 export const KOTH_SPHERE_RADIUS = 5;
 export function a5(e: number) {
 	return e != 4 && e != 5 && e != 7 && e != 8;
@@ -404,7 +400,7 @@ export function a6(e: number) {
 	return e == 4 || e == 7 || e == 8 || e == 5;
 }
 
-function isBowOnlyCTF(e: number) {
+function isBowOnly(e: number) {
 	return e == 8 || e == 9 || e == 10;
 }
 
@@ -412,17 +408,17 @@ function isCTF(gameID: number) {
 	return gameID == 1 || gameID == 9;
 }
 
-function rc(e: number) {
-	if (e == 1) return "Capture the Flag";
-	if (e == 2) return "Team Deathmatch";
-	if (e == 3) return "Team Elimination";
-	if (e == 4) return "Free For All";
-	if (e == 5) return "Gun Game";
-	if (e == 6) return "King of the Hill";
-	if (e == 7) return "Melee Only";
-	if (e == 8) return "FFA Bows Only";
-	if (e == 9) return "CTF Bows Only";
-	if (e == 10) return "TDM Bows Only";
+function getGameName(id: number) {
+	if (id == 1) return "Capture the Flag";
+	if (id == 2) return "Team Deathmatch";
+	if (id == 3) return "Team Elimination";
+	if (id == 4) return "Free For All";
+	if (id == 5) return "Gun Game";
+	if (id == 6) return "King of the Hill";
+	if (id == 7) return "Melee Only";
+	if (id == 8) return "FFA Bows Only";
+	if (id == 9) return "CTF Bows Only";
+	if (id == 10) return "TDM Bows Only";
 	return "-";
 }
 
@@ -653,13 +649,11 @@ export {
 	sc as R,
 	AssetWorkerMessenger,
 	pc as U,
-	rc as X,
+	getGameName as X,
 	ac as Y,
 	oc as Z,
-	zl as _,
+	UNKNOWN_GAMEMODE as _,
 	clampTo01,
-	Xl as al,
-	Zl as an,
 	lc as ao,
 	partNamesNeedsFlip,
 	clamp,
@@ -672,7 +666,7 @@ export {
 	noAttackTeam,
 	isEnemy,
 	recurseChildren,
-	isBowOnlyCTF as u,
+	isBowOnly as u,
 	GUN_GAME as GUN_GAME,
 	inverseLerp,
 	dc as x,

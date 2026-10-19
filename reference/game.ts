@@ -57,13 +57,13 @@ import {
 	_,
 	isCTF,
 	a0,
-	a1,
+	TEAM_ELIMINATION,
 	KING_OF_THE_HILL,
 	KOTH_SPHERE_RADIUS,
 	a5,
 	a6,
-	FREE_FOR_ALL,
-	FFA_2,
+	TEAM_DEATHMATCH,
+	TEAM_DEATHMATCH_BOWS_ONLY,
 	ab,
 } from "./colors.js";
 import {
@@ -20105,7 +20105,7 @@ export class OnlineGame {
 		a0(gamemode)
 			? this.gameTimerUi || (this.gameTimerUi = new GameTimerUi(this.gameWrapper))
 			: this.gameTimerUi && (this.gameTimerUi.destructor(), (this.gameTimerUi = null));
-		gamemode == a1
+		gamemode == TEAM_ELIMINATION
 			? this.eliminationScoreUi ||
 				(this.eliminationScoreUi = new EliminationScoreUi(this.gameWrapper, this.teamCount))
 			: this.eliminationScoreUi &&
@@ -20949,7 +20949,7 @@ export class OnlineGame {
 		let o = null;
 		if (isCTF(this.activeGamemode) && this.flagScoreUi) {
 			o = this.flagScoreUi.getWinningTeam();
-		} else if (this.activeGamemode == a1 && this.eliminationScoreUi) {
+		} else if (this.activeGamemode == TEAM_ELIMINATION && this.eliminationScoreUi) {
 			o = this.eliminationScoreUi.getWinningTeam();
 		} else if (this.activeGamemode == KING_OF_THE_HILL && this.kingOfTheHillUi) {
 			o = this.kingOfTheHillUi.getWinningTeam();
@@ -20965,7 +20965,7 @@ export class OnlineGame {
 			}
 			s = t == e;
 			n = false;
-		} else if (this.activeGamemode == FREE_FOR_ALL || this.activeGamemode == FFA_2) {
+		} else if (this.activeGamemode == TEAM_DEATHMATCH || this.activeGamemode == TEAM_DEATHMATCH_BOWS_ONLY) {
 			let t = 0;
 			let e = 0;
 			for (const i of this.players.values()) {
