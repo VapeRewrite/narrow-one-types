@@ -29,14 +29,21 @@ function clamp(value: number, min: number, max: number) {
 	return Math.max(min, Math.min(max, value));
 }
 
-function Po(e: number, t: number, n: number, i: number, r: number, s = false) {
-	let a = inverseLerp(e, t, r);
+function mapRange(
+	inputStart: number,
+	inputEnd: number,
+	outputStart: number,
+	outputEnd: number,
+	value: number,
+	clamp = false,
+): number {
+	let t = inverseLerp(inputStart, inputEnd, value);
 
-	if (s) {
-		a = clampTo01(a);
+	if (clamp) {
+		t = clampTo01(t);
 	}
 
-	return lerp(n, i, a);
+	return lerp(outputStart, outputEnd, t);
 }
 
 class MapLoadError extends Error {
@@ -65,16 +72,18 @@ export interface AssetWorkerSend {
 class AssetWorkerMessenger {
 	returnTransferSupport;
 	lastRequestId = 0;
-	sendHandler: ((data: {
-		sendData: {
-			direction: "request" | "response";
-			id: any;
-			didThrow: boolean;
-			type: string | number;
-			returnValue: any;
-		};
-		transfer: [];
-	}) => Promise<void>) | null = null;
+	sendHandler:
+		| ((data: {
+				sendData: {
+					direction: "request" | "response";
+					id: any;
+					didThrow: boolean;
+					type: string | number;
+					returnValue: any;
+				};
+				transfer: [];
+		  }) => Promise<void>)
+		| null = null;
 	responseHandlers = null;
 	onRequestIdMessageCbs = new Map();
 	serializeErrorHook: ((arg0: unknown) => any) | null;
@@ -321,7 +330,7 @@ for (const e of characterParts) {
 
 function* recurseChildren(
 	it: Object3D,
-	{ skipObjsFn = null }: { skipObjsFn?: ((obj: Object3D) => boolean) | null } = {}
+	{ skipObjsFn = null }: { skipObjsFn?: ((obj: Object3D) => boolean) | null } = {},
 ): Generator<Object3D> {
 	if (!skipObjsFn || skipObjsFn(it)) {
 		yield it;
@@ -338,20 +347,20 @@ function* recurseChildren(
 } // ---- game mode / state constants ----
 
 const zl = 0;
-export const a7 = 2;
+export const FREE_FOR_ALL = 2;
 export const a1 = 3;
-const Ul = 5;
-export const a2 = 6;
-const kl = 7;
-export const a8 = 10;
-const Wl = 0;
+const GUN_GAME = 5;
+export const KING_OF_THE_HILL = 6;
+const MELEE_ONLY = 7;
+export const FFA_2 = 10;
+const OFFLINE_GAME_TEAM = 0;
 export const aj = 1;
 export const ak = 2;
 const Xl = 3;
 export const am = 4;
 const Zl = 5;
 export const ap = 6;
-export const a3 = 5;
+export const KOTH_SPHERE_RADIUS = 5;
 export function a5(e: number) {
 	return e != 4 && e != 5 && e != 7 && e != 8;
 }
@@ -395,12 +404,12 @@ export function a6(e: number) {
 	return e == 4 || e == 7 || e == 8 || e == 5;
 }
 
-function nc(e: number) {
+function isBowOnlyCTF(e: number) {
 	return e == 8 || e == 9 || e == 10;
 }
 
-function isCTF(e: number) {
-	return e == 1 || e == 9;
+function isCTF(gameID: number) {
+	return gameID == 1 || gameID == 9;
 }
 
 function rc(e: number) {
@@ -502,8 +511,11 @@ const teamData = [
 	},
 ] as const;
 
-function uc(e: number, t: number) {
-	return (e == 0 && t == 0) || (e != noAttackTeam && t != noAttackTeam && (e == 3 ? t == 3 : e != t));
+function isEnemy(team1: number, team2: number) {
+	return (
+		(team1 == 0 && team2 == 0) ||
+		(team1 != noAttackTeam && team2 != noAttackTeam && (team1 == 3 ? team2 == 3 : team1 != team2))
+	);
 }
 
 function dc(e: number, t: number, n: number) {
@@ -631,10 +643,10 @@ export function ab(e: number, t: number, n: number, i = 1) {
 	return (e = lerp(t, n, (e = No((e = inverseLerp(t, n, e)), i))));
 }
 export {
-	isCTF as $,
+	isCTF,
 	n as D,
 	e as F,
-	kl as G,
+	MELEE_ONLY,
 	fc as K,
 	MapLoadError,
 	mc as N,
@@ -656,14 +668,14 @@ export {
 	teamData,
 	wrap,
 	partNames,
-	Po as q,
+	mapRange,
 	noAttackTeam,
-	uc as s,
+	isEnemy,
 	recurseChildren,
-	nc as u,
-	Ul as v,
+	isBowOnlyCTF as u,
+	GUN_GAME as GUN_GAME,
 	inverseLerp,
 	dc as x,
 	$l as y,
-	Wl as z,
+	OFFLINE_GAME_TEAM as z,
 };

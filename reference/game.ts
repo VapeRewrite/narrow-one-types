@@ -37,12 +37,12 @@ import {
 	posMod,
 	teamData,
 	wrap,
-	q,
+	mapRange,
 	noAttackTeam,
-	s as s_1,
-	G,
+	isEnemy,
+	MELEE_ONLY,
 	u,
-	v,
+	GUN_GAME,
 	inverseLerp,
 	x,
 	y,
@@ -55,17 +55,17 @@ import {
 	Y,
 	Z,
 	_,
-	$,
+	isCTF,
 	a0,
 	a1,
-	a2,
-	a3,
+	KING_OF_THE_HILL,
+	KOTH_SPHERE_RADIUS,
 	a5,
 	a6,
-	a7,
-	a8,
+	FREE_FOR_ALL,
+	FFA_2,
 	ab,
-} from "./three";
+} from "./colors.js";
 import {
 	BackSide,
 	NearestFilter,
@@ -9795,7 +9795,7 @@ class PlayerBody extends RigidBody {
 				s = Math.max(s, mapCollider.touchDamageAmount);
 				n = Math.min(n, mapCollider.touchDamageDistance);
 				if (mapCollider.slowDownPlayerAmount > 0) {
-					const i = q(0, 0.5, 0, mapCollider.slowDownPlayerAmount, manifold.penetration, true);
+					const i = mapRange(0, 0.5, 0, mapCollider.slowDownPlayerAmount, manifold.penetration, true);
 					this.slowDownColliderAmount = Math.max(this.slowDownColliderAmount, i);
 					continue;
 				}
@@ -10359,7 +10359,7 @@ class BowWeapon extends WeaponBase {
 				o.setFromAxisAngle(s, lerp(-i, i, Math.random()));
 				return t.clone().applyQuaternion(o);
 			};
-			const o = computeO(s, q(0, 30, 0, 0.05, n));
+			const o = computeO(s, mapRange(0, 30, 0, 0.05, n));
 			const a = this.player.getSendArrowId();
 			const r = getMain().network.sendCreateArrow(this.player.game as OnlineGame, this.player.id, {
 				arrowId: a,
@@ -10519,7 +10519,7 @@ class SmallCrossbow extends BowWeapon {
 		const o = n < 3000;
 		const a = i < n && n < s;
 		const forceDown = a || this.player.dead;
-		const l = q(i, s, 0, 1, n, true);
+		const l = mapRange(i, s, 0, 1, n, true);
 		const h = n > this.getArrowVisibleMs();
 		if (h != this.prevArrowVisible) {
 			if (h) {
@@ -10652,7 +10652,7 @@ class MeleeWeapon extends WeaponBase {
 			if (collider.rigidBody.player == this.player) {
 				continue;
 			}
-			if (!s_1(this.player.teamId, collider.rigidBody.player.teamId)) {
+			if (!isEnemy(this.player.teamId, collider.rigidBody.player.teamId)) {
 				continue;
 			}
 			if (collider.rigidBody.player.dead) {
@@ -12274,7 +12274,7 @@ const gi = {
 			if (this.attackStartActivity.active) {
 				const t = getMain().now - this.attackStartTime;
 				const i = lerp(800, 500, this.getAttackSpeedStat());
-				return q(300, i, 0.3, 0.9, t, true);
+				return mapRange(300, i, 0.3, 0.9, t, true);
 			}
 			if (this.attackEndActivity.active) {
 				return 0.7;
@@ -12605,7 +12605,7 @@ const gi = {
 			if (getMain().now - this.lastActionUpTime < 200) {
 				t = 3;
 			}
-			t *= q(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
+			t *= mapRange(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
 			return new Vector2(0, -t);
 		}
 		override getAdditionalWalkAcceleration3d() {
@@ -12613,7 +12613,7 @@ const gi = {
 			if (getMain().now - this.lastActionUpTime < 200) {
 				t = 3;
 			}
-			t *= q(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
+			t *= mapRange(100, this.getCooldownDuration(), 0, 1, this.lastChargeDuration, true);
 			const e = this.player.getLookDirection();
 			e.multiplyScalar(-t);
 			return e;
@@ -12622,7 +12622,7 @@ const gi = {
 			return 3;
 		}
 		override getLookInputMultiplier() {
-			return q(200, 500, 0, 1, getMain().now - this.lastActionUpTime, true);
+			return mapRange(200, 500, 0, 1, getMain().now - this.lastActionUpTime, true);
 		}
 		getAttackCooldownActive() {
 			return getMain().now - this.lastActionUpTime < this.getCooldownDuration();
@@ -13451,7 +13451,7 @@ export class Player {
 						main.renderer.renderWorthyEventHappened();
 					}
 					const t = main.cam.fovOffset;
-					const i = q(0, 180, 1, 0.1, t, true);
+					const i = mapRange(0, 180, 1, 0.1, t, true);
 					lookRot.addScaledVector(lookInput, -0.002 * i);
 				}
 				lookRot.y = clamp(lookRot.y, 0.5 * -Math.PI, i);
@@ -13521,7 +13521,7 @@ export class Player {
 				if (elapsed < stunEvent.stun.duration + stunEvent.stun.fadeDuration) {
 					const stunDuration = stunEvent.stun.duration;
 					const fadeEnd = stunDuration + stunEvent.stun.fadeDuration;
-					moveSpeed *= 1 - q(stunDuration, fadeEnd, stunEvent.stun.amount, 0, elapsed, true);
+					moveSpeed *= 1 - mapRange(stunDuration, fadeEnd, stunEvent.stun.amount, 0, elapsed, true);
 				} else {
 					this.recentStunEvents.delete(stunEvent);
 				}
@@ -13611,7 +13611,7 @@ export class Player {
 				}
 				if (i) {
 					const t = onlineGame.gameTime / 1000;
-					const e = 1 / q(5, 60, 300, 10000, t / 60, true);
+					const e = 1 / mapRange(5, 60, 300, 10000, t / 60, true);
 					i.addReturnProgress(deltaMs * e);
 					onlineGame.crosshair.setFlagReturnProgress(i.returnProgress);
 					if (i.returnProgress > 1) {
@@ -13658,8 +13658,8 @@ export class Player {
 			}
 			if (this.sphereDeathScreenFlash) {
 				const t = this.sphereDeathTimer / 5000;
-				this.sphereDeathScreenFlash.opacity = q(0, 0.5, 0, 2, t, true);
-				this.sphereDeathScreenFlash.baseOpacity = q(0.5, 1, 0, 1, t, true);
+				this.sphereDeathScreenFlash.opacity = mapRange(0, 0.5, 0, 2, t, true);
+				this.sphereDeathScreenFlash.baseOpacity = mapRange(0.5, 1, 0, 1, t, true);
 			}
 			for (const t of this.recentForcedServerPositions) {
 				if (nowMs > t.time + 10000 || t.pos.distanceTo(this.pos) > 10) {
@@ -13668,7 +13668,7 @@ export class Player {
 			}
 		} else {
 			const t = main.now - this.lastReceivedServerPosTime;
-			const e = q(0, 800, 1, 0, t, true);
+			const e = mapRange(0, 800, 1, 0, t, true);
 			this.predictedServerPos.addScaledVector(this.predictedServerVelocity, deltaMs * e);
 			const o = this.predictedServerPos.clone().sub(this.serverPos);
 			o.clampLength(0, this.maxPredictedServerPosDistance - 0.01);
@@ -13704,11 +13704,11 @@ export class Player {
 				if (nowMs - c < 200) {
 					const t = h.clone();
 					const e = t.angleTo(new Vector3(0, 1, 0));
-					t.multiplyScalar(q(0, Math.PI, 1, 0, e, true));
+					t.multiplyScalar(mapRange(0, Math.PI, 1, 0, e, true));
 					this.antiFlyAccumulator += t.length();
 					this.antiFlyInAirTimeRaw += deltaMs;
 					this.antiFlyInAirTimeAccumulator +=
-						deltaMs * q(2, 10, 0, 10, this.lastAntiFlyRaycastDist, true);
+						deltaMs * mapRange(2, 10, 0, 10, this.lastAntiFlyRaycastDist, true);
 				}
 			} else {
 				this.antiFlyAccumulator = 0;
@@ -13716,10 +13716,10 @@ export class Player {
 				this.antiFlyInAirTimeAccumulator = 0;
 			}
 			if (!this.dead && !this.rigidBody.fly && this.hasTouchedFloorEver) {
-				const t = q(17, 30, 0, 1, this.antiFlyAccumulator, true);
+				const t = mapRange(17, 30, 0, 1, this.antiFlyAccumulator, true);
 				let e = 0;
 				if (nowMs - c < 200) {
-					e = q(0, 10000, 0, 1, this.antiFlyInAirTimeAccumulator, true);
+					e = mapRange(0, 10000, 0, 1, this.antiFlyInAirTimeAccumulator, true);
 				}
 				if (this.antiFlyInAirTimeRaw > 5000) {
 					if (nowMs > this.lastAntiFlyRaycastTime + 1000) {
@@ -13829,7 +13829,7 @@ export class Player {
 				const e = this.highestInAirPoint - this.pos.y;
 				if (e > 0) {
 					const i = this.sfxManager.cachedSfx["player/land"]!;
-					const volume = q(0.5, 20, 0, i.opts.volume || 0, e, true);
+					const volume = mapRange(0.5, 20, 0, i.opts.volume || 0, e, true);
 					if (volume > 0) {
 						this.sfxManager.playSound("player/land", {
 							volume,
@@ -13946,7 +13946,7 @@ export class Player {
 		t.upper.rotation.x = 0.5 * Math.cos(i) * this.legsMoveAmount;
 		t.lower.rotation.x = 0.3 * (1 + Math.cos(i)) * this.legsMoveAmount;
 		t.foot.rotation.x = 0.5 * Math.cos(i) * this.legsMoveAmount;
-		const a = q(0, 800, 0, 1, this.rigidBody.inAirTime, true);
+		const a = mapRange(0, 800, 0, 1, this.rigidBody.inAirTime, true);
 		t.upper.rotation.x = lerp(t.upper.rotation.x, s, a);
 		t.lower.rotation.x = lerp(t.lower.rotation.x, n, a);
 		t.foot.rotation.x = lerp(t.foot.rotation.x, o, a);
@@ -14364,7 +14364,7 @@ export class Player {
 	updateAllowedWeaponsConfig() {
 		if (this.game instanceof OnlineGame) {
 			this.allowedWeaponsConfig = (({ gamemode, gungameWeaponIndex }) => {
-				if (gamemode == G) {
+				if (gamemode == MELEE_ONLY) {
 					return {
 						availableBowIds: [],
 						allowMelee: true,
@@ -14376,7 +14376,7 @@ export class Player {
 						allowMelee: false,
 					};
 				}
-				if (gamemode == v) {
+				if (gamemode == GUN_GAME) {
 					if (gungameWeaponIndex == 12 || gungameWeaponIndex == 13) {
 						return {
 							availableBowIds: [],
@@ -14530,7 +14530,7 @@ export class Player {
 			let n = true;
 			if (i.consumed) {
 				n = false;
-			} else if (!s_1(player.teamId, this.teamId)) {
+			} else if (!isEnemy(player.teamId, this.teamId)) {
 				n = false;
 			}
 			const o = 3;
@@ -14818,7 +14818,7 @@ export class Player {
 			this.settingsManager.getValue("landHeadBob") &&
 			this.lastJumpLandAmount > 0.005
 		) {
-			i = q(0.012, 0.1, 0.1, 0.3, this.lastJumpLandAmount);
+			i = mapRange(0.012, 0.1, 0.1, 0.3, this.lastJumpLandAmount);
 		}
 		const s = (e / (0.5 + e ** 2)) * i;
 		const n = new Euler(lookRot.y + s, lookRot.x, 0, "YXZ");
@@ -15457,7 +15457,7 @@ export class Flag {
 	loop(now: number, dt: number): void {
 		const i = (now - this.grabStartTime) / 1000;
 		const s = 2 * Math.PI * 2;
-		const n = q(0, 0.8, s, 0, i, true);
+		const n = mapRange(0, 0.8, s, 0, i, true);
 		this.grabAnimationContainer.rotation.y = (1 / (10 * i + 1)) * n;
 		const o = 1 / (1 + Math.E ** (-50 * (i - 0.7)));
 		this.grabAnimationContainer.position.y = 0.3 * (1 - o);
@@ -15661,7 +15661,7 @@ class Arrow {
 		this.parabolaXDist = 2 * p.x;
 		const g = this.parabolaXDist + 2 * p.y;
 		this.xSpeed = g == 0 ? 1 : Math.abs(this.parabolaXDist / g);
-		this.xSpeed *= q(100, 500, 0.05, 0.15, this.strength);
+		this.xSpeed *= mapRange(100, 500, 0.05, 0.15, this.strength);
 		this.xSpeed *= lerp(0.82, 1.05, shotBy.getStatClassValue("arrowFlySpeed"));
 		this.visualStartPos = this.getParabolaPoint3d(0);
 		this.obj = new Object3D();
@@ -15900,7 +15900,7 @@ class Arrow {
 					(t) =>
 						!t.collider.rigidBody.player.dead &&
 						this.shotBy != t.collider.rigidBody.player &&
-						s_1(this.shotBy.teamId, t.collider.rigidBody.player.teamId),
+						isEnemy(this.shotBy.teamId, t.collider.rigidBody.player.teamId),
 				);
 				if (i) {
 					let e = false;
@@ -15942,8 +15942,8 @@ class Arrow {
 			const e = getMain().cam.pos.distanceTo(this.obj.position);
 			let i = 1;
 			if (this.didHitWorld) {
-				const s = q(15, 30, 4, 2, e, true);
-				i *= q(0, 100, s, 1, createTime - this.worldHitTime, true);
+				const s = mapRange(15, 30, 4, 2, e, true);
+				i *= mapRange(0, 100, s, 1, createTime - this.worldHitTime, true);
 			}
 			this.sphere.scale.setScalar(0.002 * e * i);
 			this.sphere.updateWorldMatrix(false, true);
@@ -16661,7 +16661,7 @@ class FlagScoreItem {
 		if (this.removeScoreTimer < 0) {
 			return 0;
 		}
-		return q(60, 0, 0, 1, this.removeScoreTimer / 1000, true);
+		return mapRange(60, 0, 0, 1, this.removeScoreTimer / 1000, true);
 	}
 	loop(now: number, dt: number) {
 		if (this.removeScoreTimerIsRunning) {
@@ -19267,7 +19267,7 @@ class PreferredMapManager {
 				if (a.hasTemporaryBoost) {
 					preference += 0.5;
 				}
-				preference -= q(0, 3, 1, 0, a.lastPlayedCounter, true);
+				preference -= mapRange(0, 3, 1, 0, a.lastPlayedCounter, true);
 			}
 			n = Math.min(n, preference);
 			o = Math.max(o, preference);
@@ -19284,7 +19284,7 @@ class PreferredMapManager {
 			}
 		} else {
 			for (const t of preferredMapHashes) {
-				t.preference = q(n, o, 0, 1, t.preference, true);
+				t.preference = mapRange(n, o, 0, 1, t.preference, true);
 			}
 		}
 		return preferredMapHashes;
@@ -19484,7 +19484,7 @@ class AppearingObjectsManager {
 				if (e.animationFinished) {
 					continue;
 				}
-				let s = q(0, e.duration, 0, 1, t.t, true);
+				let s = mapRange(0, e.duration, 0, 1, t.t, true);
 				s = -(Math.cos(Math.PI * s) - 1) / 2;
 				e.object.position.lerpVectors(e.startPos, e.endPos, s);
 				e.object.updateMatrix();
@@ -20097,7 +20097,7 @@ export class OnlineGame {
 			this.activeGamemodeUi = new GamemodeLabel(this.gameWrapper);
 		}
 		this.activeGamemodeUi.setActiveGamemode(gamemode);
-		$(gamemode)
+		isCTF(gamemode)
 			? this.flagScoreUi ||
 				((this.flagScoreUi = new FlagScoreboard(this.gameWrapper, this.teamCount)),
 				this.flagScoreUi.onNeedsNotification(this.showFlagNotification.bind(this)))
@@ -20110,7 +20110,7 @@ export class OnlineGame {
 				(this.eliminationScoreUi = new EliminationScoreUi(this.gameWrapper, this.teamCount))
 			: this.eliminationScoreUi &&
 				(this.eliminationScoreUi.destructor(), (this.eliminationScoreUi = null));
-		if (gamemode == a2) {
+		if (gamemode == KING_OF_THE_HILL) {
 			if (!this.kingOfTheHillUi) {
 				this.kingOfTheHillUi = new KingOfTheHillUi(this.gameWrapper);
 			}
@@ -20127,7 +20127,7 @@ export class OnlineGame {
 		this.playersListDialog.setActiveGamemode(gamemode);
 	}
 	createKingOfTheHillSphereIfNeeded() {
-		if (this.activeGamemode != a2) {
+		if (this.activeGamemode != KING_OF_THE_HILL) {
 			return;
 		}
 		if (this.kingOfTheHillSphere) {
@@ -20136,7 +20136,7 @@ export class OnlineGame {
 		if (!this.scene) {
 			return;
 		}
-		const t = new IcosahedronGeometry(a3, 2);
+		const t = new IcosahedronGeometry(KOTH_SPHERE_RADIUS, 2);
 		const e = t.getAttribute("position");
 		const i = new Float32Array(3 * e.count);
 		const s = [0.04, 0.04, 0];
@@ -20237,7 +20237,7 @@ export class OnlineGame {
 				t.destructor();
 			}
 			this.flags = [];
-			if ($(this.activeGamemode)) {
+			if (isCTF(this.activeGamemode)) {
 				for (const { flagTeamId, pos, rot } of mapGameplayData.flags) {
 					this.createFlag(flagTeamId, pos, rot);
 				}
@@ -20947,11 +20947,11 @@ export class OnlineGame {
 		let s = false;
 		let n = true;
 		let o = null;
-		if ($(this.activeGamemode) && this.flagScoreUi) {
+		if (isCTF(this.activeGamemode) && this.flagScoreUi) {
 			o = this.flagScoreUi.getWinningTeam();
 		} else if (this.activeGamemode == a1 && this.eliminationScoreUi) {
 			o = this.eliminationScoreUi.getWinningTeam();
-		} else if (this.activeGamemode == a2 && this.kingOfTheHillUi) {
+		} else if (this.activeGamemode == KING_OF_THE_HILL && this.kingOfTheHillUi) {
 			o = this.kingOfTheHillUi.getWinningTeam();
 			if (o == null) {
 				n = false;
@@ -20965,7 +20965,7 @@ export class OnlineGame {
 			}
 			s = t == e;
 			n = false;
-		} else if (this.activeGamemode == a7 || this.activeGamemode == a8) {
+		} else if (this.activeGamemode == FREE_FOR_ALL || this.activeGamemode == FFA_2) {
 			let t = 0;
 			let e = 0;
 			for (const i of this.players.values()) {
@@ -24071,7 +24071,7 @@ class InputManager {
 				const e = t.axes;
 				for (let t = 0; t < e.length - 1; t += 2) {
 					const i = new Vector2(e[t], e[t + 1]);
-					const s = q(this.stickDeadZone, 1, 0, 1, i.length(), true);
+					const s = mapRange(this.stickDeadZone, 1, 0, 1, i.length(), true);
 					i.setLength(s);
 					this.gamepadAxes.push(i);
 				}
@@ -24136,10 +24136,10 @@ class InputManager {
 	}
 	fireWheelButton(t: string) {
 		const e = performance.now() - this.lastFiredWheelButtonTime;
-		if (e < q(4, 10, 0, 300, this.recentWheelButtonCount, true)) {
+		if (e < mapRange(4, 10, 0, 300, this.recentWheelButtonCount, true)) {
 			return;
 		}
-		this.recentWheelButtonCount += q(50, 2000, 1, -10, e, true);
+		this.recentWheelButtonCount += mapRange(50, 2000, 1, -10, e, true);
 		this.recentWheelButtonCount = Math.max(0, this.recentWheelButtonCount);
 		this.lastFiredWheelButtonTime = performance.now();
 		let i = false;
@@ -25284,7 +25284,7 @@ class GameCamera {
 					this.thirdPersonPhysics.loop(t, i);
 					let r = 0;
 					if (this.thirdPersonMode == "back") {
-						r = q(0, 0.5, -0.6, -0.1, s.smoothMovementSpeed, true);
+						r = mapRange(0, 0.5, -0.6, -0.1, s.smoothMovementSpeed, true);
 					}
 					let l = 1;
 					if (this.thirdPersonMode == "front") {
@@ -28058,7 +28058,7 @@ class SquadManager {
 	}
 }
 function Tn(value: number, min = -1, max = 1, bits = 8): number {
-	value = q(min, max, 0, 2 ** bits - 1, value, true);
+	value = mapRange(min, max, 0, 2 ** bits - 1, value, true);
 	return (value = Math.round(value));
 }
 function En(value: number, max = 1): number {
@@ -28071,7 +28071,7 @@ function On(value: number, max = 1): number {
 	return Tn(value, 0, max, 16);
 }
 function Fn(value: number, min = -1, max = 1, bits = 8): number {
-	return (value = q(0, 2 ** bits - 1, min, max, value, true));
+	return (value = mapRange(0, 2 ** bits - 1, min, max, value, true));
 }
 function Bn(value: number, min: number, max: number): number {
 	return Fn(value, min, max, 16);
